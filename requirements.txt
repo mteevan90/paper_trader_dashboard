@@ -1,0 +1,45 @@
+# Pinned dependencies for Streamlit Community Cloud + local dev.
+# Versions verified on local machine 2026-05-04 (segment 22).
+#
+# Cloud build (Streamlit Cloud) needs everything below because
+# dashboard_app.py imports compute helpers from dashboard.py, which
+# transitively pulls in backtest.py (xgboost) and a few others. The
+# cloud version disables run_live_backtest, but the import graph
+# still loads these modules at startup.
+#
+# Local dev uses the same file. Bumping a pin: verify locally first,
+# update here, redeploy via snapshot_for_cloud.py + git push.
+
+# --- Streamlit + UI ---
+streamlit==1.57.0
+streamlit-authenticator==0.4.2
+plotly==6.7.0
+narwhals==2.20.0           # plotly runtime dep (pulled when --no-deps installed)
+
+# --- Data / analytics ---
+pandas==3.0.2
+numpy==2.4.4
+pyarrow==23.0.1
+matplotlib==3.10.7         # legacy dashboard.py charts (imported by dashboard_app)
+
+# --- Modeling stack (transitive via dashboard.py → backtest.py → model.py) ---
+xgboost==3.2.0
+scikit-learn==1.8.0
+ta==0.11.0
+
+# --- Macro signals (transitive: dashboard_app → dashboard → backtest → macro) ---
+fredapi==0.5.2
+
+# --- Optuna read-back ---
+optuna==4.8.0
+sqlalchemy==2.0.49
+
+# --- Cloud data source (Cloudflare R2 = S3-compatible) ---
+boto3==1.43.3
+
+# --- Live benchmark download in Overview tab (SPY / QQQ) ---
+yfinance==1.2.0
+requests==2.33.1
+
+# --- Misc ---
+python-dotenv==1.2.2

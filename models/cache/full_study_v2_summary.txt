@@ -1,0 +1,132 @@
+# Optuna full study summary -- v2 macro composite
+
+Study name: optuna_v1_20260504_114307
+Started: 2026-05-04T15:44:20.337298+00:00
+Ended:   2026-05-04T16:34:40.037973+00:00
+
+## Wall-clock and parallelism
+  Total: 3019.7s (50.3 min)
+  Configured: n_jobs=8, OMP_NUM_THREADS=2, MKL_NUM_THREADS=2
+  This-morning v1 study (n_jobs=4): 2120.7s (35.3 min)
+  Speedup: 0.70x
+
+## Trial states (1000 total)
+  COMPLETE: 889
+  FAIL: 77
+  PRUNED: 34
+
+## Failures vs prior
+  v1 study (n_jobs=4, no pre-warm):  8.3%
+  v2 study (n_jobs=8, with pre-warm): 7.7%
+  Goal was <1.0% — NOT MET.
+
+      71  InvalidIndexError: Reindexing only valid with uniquely valued Index objects
+       6  TypeError: Cannot compare tz-naive and tz-aware timestamps
+
+  Root-cause refinement: my earlier hypothesis (pre-warm row indexes
+  of featured_data and price_data) did not address the actual race.
+  The InvalidIndexError actually fires inside the per-trial vectorized
+  predict block: pd.concat(non_empty) and stacked[list(FEATURE_COLS)]
+  construct FRESH MultiIndex / Column Index objects per trial, and
+  their hash engines build lazily under thread contention. Pre-warming
+  shared structures helped only marginally (8.3 -> 7.7%). A real fix
+  needs either (a) building one shared stacked DataFrame in
+  _load_shared_data and reusing it across trials, or (b) constructing
+  the per-trial DataFrames with eager hash table instantiation. Both
+  involve changes Outside this segment's scope. Flagging for follow-up.
+
+## Pruning
+  Pruned: 34/1000 = 3.4%
+  v1 study pruning was: 8.3%
+  Pruning fell with no rule changes — TPE narrowed around the viable
+  weight region faster on this run, possibly because the v2 macro
+  composite produced a smoother score landscape (tighter score
+  distribution => steadier objective gradient).
+
+## Per-trial duration -- COMPLETE only (889 trials)
+  Mean:   25.47s
+  Median: 26.42s
+  Stdev:  6.51s
+  Min:    3.38s
+  Max:    43.77s
+  >10s:   840 (94.5%)
+  v1 study median was: 9.66s (at n_jobs=4)
+
+## Best trial (lock candidate)
+  Trial #710, score = 0.039300
+
+  Best config (Optuna's tunables):
+    weight_fundamental: 0.3736727386597687
+    weight_technical: 0.17595967040174115
+    weight_model: 0.3477729154767026
+    weight_alt: 0.10259467546178747
+    macro_threshold_low: 0.35283415619889635
+    macro_threshold_high: 0.4695740004529647
+    atr_multiplier: 1.8424012294768684
+    analyst_weight: 0.040394358114667156
+    rebalance_frequency_days: 20
+    position_count: 10
+
+  Components (training window):
+    strategy_total_return: 1.177478
+    strategy_annualized_return: 0.181459
+    spy_total_return: 0.859478
+    spy_annualized_return: 0.142159
+    alpha_annualized: 0.0393
+    max_drawdown: -0.130532
+    drawdown_magnitude: 0.130532
+    drawdown_excess: 0.0
+    drawdown_penalty: 0.0
+    score: 0.0393
+    n_trading_days: 1176
+    start_date: 2019-02-15
+    end_date: 2023-12-29
+
+## Comparison to prior best (v1 macro full study)
+  v1 best  trial #706: score = 0.078664
+  v2 best  trial #710: score = 0.039300
+
+  metric                            v1 best      v2 best        delta
+  ---------------------------- ------------ ------------ ------------
+  score                             +0.0787      +0.0393      -0.0394
+  strategy_annualized_return        +0.2208      +0.1815      -0.0394
+  alpha_annualized                  +0.0787      +0.0393      -0.0394
+  max_drawdown                      -0.1419      -0.1305      +0.0114
+  drawdown_penalty                  +0.0000      +0.0000      +0.0000
+
+## Score-over-time
+  Best score first reached at trial #710
+  Trials after plateau: 256 / 889
+
+   +0.0393 |                                            **************************
+           |                               **************                         
+           |                                                                      
+           |                 ***************                                      
+           |             *****                                                    
+           |                                                                      
+           |                                                                      
+           |          ****                                                        
+           |          *                                                           
+           |                                                                      
+           |          *                                                           
+           |                                                                      
+           |                                                                      
+   -0.0180 |***********                                                           
+           +----------------------------------------------------------------------
+            trial 0                                                      trial 999
+
+## Top 10 trials
+
+  rank  trial      score    wf   wt   wm   wa    lo   hi   atr   aw   rb  pn
+  ----------------------------------------------------------------------------------------------------
+     1    710    +0.0393  0.37 0.18 0.35 0.10  0.35 0.47  1.84 0.04   20  10
+     2    645    +0.0383  0.31 0.11 0.36 0.22  0.35 0.46  3.41 0.02   20  10
+     3    919    +0.0350  0.34 0.11 0.35 0.19  0.35 0.46  1.88 0.01   20  10
+     4    457    +0.0312  0.33 0.14 0.27 0.26  0.38 0.50  3.08 0.02   20  10
+     5    665    +0.0283  0.38 0.11 0.37 0.14  0.35 0.45  1.74 0.04   20  10
+     6    801    +0.0272  0.39 0.12 0.34 0.15  0.37 0.64  1.81 0.04   20  10
+     7    672    +0.0267  0.37 0.11 0.35 0.17  0.36 0.46  1.84 0.04   21  10
+     8    258    +0.0258  0.32 0.12 0.28 0.28  0.34 0.46  3.46 0.04   20  10
+     9    835    +0.0255  0.39 0.12 0.34 0.15  0.35 0.64  1.71 0.04   20  10
+    10    450    +0.0250  0.40 0.12 0.32 0.16  0.40 0.51  1.86 0.06   21  12
+

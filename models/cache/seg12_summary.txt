@@ -1,0 +1,153 @@
+# Segment 12 — alt-bucket architecture refactor
+
+STATUS: ✅ DONE
+
+## What changed (3 files)
+
+NEW
+  src/alt_signals.py             ~50 lines
+    + ALT_SIGNAL_REGISTRY (empty list, signals append here)
+    + score_alt_bucket(tickers, date) -> dict[str, float]
+    + TODO listing planned Group D signals (Finnhub EPS revisions,
+      OpenInsider cluster buys, Quiver congressional + contracts)
+
+MODIFIED
+  src/backtest.py                ~10 lines
+    + import score_alt_bucket
+    + compute_composite_scores: a_scores = score_alt_bucket(...),
+      composite += a * config.weight_alt, "alt" key in result dict
+
+  src/backtest_config.py         3 number changes
+    weight_fundamental:  0.40 -> 0.35
+    weight_technical:    0.30 -> 0.25
+    weight_model:        0.30 -> 0.25
+    weight_alt           still derived, now resolves to 0.15
+    + comment block explaining the segment 12 default change
+
+UNCHANGED (per scope-protection)
+  dashboard.py, dashboard_app.py, feature_cache.py, features.py,
+  fetch_data.py, model.py, main.py
+  + optuna_runner.py: Optuna search ranges kept exactly as before
+
+## Default-config validation: BEFORE vs AFTER
+
+  metric                         BEFORE       AFTER         delta
+  -------------------------- ----------  ----------  ------------
+  Return                       +39.90%     +39.42%       -0.48pp
+  Sharpe                          1.47        1.45         -0.02
+  Max Drawdown                  -12.45%     -12.39%       +0.06pp
+  Trades                           589         583            -6
+  Win rate                       46.7%       46.5%        -0.20%
+
+Drift fits the predicted shape:
+  * Same direction (small return shave, slight DD improvement, marginal
+    turnover reduction) — all under the 1-3pp / 0.05 / 1pp / 1-3 names
+    red-flag thresholds.
+  * 6-trade reduction = 1% turnover drop, consistent with "1-3 names
+    swap places near top-N boundary" → mild rebalancing churn drop.
+  * Slight DD improvement is a constant-offset artifact: the alt slot's
+    +0.075 contribution lifts every composite uniformly, so the marginal
+    config that previously scored just above the top-N cutoff still does;
+    no behavior shift driven by ranking, but the f/t/m ratio change
+    (0.35/0.25 = 1.40 vs old 0.40/0.30 = 1.33) shifts which "high f, low
+    t/m" tickers make the cut.
+
+## Held-out validation: Phase 0 of Group D baseline
+
+This is the new locked default-config validation result with the
+alt-bucket scaffolding in place but no alt signals populated yet.
+Future Group D work compares back to this baseline.
+
+  Default config on 2024-01-01 -> 2026-04-30 (post-refactor):
+    Return:       +39.42%
+    Sharpe:         1.45
+    Max DD:       -12.39%
+    Trades:          583
+    Win rate:      46.5%
+    Score:        ~ -0.077 (from compute_objective on the same run;
+                            alpha vs SPY annualized is the dominant term)
+
+For reference, today's locked baseline (v1 trial #706 on validation,
+PRE-refactor): +51.86% / 1.29 Sharpe / -16.32% DD / +6.48pp alpha /
+score -0.0346. That answer doesn't change in this segment — trial #706
+was tuned with weights that sum to ~0.99 (alt ≈ 0.009), so the alt
+bucket adds 0.5 × 0.009 = 0.00445 to every composite, no ranking
+effect, identical 201-trade history. Re-saved under the new code path
+to verify; unchanged.
+
+## Smoke study (30 trials, n_jobs=1, refactored composite)
+
+  Wall:           78.0s
+  Per-trial:      2.6s avg
+  States:         26 COMPLETE / 4 PRUNED / 0 FAIL
+  Best:           +0.0327 (trial #17, training window)
+
+Acceptance criteria (all PASSED):
+  [OK]  FAIL rate           0.0%   (threshold <10%)
+  [OK]  PRUNE rate          13.3%  (threshold <30%)
+  [OK]  No new error categories — only PRUNE for weight-sum >1.0
+  [OK]  Best vs default     +0.0327 - (-0.0806) = +0.1133
+                            (threshold: best NOT more than 0.05 below
+                            default = best >= -0.1306; we're far above)
+
+  Default-config training-window score post-refactor: -0.0806
+  Smoke best beats default by 11.33pp on training window — well within
+  the basin pattern from segment 5. TPE finding ratio-tilt configs as
+  expected; the alt-bucket refactor hasn't broken the search landscape.
+
+## Trial #706 saved-config inspection
+
+  weight_fundamental:  0.4774
+  weight_technical:    0.1296
+  weight_model:        0.3841
+  weight_alt:          0.0088 (derived)
+  analyst_weight:      0.1116
+
+  n_trades:           201   (identical to pre-refactor count)
+  n_holdings:           9
+
+Trial #706's tuned weights sum to ~0.991 → alt ≈ 0.009 (one pp).
+Constant +0.5 × 0.009 = 0.00445 offset added to every composite.
+No ranking change, no trade selection change.
+
+## Known display drift (out of scope, tracked)
+
+Two cosmetic issues created or amplified by the refactor are
+documented in `models/cache/known_display_drift.md`:
+
+  1. dashboard.py's _composite_scores_html displays "Fundamental 35%
+     / Technical 25% / Model 25%" — correct percentages but missing
+     the new alt + analyst rows. Cleans up when dashboard.py is
+     migrated to dashboard_compute.py.
+  2. main.py's hardcoded `0.05 * analyst_score` (pre-existing). Cleans
+     up when main.py migrates to BacktestConfig.
+
+Neither breaks anything. Both are documentation drift in files that
+were marked don't-touch this segment.
+
+## Verification chain (all passed)
+
+  [OK] 1. BEFORE default-config validation backtest
+  [OK] 2. Refactor (3 files)
+  [OK] 3. AFTER default-config validation backtest
+  [OK] 4. Diff vs BEFORE within predicted thresholds
+  [OK] 5. Re-save dashboard_results/ for default + best#706
+  [OK] 6. Smoke study acceptance criteria all met
+
+## How to add the first alt signal (Group D segment)
+
+Edit `src/alt_signals.py` only:
+
+    1. Define a function with signature:
+         def score_finnhub_revisions(tickers, date) -> dict[str, float]: ...
+       Returns 0-1 score per ticker (1 = bullish revision, 0 = bearish,
+       0.5 = neutral / no data).
+
+    2. Append to the registry:
+         ALT_SIGNAL_REGISTRY.append(("finnhub_revisions", score_finnhub_revisions))
+
+That's it. backtest.py picks up the signal automatically via
+score_alt_bucket(); the alt bucket becomes the equal-weight mean of
+all registered signals. Optuna's existing weight_alt range will tune
+how much the bucket contributes. Dashboard's saved scores.json will
+include "alt" as a key automatically.

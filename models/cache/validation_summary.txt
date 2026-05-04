@@ -1,0 +1,48 @@
+# Held-out validation summary (segment 5 lock-in)
+
+Study:        optuna_v1_20260504_103429
+Best trial:   #706
+Window:       2024-01-01 -> 2026-04-30
+Model:        xgb_model.json (eval_cutoff=2023-12-31, never saw
+              this window during training or evaluation)
+
+## Best-trial #706 config (validation window)
+  return_total:                 +51.86%
+  return_annualized:            +19.75%
+  spy_total:                    +56.23%
+  spy_annualized:               +21.23%
+  alpha_annualized:              -1.48pp
+  max_drawdown:                 -16.32%
+  drawdown_penalty:            +0.0198
+  score:                       -0.0346
+  n_trading_days:             584
+  date span:                  2024-01-02 -> 2026-04-30
+
+## Default config (validation window)
+  return_total:                 +45.76%
+  return_annualized:            +17.65%
+  spy_total:                    +56.23%
+  spy_annualized:               +21.23%
+  alpha_annualized:              -3.58pp
+  max_drawdown:                 -12.85%
+  drawdown_penalty:            +0.0000
+  score:                       -0.0358
+  n_trading_days:             584
+
+## Side-by-side
+  metric                            default    best #706        delta
+  ---------------------------- ------------ ------------ ------------
+  score                             -0.0358      -0.0346      +0.0012
+  return_annualized                 +0.1765      +0.1975      +0.0210
+  alpha_annualized                  -0.0358      -0.0148      +0.0210
+  max_drawdown                      -0.1285      -0.1632      -0.0347
+
+## Honest read
+  Best #706 BEAT default on held-out by +0.0012 score (+2.10pp annualized alpha).
+
+  Drawdown sanity: best_dd_magnitude = 0.1632 (OVER the 15% penalty threshold).
+    Penalty applied: +0.0198 (1.5 * (mag - 0.15)).
+
+  Train -> validation score drift: 0.0787 -> -0.0346 = -0.1133.
+    Out-of-sample degradation > 5pp — consistent with normal
+    overfitting. Validation score is the lock-in answer.

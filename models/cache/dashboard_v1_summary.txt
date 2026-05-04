@@ -1,0 +1,164 @@
+# Dashboard v1 — build summary
+
+STATUS: ✅ DONE
+
+Build complete; manual `streamlit run` verification passed 2026-05-04.
+
+## Manual verification passed (2026-05-04)
+
+All tabs functional. Saved-first / live-fallback pattern working.
+Default → Best trial selector switches Overview metrics correctly.
+Macro state tab is most informative single view; equity curve
+clearly shows trial #706 outperforming default in early 2024 then
+converging. Optuna explorer top-10 table matches the basin pattern
+from full_study_v1_summary.txt.
+
+Confirmed sidebar Default → Best trial #706 switch updates Overview
+to validation-window numbers: +51.86% / Sharpe 1.29 / Max DD -16.32% /
+201 trades / +6.48pp alpha vs SPY.
+
+## Files created / modified
+
+NEW
+  src/dashboard_app.py                                   ~ 530 lines
+  models/cache/dashboard_results/default/                5 files
+  models/cache/dashboard_results/best_optuna_v1_20260504_103429_706/
+                                                         5 files
+
+MODIFIED
+  src/optuna_runner.py
+    + --save-results CLI flag
+    + save_dashboard_results(), _save_one_backtest_result(),
+      _trial_to_config(), _load_full_shared_data() helpers
+    + DASHBOARD_RESULTS_DIR constant
+    ~ +160 lines net
+
+UNCHANGED (per constraint)
+  backtest.py, model.py, objective.py, backtest_config.py,
+  feature_cache.py, features.py, fetch_data.py, main.py,
+  macro_signals.py, dashboard.py
+  (dashboard.py is imported from but its file contents are not edited)
+
+## Saved-result schema (per config)
+
+dashboard_results/<label>/
+  portfolio.parquet       full daily portfolio_df from run_backtest
+                          (date index; portfolio_value, cash, total_fees,
+                          n_positions columns)
+  trades.parquet          full trades_df (date, ticker, action, shares,
+                          price, fee)
+  scores.json             latest per-rebalance composite scores dict
+  holdings.json           final_holdings dict (ticker -> shares,
+                          entry_price, stop_price)
+  meta.json               label, saved_at, full BacktestConfig.to_dict(),
+                          split_date, n_days, n_trades, n_holdings,
+                          runtime_seconds
+
+The dashboard imports five compute helpers from dashboard.py
+(_summarize_period, _sleeve_metrics, _top_traded_stocks, _series_stats,
+_download_benchmark) — pure data/compute; no HTML emission used.
+
+## Saved-result contents (segment 5 lock-in seeds)
+
+default config              584 days, 589 trades, 489 ticker scores, 11 holdings
+                            saved 2026-05-04T17:01, backtest runtime 2.73s
+best_*_706 (locked best)    584 days, 201 trades, 490 ticker scores,  9 holdings
+                            saved 2026-05-04T17:01, backtest runtime 2.07s
+
+## Tabs implemented
+
+1. Overview — Plotly equity curve (Strategy/SPY/QQQ normalized to 100),
+   metric tiles (Total Return, Sharpe, Max DD, Trades, Win Rate, Alpha,
+   Beta, Correlation), today's macro composite + sizing tier under the
+   selected config, real-portfolio placeholder for segment 4.
+
+2. Optuna explorer — trial-count metric strip; trial-number-vs-score
+   scatter with running-best overlay; 9 param-vs-score scatters in a
+   3-column grid (one per tunable); top-10 trials dataframe; best-trial
+   drilldown (config + components from JSONL).
+
+3. Macro state — composite score over time with 50/75/100% sizing-tier
+   bands shaded (color-coded against the selected config's thresholds),
+   distribution percentile metrics (mean, std, p10/p25/p50/p75/p90),
+   six per-component line charts (one per FRED series).
+
+4. Positions — table of open holdings sorted by composite score, with
+   shares, entry, stop, stop-gap %, stop warning flag (within 3% of
+   stop), days held (from trades), and composite. Clarification caption
+   that current price is intentionally not refreshed (segment 4 work).
+
+5. Trades log — filterable round-trip table (ticker, exit reason,
+   winners-only checkbox); summary metrics over the filtered subset
+   (closed count, avg return/trade, avg hold days, win rate); full
+   trade list; top-traded tickers table.
+
+## Sidebar
+
+Source radio: Default config / Best trial of selected study /
+Custom trial number. When non-default, study selectbox defaulted to
+the locked-best study. Custom-trial path uses st.number_input bounded
+to the study's trial range, defaulting to study.best_trial.number.
+
+Header strip shows model provenance (trained_at, eval_cutoff,
+n_tickers) and macro cache window/component count for orientation.
+
+## Verification — automated (passed)
+
+[OK] AST parse with utf-8 (file uses ⚙️ and 📈 emoji in titles)
+[OK] py_compile.compile(dashboard_app.py)
+[OK] All imports resolve: streamlit, plotly.express, plotly.graph_objects,
+     optuna, pandas, numpy, BacktestConfig, the 5 dashboard.py helpers,
+     compute_macro_score, FRED_SERIES
+[OK] Saved-result load path round-trips for both labels (parquet read,
+     JSON parse, schema matches dashboard expectations)
+[OK] round_trip_trades helper produces 270+ rows on default trades,
+     reasons {Rebalance, ATR Stop, Hard Stop, Open} as expected
+[OK] macro_score_series produces 2174-day series, mean ≈ 0.66 (matches
+     segment 11 verification)
+
+Streamlit "No runtime found" warnings appear when the cached helpers
+are imported outside `streamlit run`; expected, the function bodies
+still execute correctly when the dashboard is launched.
+
+## Verification — manual (pending user)
+
+The following remain for the user to perform during `streamlit run
+dashboard_app.py`:
+
+  - Walk every tab and confirm rendering
+  - Time each tab's first render and tab-switch render against the
+    locked perf budget:
+      cold load          < 10s
+      tab switch (warm)  < 1s
+      sidebar selector triggering fresh backtest   3-5s
+      within-tab re-render (no data change)        < 500ms
+  - Take screenshots of each tab (5 total)
+  - Append measurements + screenshot links to this file under a
+    "Manual verification results" section
+
+## Deviations from the inventory plan
+
+None substantive. One minor add: a header caption strip that prints
+model + macro provenance under the title. Not in the original plan
+but is one line of compute and saves the user from having to dig
+into model.meta.json to see what they are looking at. Easy to remove
+if you'd rather.
+
+## How to launch
+
+cd src
+streamlit run dashboard_app.py
+
+Default browser opens to http://localhost:8501. Use the sidebar to
+switch configs; tabs auto-update.
+
+## Re-saving results after a new --full study
+
+cd src
+python optuna_runner.py --save-results
+
+This re-runs validation backtests for default config + the locked
+trial #706. To save a different trial after a new study, edit the
+LOCKED_BEST_STUDY / LOCKED_BEST_TRIAL constants at the top of
+save_dashboard_results in optuna_runner.py, or extend the CLI to
+accept a --study-name / --trial-number pair (~5 lines).

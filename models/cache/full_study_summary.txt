@@ -1,0 +1,132 @@
+# Optuna full study summary
+
+Study name: optuna_v1_20260504_103429
+Started: 2026-05-04T14:35:48.153272+00:00
+Ended:   2026-05-04T15:11:08.855799+00:00
+
+## Wall-clock
+Total: 2120.7s (35.3 min)
+
+## Trial states (1000 total)
+  COMPLETE: 834
+  PRUNED: 83
+  FAIL: 83
+
+## Per-trial duration -- COMPLETE only (834 trials)
+  Mean:   9.44s
+  Median: 9.66s
+  Stdev:  2.27s
+  Min:    2.31s
+  Max:    16.81s
+  >10s:   317 (38.0%)
+
+  Slow trial configs (>10s) -- first 10:
+    trial # 108 dur=16.8s score=-0.1321 rebal=25 pos=11 atr=3.16
+    trial # 107 dur=16.8s score=-0.1250 rebal=29 pos=11 atr=3.01
+    trial #  30 dur=16.5s score=-0.0943 rebal=19 pos=13 atr=3.34
+    trial # 432 dur=16.2s score=-0.1158 rebal=33 pos=11 atr=2.89
+    trial # 433 dur=15.8s score=-0.0311 rebal=33 pos=11 atr=2.90
+    trial # 704 dur=15.6s score=-0.0548 rebal=31 pos=10 atr=3.26
+    trial #  31 dur=15.4s score=-0.1121 rebal=23 pos=13 atr=3.40
+    trial # 101 dur=14.9s score=-0.0611 rebal=21 pos=10 atr=3.27
+    trial # 434 dur=14.9s score=-0.1340 rebal=33 pos=11 atr=2.90
+    trial # 102 dur=14.7s score=-0.0121 rebal=21 pos=10 atr=3.03
+
+## Pruning
+  Pruned: 83/1000 = 8.3%
+  All due to weight_fundamental + weight_technical + weight_model > 1.0.
+  Pruning rate within expected band (search ranges allow up to 1.45 sum,
+  ~30% theoretical prune rate before TPE narrows around viable region).
+
+## Failures (FAIL state)
+  83/1000 = 8.3%
+    81  InvalidIndexError: Reindexing only valid with uniquely valued Index objects
+     2  TypeError: Cannot compare tz-naive and tz-aware timestamps
+
+  Root cause: pandas concurrency on shared feature DataFrame indexes
+  with n_jobs=4 threading. featured_data dicts are read concurrently;
+  pandas Index._engine hash cache is built lazily on first .loc access
+  and is not thread-safe to construct from multiple threads simultaneously.
+  Workaround for a follow-up segment: pre-warm engines in
+  _load_shared_data (one .loc per ticker) before trials start. Doesn't
+  block this study's signal -- 834 valid scored trials are
+  plenty for TPE.
+
+## Best trial vs default-config baseline (training window)
+
+  Trial #706, score = 0.078664
+
+  metric                            default         best        delta
+  ---------------------------- ------------ ------------ ------------
+  score                             -0.0736      +0.0787      +0.1523
+  strategy_annualized               +0.0685      +0.2208      +0.1523
+  alpha_annualized                  -0.0736      +0.0787      +0.1523
+  max_drawdown                      -0.1113      -0.1419      -0.0306
+  drawdown_penalty                  +0.0000      +0.0000      +0.0000
+
+  Best config (full):
+    weight_fundamental: 0.4774201423341662
+    weight_technical: 0.12962662717144874
+    weight_model: 0.38412815541974143
+    weight_alt: 0.008825075074643585
+    macro_threshold_low: 0.25520555623363217
+    macro_threshold_high: 0.4972193873154106
+    atr_multiplier: 3.247466847712971
+    analyst_weight: 0.11161255776029153
+    rebalance_frequency_days: 35
+    position_count: 10
+    sector_cap: 3
+    min_hold_days: 5
+    earnings_blackout_days: 3
+    atr_floor_pct: 0.05
+    atr_cap_pct: 0.15
+    transaction_cost_pct: 0.0005
+    starting_capital: 100000.0
+    train_start: 2018-01-01
+    train_end: 2023-12-31
+    validate_start: 2024-01-01
+    validate_end: 2026-04-30
+
+## Score-over-time (running max by trial number)
+  Best score first reached at trial #706
+  COMPLETE trials after plateau: 239 / 834
+
+  Running-best curve:
+
+   +0.0787 |                        **********************************************
+           |          ***************                                             
+           |         *                                                            
+           |**********                                                            
+           |                                                                      
+           |                                                                      
+           |                                                                      
+           |*                                                                     
+           |*                                                                     
+           |                                                                      
+           |                                                                      
+           |                                                                      
+           |                                                                      
+   -0.2360 |*                                                                     
+           +----------------------------------------------------------------------
+            trial 0                                                      trial 999
+
+## Top 10 trials
+
+  rank  trial      score    wf   wt   wm   wa    lo   hi   atr   aw   rb  pn
+  ----------------------------------------------------------------------------------------------------
+     1    706    +0.0787  0.48 0.13 0.38 0.01  0.26 0.50  3.25 0.11   35  10
+     2    956    +0.0739  0.45 0.11 0.37 0.07  0.27 0.51  2.52 0.10   35  10
+     3    957    +0.0734  0.46 0.11 0.39 0.04  0.28 0.52  2.51 0.10   35  10
+     4    981    +0.0721  0.44 0.12 0.38 0.06  0.26 0.51  2.59 0.10   35  10
+     5    745    +0.0703  0.46 0.11 0.35 0.08  0.25 0.50  2.56 0.09   35  10
+     6    946    +0.0703  0.45 0.11 0.37 0.06  0.27 0.51  2.54 0.10   35  10
+     7    496    +0.0694  0.43 0.11 0.39 0.07  0.27 0.52  3.19 0.09   35  11
+     8    507    +0.0694  0.45 0.11 0.38 0.06  0.26 0.50  3.19 0.09   35  11
+     9    761    +0.0694  0.48 0.12 0.36 0.04  0.25 0.51  2.52 0.10   35  10
+    10    762    +0.0679  0.48 0.11 0.37 0.04  0.26 0.51  2.67 0.10   35  10
+
+  Legend: wf/wt/wm/wa = composite weights (fund/tech/model/alt-derived)
+          lo/hi = macro thresholds (gap = hi - lo)
+          atr = atr_multiplier   aw = analyst_weight
+          rb = rebalance_frequency_days   pn = position_count
+

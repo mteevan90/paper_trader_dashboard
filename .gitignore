@@ -1,0 +1,44 @@
+.env
+
+__pycache__/
+*.pyc
+
+venv/
+.venv/
+.vscode/
+.idea/
+*.egg-info/
+
+# Streamlit local secrets (credentials never in git)
+.streamlit/secrets.toml
+
+# Ignore models/ artifacts. Cache directory tracked but only its
+# documentation files; data files live locally and are mirrored to
+# R2 via src/snapshot_for_cloud.py.
+models/*
+!models/reports/
+!models/cache/
+models/cache/*
+!models/cache/*.md
+!models/cache/*.txt
+!models/cache/*.toml         # streamlit_cloud_secrets_template.toml is template-only
+
+# Stale checkout artifacts under price_cache, model output, etc.
+*.parquet
+*.db
+*.bin
+backtest_profile.bin
+optuna_studies.db
+
+# Stale autopilot-era HTML reports (pre-dashboard, not needed in repo)
+models/reports/
+
+# Local IDE / tool config (Claude Code, VSCode, etc.)
+.claude/
+src/.claude/
+
+# Windows installer package
+*.msix
+
+# Documentation (kept local, not in repo)
+*.docx

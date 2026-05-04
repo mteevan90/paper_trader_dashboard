@@ -1,0 +1,51 @@
+# Held-out validation summary -- v2 macro composite
+
+Window: 2024-01-01 -> 2026-04-30
+Model:  xgb_model.json (eval_cutoff=2023-12-31, never saw this window)
+Macro:  v2 composite (HY level, HY 20d change, 10y-2y, VIX,
+        NFCI, Sahm Rule, 10y-3m), 7-component equal-weight
+
+## Four-way comparison (validation window only)
+
+  metric                   A: v1 #706 v1macro   B: v1 #706 v2macro   C: v2 #710 v2macro   D: default v2macro
+  ----------------------------------------------------------------------------------------------------------
+  score                               -0.0346              -0.0346              -0.2135              -0.0564
+  strategy_total_ret                  +0.5186              +0.5186              +0.1112              +0.3990
+  strategy_ann                        +0.1975              +0.1975              +0.0465              +0.1559
+  spy_ann                             +0.2123              +0.2123              +0.2123              +0.2123
+  alpha_ann                           -0.0148              -0.0148              -0.1658              -0.0564
+  max_drawdown                        -0.1632              -0.1632              -0.1818              -0.1245
+  drawdown_penalty                    +0.0198              +0.0198              +0.0477              +0.0000
+  sharpe                                  n/a              +1.2936              +0.4075              +1.4665
+
+  Note: A's Sharpe was not captured in this morning's run.
+
+## Training-window in-sample scores (for context)
+  v1 #706 (in-sample on v1 macro):  +0.0787
+  v2 #710 (in-sample on v2 macro):  +0.0393
+  default config (in-sample, v2 macro, this morning's smoke baseline):
+    -- not re-measured here; was -0.0736 on v1 macro and roughly
+       similar magnitude on v2 since macro overlay only affects sizing
+
+## Honest read
+
+### Did the v2 macro overlay improve out-of-sample alpha?
+  B vs A score delta: +0.0000 -- effectively zero.
+  v2 macro had NO measurable effect on v1 #706's validation result
+  because trial #706's high threshold (0.497) sits below v2's score
+  floor for ~all rebalance dates in 2024-2026. Same conclusion as
+  segment 11's verification step.
+
+### Did v2 #710's optimization translate, or did it overfit?
+  v2 #710 train score:       +0.0393
+  v2 #710 validation score:  -0.2135
+  Drift:                     -0.2528
+  Out-of-sample DEGRADATION > 5pp -- v2 #710 overfit to the v2
+  training-window distribution. Validation score is the answer.
+
+### Best held-out config?
+  1. B score = -0.0346 <-- best
+  2. A score = -0.0346
+  3. D score = -0.0564
+  4. C score = -0.2135
+

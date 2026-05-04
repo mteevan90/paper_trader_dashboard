@@ -1,0 +1,78 @@
+# Optuna smoke test summary (clean model)
+
+Study name: smoke_20260504_102210
+Model: xgb_model.json with sidecar (eval_cutoff=2023-12-31, universe=NASDAQ_100_PLUS_SP500, 442k train + 118k eval rows, 486 tickers)
+
+## Wall-clock
+Total: 49.1s (0.8 min)
+
+## Per-trial duration (seconds)
+Trials measured: 30
+Mean:   1.62
+Median: 2.00
+Stdev:  1.24
+Min:    0.03
+Max:    3.86
+
+Tier 1 vectorization projection (~10s/trial): exceeded -- median is 2.0s.
+
+## Lookahead-bias warning
+Occurrences in run output: 0
+Expected: 0  (model passed via shared_data bypasses run_backtest's guard
+path; sidecar's eval_cutoff 2023-12-31 < validation start 2024-01-01 in
+any case)
+
+## Trial states
+COMPLETE: 20
+PRUNED: 10
+
+## Integrity
+JSONL entries for smoke_20260504_102210:  30
+SQLite trials for smoke_20260504_102210: 30 (complete=20, pruned=10)
+Match expectation (30): YES
+
+## Default-config training-window baseline
+score:                  -0.073640
+strategy_total_return:  0.3624 (36.24% over 1176 days)
+strategy_annualized:    0.0685
+spy_total_return:       0.8595
+spy_annualized:         0.1422
+alpha_annualized:       -0.0736
+max_drawdown:           -0.1113 (penalty: 0.0000)
+backtest duration:      3.6s
+
+## Best Optuna trial
+Trial #0, score = -0.018621
+
+Improvement over default: +0.055018 (+5.50pp annualized alpha)
+
+Best config (Optuna's tunables):
+  weight_fundamental: 0.32432728613910555
+  weight_technical: 0.12098836015614133
+  weight_model: 0.2188019849734544
+  weight_alt: 0.33588236873129873
+  macro_threshold_low: 0.31905145973710747
+  macro_threshold_high: 0.6137820965040086
+  atr_multiplier: 1.7175290688921137
+  analyst_weight: 0.14791152736652338
+  rebalance_frequency_days: 35
+  position_count: 14
+
+Best trial components:
+  strategy_total_return: 0.722169
+  strategy_annualized_return: 0.123538
+  spy_total_return: 0.859477
+  spy_annualized_return: 0.142159
+  alpha_annualized: -0.018621
+  max_drawdown: -0.147502
+  drawdown_magnitude: 0.147502
+  drawdown_excess: 0.0
+  drawdown_penalty: 0.0
+  score: -0.018621
+  n_trading_days: 1176
+  start_date: 2019-02-15
+  end_date: 2023-12-29
+
+## Anomalies
+10 pruned (weight_fundamental + weight_technical + weight_model > 1.0)
+No failed trials.

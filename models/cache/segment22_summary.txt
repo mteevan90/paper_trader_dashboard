@@ -1,0 +1,247 @@
+# Segment 22 — cloud dashboard build summary
+
+STATUS: build complete, automated verification passed.
+Manual git/Streamlit-Cloud/secrets steps below — those need browser
+interaction and are not auto-runnable.
+
+## Files created
+
+  src/snapshot_for_cloud.py             ~165 lines
+    Bundle dashboard data + upload to R2. Append-only mirror with
+    delete-stale-files behavior. Writes snapshot_manifest.json.
+
+  src/data_source.py                    ~165 lines
+    local↔cloud abstraction. Canonical R2_LAYOUT mapping (single
+    source of truth — both this file and snapshot_for_cloud.py
+    reference it). path_to() resolves repo-relative paths to either
+    the local file (local mode) or a /tmp/-cached R2 fetch (cloud
+    mode). cache_resource for the boto3 client; cache_data
+    manifest-timestamp-keyed for invalidation on snapshot bump.
+
+  src/dashboard_auth.py                 ~80 lines
+    streamlit-authenticator==0.4.2 wrapper. Reads pre-hashed
+    credentials from st.secrets, renders login + sidebar logout,
+    st.stop()s on missing/invalid auth.
+
+  src/hash_passwords.py                 ~70 lines
+    Interactive password-hash generator. getpass for plaintext
+    (no shell history, no screen). Outputs TOML snippet ready to
+    paste into Streamlit Cloud secrets, plus a fresh random
+    cookie key.
+
+  requirements.txt                      ~30 lines (replaced)
+    Pinned versions for both local dev and Streamlit Cloud.
+    streamlit==1.57.0, plotly==6.7.0, boto3==1.43.3,
+    streamlit-authenticator==0.4.2, ... (full list in file)
+
+  models/cache/streamlit_cloud_secrets_template.toml
+    Template structure to paste into Streamlit Cloud's Secrets UI.
+    Placeholders for users/cookie/r2 — real values go in cloud
+    secrets, never in git.
+
+  README.md                             ~100 lines
+    Project overview, local dev setup, snapshot-refresh procedure,
+    first-time deploy instructions, user-management procedure.
+
+## Files modified
+
+  src/dashboard_app.py
+    + Streamlit-secrets-to-env-vars bridge at top (must precede
+      data_source import)
+    + import data_source; CLOUD_MODE = data_source.cloud_mode()
+    + Helper functions for path resolution: _db_path(), _db_url(),
+      _trials_jsonl_path(), _macro_parquet_path(), _model_meta_path(),
+      _dashboard_result_path(label, filename) — all delegate to
+      data_source.path_to()
+    + 6 hardcoded constants (DB_PATH, DB_URL, MACRO_PARQUET, etc.)
+      replaced with helper calls; cloud reads now route through R2
+    + main() now calls dashboard_auth.gate() when CLOUD_MODE is True
+      (local mode skips the gate)
+    + get_result_for_config() shows friendly "switch config" message
+      and st.stop()s in cloud mode when a custom trial isn't
+      pre-saved (live-fallback disabled in cloud per architecture)
+    + Cloud-mode caption under page title for orientation
+    Net: ~+45 lines, behavior identical in local mode.
+
+  .gitignore
+    + Cache data files excluded (parquet/db/jsonl/json) — local-only,
+      mirrored to R2
+    + Documentation files in models/cache/ retained (*.md, *.txt,
+      *.toml — the template-only TOML for secrets)
+    + .streamlit/secrets.toml explicit ignore
+    + .venv/, .idea/, *.egg-info/ added
+
+## Files NOT touched (per scope-protection)
+
+  backtest.py, backtest_config.py, optuna_runner.py, objective.py,
+  feature_cache.py, features.py, fetch_data.py, model.py, main.py,
+  dashboard.py, macro_signals.py, finnhub_insider_signals.py,
+  openinsider_signals.py, alt_signals.py.
+
+## R2 bucket layout (canonical, defined in data_source.py R2_LAYOUT)
+
+  paper-trader-snapshots/
+    snapshot_manifest.json
+    optuna/
+      optuna_studies.db
+      optuna_trials.jsonl
+    macro/
+      macro_signals.parquet
+    model/
+      xgb_model.meta.json
+    dashboard_results/
+      default/
+        portfolio.parquet, trades.parquet, scores.json,
+        holdings.json, meta.json
+      best_optuna_v1_20260504_103429_706/
+        portfolio.parquet, trades.parquet, scores.json,
+        holdings.json, meta.json
+
+## Verification — automated (all passed)
+
+[OK] AST parse + py_compile for all 4 new modules + dashboard_app
+[OK] All imports resolve in local mode (DASHBOARD_CLOUD_MODE unset)
+[OK] data_source.path_to() returns correct local paths when cloud_mode()=False
+[OK] data_source.list_dashboard_result_labels() finds saved configs locally
+[OK] Streamlit headless launch (port 8901) returns HTTP 200 on
+     /_stcore/health and /, no errors in startup log
+[OK] snapshot_for_cloud.py uploaded 14 files (6,405,057 bytes) to R2
+     in 3.9s wall-clock
+[OK] boto3 list_objects_v2 confirms 15 keys in bucket (14 data + manifest)
+[OK] snapshot_manifest.json round-trip read returns expected fields
+     (generated_at, git_sha, n_files, total_bytes)
+[OK] DASHBOARD_CLOUD_MODE=true cloud-mode read path: data_source
+     successfully fetches optuna_studies.db, macro_signals.parquet,
+     model meta, dashboard_results files from R2 to /tmp; sizes match
+     what's in the bucket
+[OK] data_source.list_dashboard_result_labels() in cloud mode
+     correctly enumerates labels from R2 prefix listing
+
+## R2 snapshot contents (just uploaded)
+
+       1,046  dashboard_results/best_optuna_v1_20260504_103429_706/holdings.json
+       1,011  dashboard_results/best_optuna_v1_20260504_103429_706/meta.json
+      14,520  dashboard_results/best_optuna_v1_20260504_103429_706/portfolio.parquet
+     103,339  dashboard_results/best_optuna_v1_20260504_103429_706/scores.json
+       8,997  dashboard_results/best_optuna_v1_20260504_103429_706/trades.parquet
+       1,261  dashboard_results/default/holdings.json
+         880  dashboard_results/default/meta.json
+      16,022  dashboard_results/default/portfolio.parquet
+     103,135  dashboard_results/default/scores.json
+      16,986  dashboard_results/default/trades.parquet
+      45,248  macro/macro_signals.parquet
+         904  model/xgb_model.meta.json
+   3,575,808  optuna/optuna_studies.db
+   2,515,900  optuna/optuna_trials.jsonl
+       1,488  snapshot_manifest.json
+  ----------
+   6,406,545  total bytes (~6.4 MB)
+
+Estimate from plan was ~600 KB; actual is ~6.4 MB because Optuna's
+SQLite file (3.5 MB) and the trials JSONL (2.5 MB) are larger than
+guessed. Still well under R2 free-tier limits (10 GB storage).
+
+## Verification — NOT automated (your manual steps)
+
+These need browser interaction and your inputs. Walk through in order:
+
+### 1. Local visual walkthrough (recommended sanity check)
+
+   cd src
+   ..\venv\Scripts\activate
+   streamlit run dashboard_app.py
+
+   Open the browser URL shown. Confirm all 5 tabs render with data:
+   Overview, Optuna explorer, Macro state, Positions, Trades log.
+   Sidebar config selector (Default / Best trial / Custom trial)
+   should switch overview metrics correctly.
+
+   Take screenshots of each tab if you want a record. Streamlit's
+   auto-detected theme should look identical to your prior local
+   sessions — no regressions expected since local mode behavior is
+   unchanged.
+
+### 2. Initialize git repo (if not already)
+
+   cd <project root>
+   git init
+   git branch -M main
+
+### 3. Generate password hashes for cloud users
+
+   cd src
+   python hash_passwords.py
+
+   Enter usernames + plaintext passwords for each authorized user.
+   Plaintext is read via getpass (no shell history, no screen).
+   Script outputs a TOML block — copy it for step 6.
+
+### 4. Commit and push to GitHub
+
+   git add src/ requirements.txt README.md .gitignore
+   git add models/cache/*.md models/cache/*.txt models/cache/*.toml
+   git commit -m "segment 22: cloud dashboard, snapshot, auth"
+   git remote add origin git@github.com:<your-username>/<repo>.git
+   git push -u origin main
+
+   .gitignore excludes .env, models/ data files, __pycache__/, venv/,
+   .streamlit/secrets.toml. Verify nothing sensitive made it in:
+       git log --stat -1 | grep -E "\.env|secrets\.toml|\.parquet|\.db|\.jsonl"
+   should print nothing.
+
+### 5. Connect Streamlit Community Cloud
+
+   Visit https://share.streamlit.io
+   Click "New app"
+   Repository: <your-username>/<repo>
+   Branch: main
+   Main file path: src/dashboard_app.py
+   Python version: 3.11 (or 3.12 — both work for our pins)
+   Click "Deploy"
+
+   First deploy will fail to load data because secrets aren't set yet.
+   That's expected — proceed to step 6.
+
+### 6. Paste secrets into Streamlit Cloud
+
+   In the new app's settings → Secrets, paste:
+     - The [auth.users.*] and [auth.cookie] blocks from step 3's
+       hash_passwords.py output
+     - An [r2] block with your actual Cloudflare R2 credentials:
+         endpoint_url      = "https://<account-id>.r2.cloudflarestorage.com"
+         access_key_id     = "<R2 token access key>"
+         secret_access_key = "<R2 token secret>"
+         bucket_name       = "paper-trader-snapshots"
+     - The [app] section with cloud_mode = true
+   See models/cache/streamlit_cloud_secrets_template.toml for the
+   complete shape.
+
+   Streamlit Cloud auto-restarts the app after secrets save.
+
+### 7. Verify the deployed dashboard
+
+   Open the Streamlit Cloud URL.
+   Login form should render. Log in with one of the accounts from
+   step 3. All 5 tabs should load — data fetched from R2.
+
+### 8. Share the URL with dad + brother
+
+   Send them: the URL, their username, their password.
+   They'll see the same dashboard you do.
+
+## Updating the deployed dashboard later
+
+   1. Make local code changes; verify with `streamlit run dashboard_app.py`
+   2. Re-run training/Optuna/save-results if data changed
+   3. cd src; python snapshot_for_cloud.py    # re-mirror data to R2
+   4. git add ... && git commit -m "..." && git push
+   Streamlit Cloud auto-redeploys on push. R2 manifest's new
+   generated_at busts the dashboard's read-side cache.
+
+## Adding/removing cloud users later
+
+   1. cd src; python hash_passwords.py        # generates new TOML
+   2. Paste updated [auth.users.*] block into Streamlit Cloud secrets
+      (Streamlit reloads automatically)
+   3. To invalidate all current sessions on a user removal: rotate
+      [auth.cookie] key to a new 32-byte hex string.
