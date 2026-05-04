@@ -30,6 +30,8 @@ failure bug class; this is the single source of truth.
 
 import json
 import os
+import sys
+import tempfile
 from pathlib import Path
 
 import streamlit as st
@@ -45,8 +47,10 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 # ----- Path constants -------------------------------------------------------
 _THIS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = _THIS_DIR.parent
-# Per-session temp dir for cloud-fetched files.
-TMP_CACHE = Path(os.getenv("TEMP", "/tmp")) / "paper_trader_snapshot_cache"
+# Per-session temp dir for cloud-fetched files. tempfile.gettempdir()
+# resolves to /tmp on Linux (Streamlit Cloud) and the per-user TEMP on
+# Windows, regardless of which env var the platform sets.
+TMP_CACHE = Path(tempfile.gettempdir()) / "paper_trader_snapshot_cache"
 
 
 # ----- Bucket layout (single source of truth) -------------------------------
@@ -86,14 +90,26 @@ def r2_key_for(local_relative: str) -> str:
 @st.cache_resource(show_spinner=False)
 def _get_r2_client():
     """Boto3 S3 client configured for Cloudflare R2. Singleton per session.
-    Lazy-imports boto3 so local-mode imports of this module don't require it."""
+    Lazy-imports boto3 so local-mode imports of this module don't require it.
+
+    Cloudflare R2 requires path-style addressing and SigV4. boto3 defaults
+    to virtual-hosted-style when given an endpoint_url, which works
+    inconsistently across R2 buckets/operations — uploads via upload_file
+    may succeed while downloads via download_file fail silently. Forcing
+    path-style is the safe default per R2's official guidance.
+    """
     import boto3
+    from botocore.config import Config
     return boto3.client(
         "s3",
         endpoint_url=os.environ["R2_ENDPOINT_URL"],
         aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
         aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
         region_name="auto",
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+        ),
     )
 
 
@@ -133,8 +149,15 @@ def _fetch_to_tmp(remote_key: str, manifest_ts: str) -> str:
         client.download_file(_bucket(), remote_key, str(local))
         return str(local)
     except Exception as e:
-        st.warning(f"R2 fetch failed for {remote_key}: {e}")
-        # Return a path guaranteed not to exist
+        # Log to stderr — visible in Streamlit Cloud's app logs even when
+        # st.warning calls inside @st.cache_data don't render reliably.
+        # This is the diagnostic channel when the cloud dashboard goes
+        # silent: tail the app's logs to see exact (key, error_type, msg).
+        msg = f"R2 fetch failed for {remote_key!r}: {type(e).__name__}: {e}"
+        print(f"[data_source] {msg}", file=sys.stderr, flush=True)
+        st.warning(msg)   # best-effort UI surface; not always visible
+        # Return a path guaranteed not to exist; caller's
+        # os.path.exists() falls through to its missing-file branch.
         return str(TMP_CACHE / "_missing" / remote_key)
 
 
