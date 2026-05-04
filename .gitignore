@@ -42,5 +42,6 @@ src/.claude/
 
 # Documentation (kept local, not in repo)
 *.docx
+!src/paper_trader_user_guide.docx
 
 models/cache/*.toml.txt
