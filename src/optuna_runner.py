@@ -188,6 +188,21 @@ def _load_shared_data(train_start: str, train_end: str) -> dict:
     #       eager engine construction with `_ = stacked.index._engine;
     #       _ = stacked.columns._engine` before any .loc/[] access.
     # Either lives outside this file's scope; tracked for follow-up.
+    #
+    # UPDATE 2026-05-05: BOTH option (a) and option (b+) tried and
+    # reverted. (b+) caused the lazy-build serialization to disappear
+    # and 50% of homogeneous-workload trials FAILED with the same
+    # InvalidIndexError. (a) — pre-stacking once with eager engine
+    # build, passing through run_backtest as a kwarg — STILL produced
+    # 20% failures with the same error on a rebal=33 fixed smoke. The
+    # race is downstream of the pd.concat itself; eliminating per-trial
+    # concat doesn't eliminate the race. Likely lives inside model.predict
+    # or the per-day .loc accesses on shared per-ticker dfs. Both failed
+    # attempts also passed Smoke B (varied rebal, heterogeneous trials)
+    # with 0% failures, confirming workload heterogeneity is what masks
+    # the race for v1-style runs. Real fix requires understanding the
+    # downstream race — deferred for a future session with deeper
+    # instrumentation.
     print("[OPTUNA]   pre-warming Index engines...")
     for tkr, df in feature_matrix.items():
         if not df.empty:
