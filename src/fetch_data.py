@@ -198,12 +198,27 @@ SP500_TICKERS = [
 UNIVERSE_TICKERS = sorted(set(NASDAQ_100_TICKERS + SP500_TICKERS))
 
 
-SECTOR_MAP_CACHE    = os.path.abspath(os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..", "models", "cache", "sector_map.json",
-))
+# --- Cache snapshot system (PAPER_TRADER_DATA_ROOT) ----------------------
+_DEFAULT_DATA_ROOT = os.path.abspath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "models"))
+DATA_ROOT = os.environ.get("PAPER_TRADER_DATA_ROOT", _DEFAULT_DATA_ROOT)
+SNAPSHOT_MODE = os.environ.get("PAPER_TRADER_DATA_ROOT") is not None
+
+SECTOR_MAP_CACHE    = os.path.join(DATA_ROOT, "cache", "sector_map.json")
 SECTOR_MAP_TTL_DAYS = 30
 _SECTOR_MAP_FLUSH_EVERY = 25  # checkpoint cache every N yfinance lookups
+
+
+def _snapshot_miss(cache_name: str, path: str, required: str) -> "RuntimeError":
+    return RuntimeError(
+        f"[CACHE_SNAPSHOT_MISS] Cache miss in snapshot mode.\n"
+        f"  Cache: {cache_name}\n"
+        f"  Path: {path}\n"
+        f"  Snapshot: {os.environ.get('PAPER_TRADER_DATA_ROOT')}\n"
+        f"  Required: {required}\n"
+        f"  Action: re-create snapshot with current data, or fix snapshot to "
+        f"include this data."
+    )
 
 
 def _write_sector_cache(result: dict[str, str]) -> bool:
@@ -282,6 +297,12 @@ def build_sector_map(tickers: list[str]) -> dict[str, str]:
         print(f"  [CACHE] Sector map: all {len(tickers)} tickers loaded from "
               f"disk (0 yfinance lookups)")
         return result
+
+    if SNAPSHOT_MODE:
+        raise _snapshot_miss(
+            "sector_map", SECTOR_MAP_CACHE,
+            f"all {len(tickers)} tickers present in cache "
+            f"(missing {len(unmapped)}, e.g. {unmapped[:3]})")
 
     print(f"  [CACHE] Sector map: {n_loaded} loaded from disk, "
           f"{len(unmapped)} looked up fresh")
@@ -417,6 +438,10 @@ def get_stock_data_cached(tickers: list[str], start: str, end: str,
         cached = _load_cached(path)
 
         if cached is None:
+            if SNAPSHOT_MODE:
+                raise _snapshot_miss(
+                    f"price_cache[{ticker}]", path,
+                    "per-ticker parquet present and readable")
             df = _download_single(ticker, start, end)
             if df is None or df.empty:
                 fresh_failures.append(ticker)
@@ -431,18 +456,21 @@ def get_stock_data_cached(tickers: list[str], start: str, end: str,
             continue
 
         # Cache hit. Backfill earlier history if needed (silently on fail).
-        if cached.index.min() > start_ts:
+        # In snapshot mode, skip backfill entirely — the snapshot's cache is
+        # authoritative. Minor boundary gaps (weekends, holidays where the
+        # requested start lands on a non-trading day) are not real misses.
+        if cached.index.min() > start_ts and not SNAPSHOT_MODE:
             backfill_end = (cached.index.min() - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
             new_old = _download_single(ticker, start, backfill_end)
             if new_old is not None and not new_old.empty:
                 cached = pd.concat([new_old, cached])
                 cached = cached[~cached.index.duplicated(keep="last")].sort_index()
 
-        # Incremental forward fetch.
+        # Incremental forward fetch. Same snapshot-mode skip as backfill.
         last_date = cached.index.max()
         next_date = (last_date + pd.Timedelta(days=1)).normalize()
         appended_days = 0
-        if next_date <= end_ts:
+        if next_date <= end_ts and not SNAPSHOT_MODE:
             new_df = _download_single(ticker,
                                       next_date.strftime("%Y-%m-%d"),
                                       end)

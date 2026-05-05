@@ -20,7 +20,16 @@ FEATURE_COLS = [
     "rs_spy", "rs_spy_50d",
     "ad_line", "ad_20d_avg", "ad_divergence",
 ]
-MODEL_DIR       = os.path.join(os.path.dirname(__file__), "..", "models")
+# --- Cache snapshot system (PAPER_TRADER_DATA_ROOT) ----------------------
+# In live mode, MODEL_DIR is models/ (sibling to cache/, price_cache/).
+# In snapshot mode, MODEL_DIR is models/snapshots/<name>/ so the snapshot
+# captures a frozen xgb_model.json + sidecar.
+_DEFAULT_DATA_ROOT = os.path.abspath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "models"))
+DATA_ROOT = os.environ.get("PAPER_TRADER_DATA_ROOT", _DEFAULT_DATA_ROOT)
+SNAPSHOT_MODE = os.environ.get("PAPER_TRADER_DATA_ROOT") is not None
+
+MODEL_DIR       = DATA_ROOT
 MODEL_PATH      = os.path.join(MODEL_DIR, "xgb_model.json")
 MODEL_META_PATH = os.path.join(MODEL_DIR, "xgb_model.meta.json")
 

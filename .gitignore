@@ -33,6 +33,10 @@ optuna_studies.db
 # Stale autopilot-era HTML reports (pre-dashboard, not needed in repo)
 models/reports/
 
+# Frozen cache snapshots (for reproducible hypothesis runs). Large, local-
+# only, regenerated on demand via src/snapshot_cache.py create.
+models/snapshots/
+
 # Local IDE / tool config (Claude Code, VSCode, etc.)
 .claude/
 src/.claude/

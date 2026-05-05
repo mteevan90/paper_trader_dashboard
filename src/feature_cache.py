@@ -36,11 +36,27 @@ RAW_COLS = ("sma_200_raw", "sma_50_raw", "rsi_14_raw",
             "dist_52w_high_raw", "obv_raw")
 
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
-CACHE_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "models", "cache"))
+# --- Cache snapshot system (PAPER_TRADER_DATA_ROOT) ----------------------
+_DEFAULT_DATA_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", "models"))
+DATA_ROOT = os.environ.get("PAPER_TRADER_DATA_ROOT", _DEFAULT_DATA_ROOT)
+SNAPSHOT_MODE = os.environ.get("PAPER_TRADER_DATA_ROOT") is not None
+
+CACHE_DIR = os.path.join(DATA_ROOT, "cache")
 FEATURE_MATRIX_PATH = os.path.join(CACHE_DIR, "feature_matrix.parquet")
 FEATURE_MATRIX_META = os.path.join(CACHE_DIR, "feature_matrix.meta.json")
-PRICE_CACHE_DIR     = os.path.abspath(os.path.join(
-    BASE_DIR, "..", "models", "price_cache"))
+PRICE_CACHE_DIR     = os.path.join(DATA_ROOT, "price_cache")
+
+
+def _snapshot_miss(cache_name: str, path: str, required: str) -> "RuntimeError":
+    return RuntimeError(
+        f"[CACHE_SNAPSHOT_MISS] Cache miss in snapshot mode.\n"
+        f"  Cache: {cache_name}\n"
+        f"  Path: {path}\n"
+        f"  Snapshot: {os.environ.get('PAPER_TRADER_DATA_ROOT')}\n"
+        f"  Required: {required}\n"
+        f"  Action: re-create snapshot with current data, or fix snapshot to "
+        f"include this data."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +255,17 @@ def build_feature_matrix(
             return cached
     else:
         print("  [FEATURE CACHE] force=True - rebuilding from scratch")
+
+    # In snapshot mode, the feature matrix MUST be present and cover the
+    # requested window — rebuilding would pull in upstream data via
+    # get_stock_data_cached / build_sector_map / etc., and any of those
+    # would already raise their own snapshot-miss errors. Hard-fail here
+    # with a clearer message.
+    if SNAPSHOT_MODE:
+        raise _snapshot_miss(
+            "feature_matrix", FEATURE_MATRIX_PATH,
+            f"parquet present, version match, covers {start} -> {end} for "
+            f"all {len(tickers)} tickers")
 
     print(f"  [FEATURE CACHE] Building feature matrix: "
           f"{len(tickers)} tickers, {start} -> {end}")

@@ -26,12 +26,30 @@ from fredapi import Fred
 # --- Paths ------------------------------------------------------------------
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 DOTENV_PATH = os.path.join(BASE_DIR, "..", ".env")
-CACHE_DIR   = os.path.join(BASE_DIR, "..", "models", "cache")
+
+# --- Cache snapshot system (PAPER_TRADER_DATA_ROOT) -----------------------
+_DEFAULT_DATA_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", "models"))
+DATA_ROOT = os.environ.get("PAPER_TRADER_DATA_ROOT", _DEFAULT_DATA_ROOT)
+SNAPSHOT_MODE = os.environ.get("PAPER_TRADER_DATA_ROOT") is not None
+
+CACHE_DIR   = os.path.join(DATA_ROOT, "cache")
 MACRO_CACHE     = os.path.join(CACHE_DIR, "macro_signals.parquet")
 MACRO_META      = os.path.join(CACHE_DIR, "macro_signals.meta.json")
 PUTCALL_CACHE   = os.path.join(CACHE_DIR, "putcall.csv")
 ANALYST_CACHE   = os.path.join(CACHE_DIR, "analyst_targets.json")
 ANALYST_META    = os.path.join(CACHE_DIR, "analyst_targets.meta.json")
+
+
+def _snapshot_miss(cache_name: str, path: str, required: str) -> "RuntimeError":
+    return RuntimeError(
+        f"[CACHE_SNAPSHOT_MISS] Cache miss in snapshot mode.\n"
+        f"  Cache: {cache_name}\n"
+        f"  Path: {path}\n"
+        f"  Snapshot: {os.environ.get('PAPER_TRADER_DATA_ROOT')}\n"
+        f"  Required: {required}\n"
+        f"  Action: re-create snapshot with current data, or fix snapshot to "
+        f"include this data."
+    )
 
 # Bump these when the cache schema or transform definitions change so old
 # caches invalidate explicitly. Manual rather than auto-derived so a rebuild
@@ -172,21 +190,28 @@ def fetch_macro_signals(start: str, end: str) -> pd.DataFrame:
             print(f"  [MACRO] Cache unreadable ({e}) -refetching")
             cached = None
     elif meta is not None and not version_ok:
+        if SNAPSHOT_MODE:
+            raise _snapshot_miss(
+                "macro_signals", MACRO_CACHE,
+                f"version match (cache {meta.get('version')!r} != current "
+                f"{MACRO_VERSION!r})")
         print(f"  [MACRO] Version/schema mismatch (cache "
               f"{meta.get('version')!r} vs {MACRO_VERSION!r}) - rebuilding")
 
-    fred = _get_fred()
-
     if cached is not None and not cached.empty:
-        updated = False
         # Backfill earlier history if the requested start is before the cache.
         if start_ts < cached.index.min():
+            if SNAPSHOT_MODE:
+                raise _snapshot_miss(
+                    "macro_signals", MACRO_CACHE,
+                    f"date range covers requested start {start_ts.date()} "
+                    f"(cache starts {cached.index.min().date()})")
+            fred = _get_fred()
             back_end = (cached.index.min() - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
             back = _fetch_fred_series(fred, start, back_end)
             if not back.empty:
                 cached = pd.concat([back, cached])
                 cached = cached[~cached.index.duplicated(keep="last")].sort_index()
-                updated = True
                 print(f"  [MACRO] Backfilled {len(back)} rows "
                       f"(from {cached.index.min().date()})")
 
@@ -194,26 +219,36 @@ def fetch_macro_signals(start: str, end: str) -> pd.DataFrame:
         last_date = cached.index.max()
         fetch_start = (last_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
         if pd.Timestamp(fetch_start) <= end_ts:
+            if SNAPSHOT_MODE:
+                raise _snapshot_miss(
+                    "macro_signals", MACRO_CACHE,
+                    f"date range covers requested end {end_ts.date()} "
+                    f"(cache ends {last_date.date()})")
+            fred = _get_fred()
             fresh = _fetch_fred_series(fred, fetch_start, end)
             if not fresh.empty:
                 cached = pd.concat([cached, fresh])
                 cached = cached[~cached.index.duplicated(keep="last")].sort_index()
-                updated = True
                 print(f"  [MACRO] Appended {len(fresh)} new rows "
                       f"(through {cached.index.max().date()})")
 
-        if updated:
+        # Live mode may have updated cached above; persist if so.
+        if not SNAPSHOT_MODE:
             try:
                 cached.to_parquet(MACRO_CACHE)
                 _save_macro_meta(cached, start, end)
-            except Exception as e:
-                print(f"  [MACRO] Failed to write cache ({e})")
-        else:
-            print(f"  [MACRO] Loaded from disk ({len(cached)} rows, "
-                  f"{cached.index.min().date()} to {cached.index.max().date()})")
+            except Exception:
+                pass
+        print(f"  [MACRO] Loaded from disk ({len(cached)} rows, "
+              f"{cached.index.min().date()} to {cached.index.max().date()})")
         return cached.loc[start_ts:end_ts]
 
-    # First run -full download.
+    # First run — full download.
+    if SNAPSHOT_MODE:
+        raise _snapshot_miss(
+            "macro_signals", MACRO_CACHE,
+            "parquet file present and readable")
+    fred = _get_fred()
     df = _fetch_fred_series(fred, start, end)
     if df.empty:
         return df
@@ -491,6 +526,12 @@ def fetch_analyst_targets(tickers: list[str]) -> dict[str, dict]:
             print(f"  [ANALYST] Universe expanded "
                   f"({len(missing)} new tickers, e.g. {missing[:3]}) "
                   f"- refetching")
+
+    if SNAPSHOT_MODE:
+        raise _snapshot_miss(
+            "analyst_targets", ANALYST_CACHE,
+            f"file present, age < {ANALYST_TTL_DAYS} days, version match, "
+            f"coverage of all {len(tickers)} tickers")
 
     print(f"  [ANALYST] Fetching targets for {len(tickers)} tickers...")
     result: dict[str, dict] = {}

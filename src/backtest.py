@@ -42,14 +42,37 @@ MAX_PER_SECTOR         = _DEFAULT_CONFIG.sector_cap
 MIN_HOLD_DAYS          = _DEFAULT_CONFIG.min_hold_days
 EARNINGS_BLACKOUT_DAYS = _DEFAULT_CONFIG.earnings_blackout_days
 
+# --- Cache snapshot system: env-driven data root --------------------------
+# PAPER_TRADER_DATA_ROOT (when set) redirects all input caches to a
+# snapshot directory (typically models/snapshots/<name>/). Default is the
+# live models/ tree. Constants are computed at module import; run_hypothesis.py
+# pre-parses --cache-snapshot and sets the env var BEFORE importing this.
+_DEFAULT_DATA_ROOT = os.path.abspath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "models"))
+DATA_ROOT = os.environ.get("PAPER_TRADER_DATA_ROOT", _DEFAULT_DATA_ROOT)
+SNAPSHOT_MODE = os.environ.get("PAPER_TRADER_DATA_ROOT") is not None
+
 # --- Fundamentals / earnings caches -----------------------------------------
 # Fundamentals change slowly (quarterly-ish), so a 7-day TTL is safe.
 # Earnings calendars need to be current — daily TTL.
-CACHE_DIR             = os.path.join(os.path.dirname(__file__), "..", "models", "cache")
+CACHE_DIR             = os.path.join(DATA_ROOT, "cache")
 FUNDAMENTALS_CACHE    = os.path.join(CACHE_DIR, "fundamentals.json")
 EARNINGS_CACHE        = os.path.join(CACHE_DIR, "earnings_dates.json")
 FUNDAMENTALS_TTL_DAYS = 7
 EARNINGS_TTL_DAYS     = 1
+
+
+def _snapshot_miss(cache_name: str, path: str, required: str) -> "RuntimeError":
+    """Build a [CACHE_SNAPSHOT_MISS] error for hard-fail in snapshot mode."""
+    return RuntimeError(
+        f"[CACHE_SNAPSHOT_MISS] Cache miss in snapshot mode.\n"
+        f"  Cache: {cache_name}\n"
+        f"  Path: {path}\n"
+        f"  Snapshot: {os.environ.get('PAPER_TRADER_DATA_ROOT')}\n"
+        f"  Required: {required}\n"
+        f"  Action: re-create snapshot with current data, or fix snapshot to "
+        f"include this data."
+    )
 
 
 def _cache_age_days(path: str) -> float | None:
@@ -101,6 +124,11 @@ def fetch_fundamentals(tickers: list[str]) -> dict[str, dict]:
             return cached
         except Exception as e:
             print(f"  [CACHE] Fundamentals cache unreadable ({e}), refetching")
+
+    if SNAPSHOT_MODE:
+        raise _snapshot_miss(
+            "fundamentals", FUNDAMENTALS_CACHE,
+            f"file present, readable, age < {FUNDAMENTALS_TTL_DAYS} days")
 
     print(f"  Fetching fundamentals for {len(tickers)} tickers...")
     fund = {}
@@ -156,6 +184,11 @@ def fetch_earnings_dates(
             return earnings
         except Exception as e:
             print(f"  [CACHE] Earnings cache unreadable ({e}), refetching")
+
+    if SNAPSHOT_MODE:
+        raise _snapshot_miss(
+            "earnings_dates", EARNINGS_CACHE,
+            f"file present, readable, age < {EARNINGS_TTL_DAYS} day")
 
     print(f"  Fetching earnings dates for {len(tickers)} tickers...")
     start_ts = pd.Timestamp(start).normalize()

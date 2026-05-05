@@ -39,6 +39,7 @@ names; the launcher translates to optuna_runner's search-space form):
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,7 +51,28 @@ _SRC_DIR = Path(__file__).resolve().parent
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
-from optuna_runner import (    # noqa: E402  (after sys.path manipulation)
+# --- Cache snapshot pre-parse: must run BEFORE the optuna_runner import ---
+# All cache modules read PAPER_TRADER_DATA_ROOT at import time to compute
+# their CACHE_DIR / PRICE_CACHE_DIR / MODEL_DIR constants. Pre-parsing the
+# --cache-snapshot flag here lets us set the env var before any cache
+# module is imported (optuna_runner pulls in backtest, fetch_data,
+# feature_cache, macro_signals, model). Order matters.
+_pre = argparse.ArgumentParser(add_help=False)
+_pre.add_argument("--cache-snapshot", default=None)
+_pre_args, _ = _pre.parse_known_args()
+if _pre_args.cache_snapshot:
+    _snap_root = os.path.abspath(os.path.join(
+        str(_SRC_DIR), "..", "models", "snapshots", _pre_args.cache_snapshot))
+    if not os.path.isdir(_snap_root):
+        sys.exit(
+            f"[HYPOTHESIS] Snapshot not found: {_snap_root}\n"
+            f"  Hint: list available snapshots with "
+            f"`python src/snapshot_cache.py list`")
+    os.environ["PAPER_TRADER_DATA_ROOT"] = _snap_root
+    print(f"[HYPOTHESIS] Using cache snapshot: "
+          f"{_pre_args.cache_snapshot} ({_snap_root})")
+
+from optuna_runner import (    # noqa: E402  (after sys.path + env-var setup)
     _DEFAULT_RANGES,
     run_study,
     save_hypothesis_result,
@@ -235,6 +257,18 @@ def main() -> None:
                         "real speedup. Override only if you understand the "
                         "tradeoff (e.g., when running multiple varying "
                         "params).")
+    p.add_argument("--cache-snapshot", default=None,
+                   help="Name of a frozen cache snapshot under "
+                        "models/snapshots/<name>/ to use as input data. "
+                        "Default: live caches (current models/cache + "
+                        "models/price_cache). When set, all input cache "
+                        "loaders enforce snapshot mode and hard-fail on "
+                        "miss. Output stores (optuna_studies.db, "
+                        "trials.jsonl, dashboard_results) stay live "
+                        "regardless. Suggested naming convention: "
+                        "<purpose>_<YYYYMMDD>, e.g. pre_v3_20260505. "
+                        "Create snapshots via "
+                        "`python src/snapshot_cache.py create <name>`.")
     args = p.parse_args()
 
     # ---- Validate window ----

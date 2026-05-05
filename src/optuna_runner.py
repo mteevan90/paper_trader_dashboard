@@ -58,11 +58,22 @@ from objective import (compute_objective, compute_objective_components,
 # Paths and constants
 # ---------------------------------------------------------------------------
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-CACHE_DIR   = os.path.abspath(os.path.join(BASE_DIR, "..", "models", "cache"))
-PRICE_CACHE = os.path.abspath(os.path.join(BASE_DIR, "..", "models",
-                                           "price_cache"))
-STUDY_DB_PATH    = os.path.join(CACHE_DIR, "optuna_studies.db")
-TRIALS_LOG_PATH  = os.path.join(CACHE_DIR, "optuna_trials.jsonl")
+
+# --- INPUT caches: respect PAPER_TRADER_DATA_ROOT (snapshot mode) ----------
+_DEFAULT_DATA_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", "models"))
+DATA_ROOT = os.environ.get("PAPER_TRADER_DATA_ROOT", _DEFAULT_DATA_ROOT)
+PRICE_CACHE = os.path.join(DATA_ROOT, "price_cache")
+
+# --- OUTPUT stores: ALWAYS LIVE — never redirected via DATA_ROOT -----------
+# These are RESULTS, not inputs. They must persist across snapshot runs so
+# studies and trial logs accumulate in one canonical place. Snapshot mode
+# only redirects input caches (fundamentals, earnings, prices, features,
+# macro, analyst, sector_map, model). Output stores stay at the live tree.
+_LIVE_DATA_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", "models"))
+_LIVE_CACHE_DIR = os.path.join(_LIVE_DATA_ROOT, "cache")
+CACHE_DIR        = _LIVE_CACHE_DIR  # back-compat for any external readers
+STUDY_DB_PATH    = os.path.join(_LIVE_CACHE_DIR, "optuna_studies.db")
+TRIALS_LOG_PATH  = os.path.join(_LIVE_CACHE_DIR, "optuna_trials.jsonl")
 
 _FAILURE_SENTINEL = -1e6
 
@@ -606,6 +617,15 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
     with open(os.path.join(out_dir, "holdings.json"), "w", encoding="utf-8") as f:
         json.dump(holdings_serial, f, indent=2)
 
+    # Record which cache snapshot the run used, or "live" if env var unset.
+    # Stored both at top-level meta for any save (v1 path included), AND
+    # available inside extra_meta for hypothesis runs that may want it.
+    _snap_root = os.environ.get("PAPER_TRADER_DATA_ROOT")
+    if _snap_root:
+        cache_snapshot = os.path.basename(os.path.abspath(_snap_root))
+    else:
+        cache_snapshot = "live"
+
     meta = {
         "label":       label,
         "saved_at":    datetime.now(timezone.utc).isoformat(),
@@ -615,6 +635,7 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
         "n_trades":    int(len(trades_df)),
         "n_holdings":  int(len(holdings)),
         "runtime_seconds": round(elapsed, 3),
+        "cache_snapshot":  cache_snapshot,
     }
     if extra_meta:
         meta.update(extra_meta)
