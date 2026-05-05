@@ -74,6 +74,27 @@ TRAIN_START  = _DEFAULTS.train_start
 TRAIN_END    = _DEFAULTS.train_end
 
 
+# Search-space param names that get suggest_int (rest get suggest_float).
+_INT_PARAMS: frozenset[str] = frozenset({
+    "rebalance_frequency_days",
+    "position_count",
+})
+
+# Default search ranges per param. Imported by run_hypothesis.py to log
+# the actually-used range (default vs override vs FIXED) into meta.json.
+_DEFAULT_RANGES: dict[str, tuple[float, float]] = {
+    "weight_fundamental":       (0.20, 0.55),
+    "weight_technical":         (0.10, 0.45),
+    "weight_model":             (0.10, 0.45),
+    "macro_threshold_low":      (0.25, 0.50),
+    "macro_threshold_gap":      (0.10, 0.40),
+    "atr_multiplier":           (1.5, 4.0),
+    "analyst_weight":           (0.0, 0.15),
+    "rebalance_frequency_days": (14, 63),
+    "position_count":           (10, 25),
+}
+
+
 # ---------------------------------------------------------------------------
 # Shared-data preload
 # ---------------------------------------------------------------------------
@@ -198,7 +219,18 @@ def _load_shared_data(train_start: str, train_end: str) -> dict:
 # Search space + trial callable
 # ---------------------------------------------------------------------------
 
-def build_search_space(trial: optuna.Trial) -> dict:
+def _suggest_one(trial: optuna.Trial, name: str,
+                 lo: float, hi: float):
+    """Dispatch to suggest_int or suggest_float based on param type."""
+    if name in _INT_PARAMS:
+        return trial.suggest_int(name, int(lo), int(hi))
+    return trial.suggest_float(name, float(lo), float(hi))
+
+
+def build_search_space(trial: optuna.Trial,
+                       *,
+                       range_overrides: dict | None = None,
+                       fixed_values: dict | None = None) -> dict:
     """Suggest a set of BacktestConfig kwargs for this trial.
 
     macro_threshold_high is structured as low + gap (gap in [0.10, 0.40])
@@ -206,21 +238,46 @@ def build_search_space(trial: optuna.Trial) -> dict:
     rejection sampling, no wasted trials.
     weight_alt is NOT suggested here: BacktestConfig.__post_init__
     derives it as 1.0 - sum_of_others.
-    """
-    weight_fundamental = trial.suggest_float("weight_fundamental", 0.20, 0.55)
-    weight_technical   = trial.suggest_float("weight_technical",   0.10, 0.45)
-    weight_model       = trial.suggest_float("weight_model",       0.10, 0.45)
 
-    macro_threshold_low = trial.suggest_float("macro_threshold_low",
-                                              0.25, 0.50)
-    macro_threshold_gap = trial.suggest_float("macro_threshold_gap",
-                                              0.10, 0.40)
+    Hypothesis-launcher kwargs (run_hypothesis.py uses these; defaults
+    of None preserve the pre-Archetype-3 behavior bit-identically):
+
+      fixed_values: dict mapping search-space param name -> pinned value.
+        The named param is NOT passed to trial.suggest_*; Optuna doesn't
+        record it as a search dimension. This is what we want when
+        isolating one tunable's effect from the others — recording a
+        degenerate (lo == hi) range would still inflate Optuna's
+        dimension count and confuse downstream analysis.
+
+      range_overrides: dict mapping search-space param name -> (lo, hi).
+        The param IS sampled, just over the new range instead of the
+        default in _DEFAULT_RANGES.
+
+    A param appearing in both fixed_values and range_overrides is a
+    programmer error — run_hypothesis.py rejects this before the call.
+    If both are passed, fixed_values wins here.
+    """
+    range_overrides = range_overrides or {}
+    fixed_values = fixed_values or {}
+
+    def _val(name: str):
+        if name in fixed_values:
+            return fixed_values[name]
+        lo, hi = range_overrides.get(name, _DEFAULT_RANGES[name])
+        return _suggest_one(trial, name, lo, hi)
+
+    weight_fundamental = _val("weight_fundamental")
+    weight_technical   = _val("weight_technical")
+    weight_model       = _val("weight_model")
+
+    macro_threshold_low = _val("macro_threshold_low")
+    macro_threshold_gap = _val("macro_threshold_gap")
     macro_threshold_high = macro_threshold_low + macro_threshold_gap
 
-    atr_multiplier   = trial.suggest_float("atr_multiplier",  1.5, 4.0)
-    analyst_weight   = trial.suggest_float("analyst_weight",  0.0, 0.15)
-    rebalance_freq   = trial.suggest_int("rebalance_frequency_days", 14, 63)
-    position_count   = trial.suggest_int("position_count",     10, 25)
+    atr_multiplier  = _val("atr_multiplier")
+    analyst_weight  = _val("analyst_weight")
+    rebalance_freq  = _val("rebalance_frequency_days")
+    position_count  = _val("position_count")
 
     return {
         "weight_fundamental":       weight_fundamental,
@@ -250,7 +307,9 @@ def objective_fn(trial: optuna.Trial,
                  shared_data: dict,
                  study_name: str,
                  jsonl_path: str,
-                 log_lock: threading.Lock) -> float:
+                 log_lock: threading.Lock,
+                 range_overrides: dict | None = None,
+                 fixed_values: dict | None = None) -> float:
     """One Optuna trial: build a config, run a backtest, score it.
 
     Pruned when the three free weights sum > 1.0 (BacktestConfig raises
@@ -261,7 +320,11 @@ def objective_fn(trial: optuna.Trial,
     started_at = datetime.now(timezone.utc)
     t0 = time.perf_counter()
 
-    config_kwargs = build_search_space(trial)
+    config_kwargs = build_search_space(
+        trial,
+        range_overrides=range_overrides,
+        fixed_values=fixed_values,
+    )
     try:
         config = BacktestConfig(**config_kwargs)
     except ValueError as e:
@@ -331,8 +394,15 @@ def objective_fn(trial: optuna.Trial,
 # ---------------------------------------------------------------------------
 
 def run_study(n_trials: int, n_jobs: int, study_name: str,
-              smoke_test: bool = False) -> optuna.Study:
-    """Create-or-load a study and run ``n_trials`` more trials on it."""
+              smoke_test: bool = False,
+              *,
+              range_overrides: dict | None = None,
+              fixed_values: dict | None = None) -> optuna.Study:
+    """Create-or-load a study and run ``n_trials`` more trials on it.
+
+    range_overrides / fixed_values are forwarded through objective_fn to
+    build_search_space. Defaults of None preserve the pre-Archetype-3
+    behavior (existing v1/smoke/resume callers see no change)."""
     os.makedirs(CACHE_DIR, exist_ok=True)
     storage_url = f"sqlite:///{STUDY_DB_PATH}"
 
@@ -363,6 +433,8 @@ def run_study(n_trials: int, n_jobs: int, study_name: str,
             study_name=study_name,
             jsonl_path=TRIALS_LOG_PATH,
             log_lock=log_lock,
+            range_overrides=range_overrides,
+            fixed_values=fixed_values,
         )
 
     print(f"[OPTUNA] Running {n_trials} trial(s) with n_jobs={n_jobs}...")
@@ -452,19 +524,35 @@ LOCKED_BEST_TRIAL = 706
 
 
 def _save_one_backtest_result(label: str, config: BacktestConfig,
-                              shared: dict) -> None:
-    """Run one backtest with ``config`` over the validation window and save
-    the full portfolio + trades + scores + holdings to
-    ``dashboard_results/{label}/``. The dashboard reads this for
-    instant-load Positions/Trades/Overview tabs."""
-    out_dir = os.path.join(DASHBOARD_RESULTS_DIR, label)
+                              shared: dict,
+                              *,
+                              extra_meta: dict | None = None,
+                              output_dir: str | None = None,
+                              split_date: str | None = None) -> None:
+    """Run one backtest with ``config`` and save the full portfolio +
+    trades + scores + holdings to ``<output_dir>/{label}/``. The dashboard
+    reads this for instant-load Positions/Trades/Overview tabs.
+
+    Defaults preserve the v1 save behavior:
+      output_dir defaults to DASHBOARD_RESULTS_DIR.
+      split_date defaults to config.validate_start (so the dashboard's
+        equity curve shows validation-window performance).
+    Hypothesis runs (run_hypothesis.py) pass split_date=config.train_start
+    for training-only saves.
+    extra_meta gets merged into meta.json after the standard fields. Used
+    by the hypothesis launcher to thread hypothesis_id, search_ranges,
+    fixed_tunables, base_config_ref, promoted: false, etc."""
+    base_dir = output_dir if output_dir is not None else DASHBOARD_RESULTS_DIR
+    out_dir = os.path.join(base_dir, label)
     os.makedirs(out_dir, exist_ok=True)
+    effective_split = (split_date if split_date is not None
+                       else config.validate_start)
     print(f"[SAVE] Running backtest for label={label!r} "
-          f"(split_date={config.validate_start})...")
+          f"(split_date={effective_split})...")
     t0 = time.perf_counter()
     portfolio_df, trades_df, scores, holdings = run_backtest(
         shared["featured_data"], shared["price_data"],
-        split_date=config.validate_start,
+        split_date=effective_split,
         fund_data=shared["fund_data"],
         sector_map=shared["sector_map"],
         earnings_dates=shared["earnings_dates"],
@@ -504,12 +592,14 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
         "label":       label,
         "saved_at":    datetime.now(timezone.utc).isoformat(),
         "config":      config.to_dict(),
-        "split_date":  config.validate_start,
+        "split_date":  effective_split,
         "n_days":      int(len(portfolio_df)),
         "n_trades":    int(len(trades_df)),
         "n_holdings":  int(len(holdings)),
         "runtime_seconds": round(elapsed, 3),
     }
+    if extra_meta:
+        meta.update(extra_meta)
     with open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
     print(f"[SAVE]   wrote {out_dir}")
@@ -598,6 +688,83 @@ def save_dashboard_results() -> None:
         print(f"[SAVE] Could not save locked best trial: {e}")
 
     print(f"\n[SAVE] Done. Dashboard reads from {DASHBOARD_RESULTS_DIR}")
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis save (Archetype 3 — invoked by run_hypothesis.py)
+# ---------------------------------------------------------------------------
+
+def save_hypothesis_result(
+    study_name: str,
+    hypothesis_id: str,
+    search_ranges: dict,
+    fixed_tunables: dict,
+    base_config_ref: str,
+    window: str,
+    output_dir: str | None = None,
+    trial_number: int | None = None,
+) -> None:
+    """Save dashboard_results for a hypothesis study's best (or specified)
+    trial. Wraps _save_one_backtest_result with the hypothesis metadata
+    that run_hypothesis.py threads through.
+
+    The label format f"best_{study_name}_{trial_number}" matches the
+    convention save_dashboard_results uses for v1, so the dashboard's
+    Best-Trial picker discovers the new entry without code changes.
+
+    window:
+      "train": loads training-window-filtered data and uses
+        split_date=config.train_start. Hypothesis studies run on training
+        only by design (the validation window is held out for manual
+        graduation per the v3 hypothesis spec).
+      anything else: falls back to v1-style validation-window save.
+        run_hypothesis.py errors out on --window validate, so this branch
+        is unreachable from the launcher today; kept so direct
+        programmatic callers retain a sensible default.
+
+    promoted is forced to False. snapshot_for_cloud._meta_with_promoted
+    honors any explicit promoted key, so this guarantees experimental
+    studies stay hidden from the cloud dashboard's Best-Trial picker
+    until manual graduation.
+    """
+    storage_url = f"sqlite:///{STUDY_DB_PATH}"
+    study = optuna.load_study(study_name=study_name, storage=storage_url)
+    if trial_number is None:
+        trial = study.best_trial
+        trial_number = trial.number
+    else:
+        trial = study.trials[trial_number]
+    cfg = _trial_to_config(trial)
+    label = f"best_{study_name}_{trial_number}"
+
+    extra_meta = {
+        "hypothesis_id":   hypothesis_id,
+        "study_name":      study_name,
+        "trial_number":    int(trial_number),
+        "trial_score":     (float(trial.value) if trial.value is not None
+                            else None),
+        "search_ranges":   search_ranges,
+        "fixed_tunables":  fixed_tunables,
+        "base_config_ref": base_config_ref,
+        "window":          window,
+        "promoted":        False,
+    }
+
+    if window == "train":
+        shared = _load_shared_data(cfg.train_start, cfg.train_end)
+        split_date = cfg.train_start
+    else:
+        shared = _load_full_shared_data()
+        split_date = cfg.validate_start
+
+    _save_one_backtest_result(
+        label, cfg, shared,
+        extra_meta=extra_meta,
+        output_dir=output_dir,
+        split_date=split_date,
+    )
+    out_root = output_dir if output_dir is not None else DASHBOARD_RESULTS_DIR
+    print(f"[HYPOTHESIS SAVE] label={label} -> {out_root}")
 
 
 # ---------------------------------------------------------------------------

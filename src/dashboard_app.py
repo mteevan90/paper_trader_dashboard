@@ -1476,23 +1476,23 @@ def main() -> None:
     result = get_result_for_config(label, config)
 
     tabs = st.tabs(
-        ["Overview", "Optuna explorer", "Macro state", "Positions", "Trades log",
-         "User Guide", "Diagnostics"]
+        ["Overview", "Diagnostics", "Optuna explorer", "Macro state",
+         "Positions", "Trades log", "User Guide"]
     )
     with tabs[0]:
         tab_overview(label, config, result)
     with tabs[1]:
-        tab_optuna(study_name)
-    with tabs[2]:
-        tab_macro(config)
-    with tabs[3]:
-        tab_positions(config, result)
-    with tabs[4]:
-        tab_trades(result)
-    with tabs[5]:
-        tab_user_guide()
-    with tabs[6]:
         tab_diagnostics(label, config, result)
+    with tabs[2]:
+        tab_optuna(study_name)
+    with tabs[3]:
+        tab_macro(config)
+    with tabs[4]:
+        tab_positions(config, result)
+    with tabs[5]:
+        tab_trades(result)
+    with tabs[6]:
+        tab_user_guide()
 
 
 main()
