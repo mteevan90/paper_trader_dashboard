@@ -110,6 +110,14 @@ def _dashboard_result_path(label: str, filename: str) -> str:
         f"models/cache/dashboard_results/{label}/{filename}")
 
 
+def _feature_importance_path() -> str:
+    return data_source.path_to("models/cache/feature_importance.json")
+
+
+def _sector_map_path() -> str:
+    return data_source.path_to("models/cache/sector_map.json")
+
+
 LOCKED_BEST_STUDY = "optuna_v1_20260504_103429"
 LOCKED_BEST_TRIAL = 706
 
@@ -199,6 +207,27 @@ def load_model_meta() -> dict:
     if not os.path.exists(meta_path):
         return {}
     with open(meta_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@st.cache_data(show_spinner=False)
+def load_feature_importance() -> list[dict]:
+    """Read models/cache/feature_importance.json (written by
+    snapshot_for_cloud.py before each snapshot upload)."""
+    p = _feature_importance_path()
+    if not os.path.exists(p):
+        return []
+    with open(p, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("features", []) or []
+
+
+@st.cache_data(show_spinner=False)
+def load_sector_map() -> dict:
+    p = _sector_map_path()
+    if not os.path.exists(p):
+        return {}
+    with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -913,6 +942,237 @@ def tab_user_guide() -> None:
         st.warning("User guide file not found — please contact Mike.")
 
 
+def tab_diagnostics(label: str, config: BacktestConfig, result: dict) -> None:
+    st.header("Diagnostics")
+    st.caption(f"Showing config: **{label}** "
+               f"(window {config.validate_start} -> {config.validate_end})")
+
+    portfolio_df = result["portfolio_df"]
+    trades_df    = result.get("trades_df")
+    holdings     = result.get("holdings", {}) or {}
+    scores       = result.get("scores", {}) or {}
+
+    if portfolio_df is None or portfolio_df.empty:
+        st.warning("Empty backtest result.")
+        return
+
+    pv = portfolio_df["portfolio_value"]
+    start = pv.index[0].strftime("%Y-%m-%d")
+    end = (pv.index[-1] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    spy_close = cached_benchmark("SPY", start, end)
+
+    # ----- Section 1: How are we doing vs SPY? -----
+    st.divider()
+    st.subheader("How are we doing vs SPY?")
+
+    sys_dd = (pv / pv.cummax() - 1) * 100
+    if not spy_close.empty:
+        sys_norm = pv / pv.iloc[0]
+        spy_norm = spy_close / spy_close.iloc[0]
+        common = sys_norm.index.intersection(spy_norm.index)
+        alpha_pp = (sys_norm.loc[common] - spy_norm.loc[common]) * 100
+        spy_dd = ((spy_close.loc[common] /
+                   spy_close.loc[common].cummax()) - 1) * 100
+    else:
+        alpha_pp = pd.Series(dtype=float)
+        spy_dd = pd.Series(dtype=float)
+
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        fig = go.Figure()
+        if not alpha_pp.empty:
+            fig.add_trace(go.Scatter(
+                x=alpha_pp.index, y=alpha_pp.values,
+                mode="lines", name="Cumulative alpha",
+                line=dict(color="#2563eb", width=2),
+            ))
+            fig.add_hline(y=0, line=dict(dash="dash",
+                                         color="#475569", width=1))
+        fig.update_layout(
+            title="Cumulative alpha vs SPY (pp)",
+            xaxis_title="", yaxis_title="Alpha (pp)",
+            height=360, margin=dict(l=10, r=10, t=50, b=10),
+            hovermode="x unified", showlegend=False,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=sys_dd.index, y=sys_dd.values,
+            mode="lines", name="System",
+            line=dict(color="#dc2626", width=2),
+            fill="tozeroy", fillcolor="rgba(220, 38, 38, 0.15)",
+        ))
+        if not spy_dd.empty:
+            fig.add_trace(go.Scatter(
+                x=spy_dd.index, y=spy_dd.values,
+                mode="lines", name="SPY",
+                line=dict(color="#f59e0b", width=2),
+                fill="tozeroy", fillcolor="rgba(245, 158, 11, 0.15)",
+            ))
+        fig.update_layout(
+            title="Drawdown overlay",
+            xaxis_title="", yaxis_title="Drawdown (%)",
+            height=360, margin=dict(l=10, r=10, t=50, b=10),
+            hovermode="x unified",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Metrics strip
+    sys_total_pct = (pv.iloc[-1] / pv.iloc[0] - 1) * 100
+    if not spy_close.empty:
+        spy_total_pct = (spy_close.iloc[-1] / spy_close.iloc[0] - 1) * 100
+        n_days = max((pv.index[-1] - pv.index[0]).days, 1)
+        years = n_days / 365.25
+        sys_ann = (pv.iloc[-1] / pv.iloc[0]) ** (1 / years) - 1
+        spy_ann = (spy_close.iloc[-1] / spy_close.iloc[0]) ** (1 / years) - 1
+        alpha_ann_pp = (sys_ann - spy_ann) * 100
+    else:
+        spy_total_pct = float("nan")
+        alpha_ann_pp = float("nan")
+
+    sys_max_dd = float(sys_dd.min()) if not sys_dd.empty else float("nan")
+    spy_max_dd = float(spy_dd.min()) if not spy_dd.empty else float("nan")
+    days_uw_pct = (pv < pv.cummax()).mean() * 100
+
+    m = st.columns([1, 1, 1, 1])
+    m[0].metric(
+        "Total return", f"{sys_total_pct:+.1f}%",
+        delta=(f"SPY {spy_total_pct:+.1f}%"
+               if not pd.isna(spy_total_pct) else None),
+        delta_color="off",
+    )
+    m[1].metric(
+        "Annualized alpha vs SPY",
+        f"{alpha_ann_pp:+.1f}pp" if not pd.isna(alpha_ann_pp) else "—",
+    )
+    m[2].metric(
+        "Max drawdown", f"{sys_max_dd:.1f}%",
+        delta=(f"SPY {spy_max_dd:.1f}%"
+               if not pd.isna(spy_max_dd) else None),
+        delta_color="off",
+    )
+    m[3].metric("Days underwater", f"{days_uw_pct:.1f}%")
+
+    # ----- Section 2: Is the signal real? -----
+    st.divider()
+    st.subheader("Is the signal real?")
+
+    score_date = pv.index[-1].strftime("%Y-%m-%d")
+    st.caption(
+        f"Score histogram: as of latest snapshot date **{score_date}**. "
+        "Per-date historical scores aren't yet captured by the backtest "
+        "(only the most-recent rebalance is saved); date picker deferred."
+    )
+
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        if scores:
+            held_set = set(holdings.keys())
+            held_vals = [s["composite"] for tkr, s in scores.items()
+                         if tkr in held_set
+                         and isinstance(s, dict)
+                         and s.get("composite") is not None]
+            skip_vals = [s["composite"] for tkr, s in scores.items()
+                         if tkr not in held_set
+                         and isinstance(s, dict)
+                         and s.get("composite") is not None]
+            cutoff = min(held_vals) if held_vals else None
+            fig = go.Figure()
+            fig.add_trace(go.Histogram(
+                x=skip_vals, name="Not held",
+                opacity=0.55, marker=dict(color="#94a3b8"),
+                xbins=dict(size=0.05),
+            ))
+            fig.add_trace(go.Histogram(
+                x=held_vals, name="Held",
+                opacity=0.75, marker=dict(color="#2563eb"),
+                xbins=dict(size=0.05),
+            ))
+            if cutoff is not None:
+                fig.add_vline(
+                    x=cutoff,
+                    line=dict(dash="dash", color="#dc2626", width=1.5),
+                    annotation_text=f"cutoff={cutoff:.3f}",
+                    annotation_position="top right",
+                )
+            fig.update_layout(
+                title="Composite score: held vs skipped",
+                xaxis_title="Composite score", yaxis_title="Count",
+                height=360, margin=dict(l=10, r=10, t=50, b=10),
+                barmode="overlay",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No composite scores available for this config.")
+
+    with c2:
+        feats = load_feature_importance()
+        if feats:
+            top20 = sorted(feats, key=lambda f: f["importance"],
+                           reverse=True)[:20]
+            top20.reverse()  # plotly horizontal bars render bottom-up
+            fig = go.Figure(go.Bar(
+                x=[f["importance"] for f in top20],
+                y=[f["name"] for f in top20],
+                orientation="h",
+                marker=dict(color="#2563eb"),
+            ))
+            fig.update_layout(
+                title="Top 20 features by XGBoost importance",
+                xaxis_title="Importance", yaxis_title="",
+                height=360, margin=dict(l=10, r=10, t=50, b=10),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Feature importance not found. Run "
+                    "`python snapshot_for_cloud.py` to regenerate.")
+
+    # ----- Section 3: Snapshot summary -----
+    st.divider()
+    st.subheader("Snapshot summary")
+
+    n_holdings = len(holdings)
+    sector_map = load_sector_map()
+    sectors_held = {sector_map.get(tkr) for tkr in holdings.keys()
+                    if sector_map.get(tkr)}
+    n_sectors = len(sectors_held)
+
+    if trades_df is not None and not trades_df.empty:
+        last_rebal = pd.to_datetime(trades_df["date"]).max()
+        last_rebal_str = last_rebal.strftime("%Y-%m-%d")
+    else:
+        last_rebal_str = "—"
+
+    if holdings:
+        costs = {tkr: float(h["shares"]) * float(h["entry_price"])
+                 for tkr, h in holdings.items()}
+        total_cost = sum(costs.values())
+        if total_cost > 0:
+            top3_pct = (sum(sorted(costs.values(), reverse=True)[:3])
+                        / total_cost * 100)
+        else:
+            top3_pct = 0.0
+    else:
+        top3_pct = 0.0
+
+    dd_series = (pv / pv.cummax() - 1) * 100
+    worst_dd_pct = float(dd_series.min())
+    worst_dd_date = dd_series.idxmin().strftime("%Y-%m-%d")
+
+    s1, s2 = st.columns([1, 1])
+    with s1:
+        st.markdown(f"**Holdings:** {n_holdings} stocks across "
+                    f"{n_sectors} sectors")
+        st.markdown(f"**Last rebalance:** {last_rebal_str}")
+    with s2:
+        st.markdown(f"**Top 3 concentration:** {top3_pct:.1f}% of portfolio "
+                    f"(by entry-cost weight)")
+        st.markdown(f"**Worst drawdown:** {worst_dd_pct:.1f}% on "
+                    f"{worst_dd_date}")
+
+
 # ---------------------------------------------------------------------------
 # Main app
 # ---------------------------------------------------------------------------
@@ -949,7 +1209,7 @@ def main() -> None:
 
     tabs = st.tabs(
         ["Overview", "Optuna explorer", "Macro state", "Positions", "Trades log",
-         "User Guide"]
+         "User Guide", "Diagnostics"]
     )
     with tabs[0]:
         tab_overview(label, config, result)
@@ -963,6 +1223,8 @@ def main() -> None:
         tab_trades(result)
     with tabs[5]:
         tab_user_guide()
+    with tabs[6]:
+        tab_diagnostics(label, config, result)
 
 
 main()

@@ -71,6 +71,28 @@ def _client():
     )
 
 
+def _ensure_feature_importance_json() -> None:
+    """Generate models/cache/feature_importance.json from the trained
+    XGBoost model + feature column list. Cheap regen on every snapshot —
+    model load is fast and the file is ~1 KB. The dashboard's Diagnostics
+    tab reads this for the top-features-by-importance bar chart."""
+    from model import FEATURE_COLS, load_model
+    model = load_model()
+    importances = model.feature_importances_
+    data = {
+        "features": [
+            {"name": str(name), "importance": float(imp)}
+            for name, imp in zip(FEATURE_COLS, importances)
+        ]
+    }
+    out = REPO_ROOT / "models" / "cache" / "feature_importance.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    print(f"[SNAPSHOT] Wrote feature importance: "
+          f"{out.relative_to(REPO_ROOT)}")
+
+
 def _git_sha() -> str:
     try:
         out = subprocess.check_output(
@@ -126,6 +148,8 @@ def main():
     client = _client()
     print(f"[SNAPSHOT] Bucket: {R2_BUCKET_NAME}")
     print(f"[SNAPSHOT] Endpoint: {R2_ENDPOINT_URL}")
+
+    _ensure_feature_importance_json()
 
     pairs = _collect_files()
     new_keys = {key for _, key in pairs}
