@@ -38,6 +38,7 @@ Cleaner long-term separation of compute from rendering.
 import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import optuna
@@ -885,6 +886,33 @@ def tab_trades(result: dict) -> None:
                  hide_index=True)
 
 
+def tab_user_guide() -> None:
+    st.header("Paper Trader Dashboard User Guide")
+    st.markdown(
+        "A complete walkthrough of what this dashboard shows, what each "
+        "metric means, and what NOT to conclude from any of it. Recommended "
+        "reading for first-time users."
+    )
+    st.markdown(
+        "**What's in the guide:**\n"
+        "- What the system is and how it picks stocks\n"
+        "- Navigation of the dashboard's tabs and sidebar\n"
+        "- Definitions of metrics like Sharpe, alpha, drawdown\n"
+        "- Important caveats — this is **NOT** investment advice"
+    )
+
+    guide_path = Path(__file__).parent / "paper_trader_user_guide.docx"
+    if guide_path.exists():
+        st.download_button(
+            label="Download User Guide (Word doc)",
+            data=guide_path.read_bytes(),
+            file_name="paper_trader_user_guide.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+    else:
+        st.warning("User guide file not found — please contact Mike.")
+
+
 # ---------------------------------------------------------------------------
 # Main app
 # ---------------------------------------------------------------------------
@@ -920,7 +948,8 @@ def main() -> None:
     result = get_result_for_config(label, config)
 
     tabs = st.tabs(
-        ["Overview", "Optuna explorer", "Macro state", "Positions", "Trades log"]
+        ["Overview", "Optuna explorer", "Macro state", "Positions", "Trades log",
+         "User Guide"]
     )
     with tabs[0]:
         tab_overview(label, config, result)
@@ -932,6 +961,8 @@ def main() -> None:
         tab_positions(config, result)
     with tabs[4]:
         tab_trades(result)
+    with tabs[5]:
+        tab_user_guide()
 
 
 main()
