@@ -227,8 +227,14 @@ def main() -> None:
     p.add_argument("--output-dir", default=None,
                    help="dashboard_results destination root. Defaults to "
                         "models/cache/dashboard_results/.")
-    p.add_argument("--n-jobs", type=int, default=4,
-                   help="Optuna parallel workers (default 4, matching --full).")
+    p.add_argument("--n-jobs", type=int, default=1,
+                   help="Optuna parallel workers (default 1). Hypothesis "
+                        "runs with --hold-tunables-fixed produce homogeneous "
+                        "workloads that contend on shared state inside "
+                        "run_backtest, so n_jobs>1 typically delivers no "
+                        "real speedup. Override only if you understand the "
+                        "tradeoff (e.g., when running multiple varying "
+                        "params).")
     args = p.parse_args()
 
     # ---- Validate window ----

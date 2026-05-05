@@ -605,8 +605,17 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
     print(f"[SAVE]   wrote {out_dir}")
 
 
-def _trial_to_config(trial: optuna.trial.FrozenTrial) -> BacktestConfig:
-    p = trial.params
+def _trial_to_config(trial: optuna.trial.FrozenTrial,
+                     fixed_values: dict | None = None) -> BacktestConfig:
+    """Reconstruct a BacktestConfig from a completed trial. fixed_values
+    fills in search-space params that weren't sampled (the hypothesis
+    launcher pins them via build_search_space's fixed_values kwarg,
+    which skips trial.suggest_* — those keys are absent from
+    trial.params). Default None preserves bit-identical behavior for
+    v1 callers — fixed_values is only needed for hypothesis runs."""
+    # Merge with trial.params winning on conflict. By construction the
+    # two sets are disjoint (fixed names skip suggest_*), but defensive.
+    p = {**(fixed_values or {}), **trial.params}
     return BacktestConfig(
         weight_fundamental       = p["weight_fundamental"],
         weight_technical         = p["weight_technical"],
@@ -734,7 +743,7 @@ def save_hypothesis_result(
         trial_number = trial.number
     else:
         trial = study.trials[trial_number]
-    cfg = _trial_to_config(trial)
+    cfg = _trial_to_config(trial, fixed_values=fixed_tunables)
     label = f"best_{study_name}_{trial_number}"
 
     extra_meta = {

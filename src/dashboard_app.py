@@ -232,6 +232,22 @@ def load_sector_map() -> dict:
 
 
 @st.cache_data(show_spinner=False)
+def _load_meta_only(label: str) -> dict | None:
+    """Read just the meta.json from a dashboard_results label. Returns
+    None on missing/unreadable. Used by sidebar_config_picker to extract
+    fixed_tunables for hypothesis-style studies (whose Optuna trial.params
+    is missing the held-fixed keys)."""
+    p = _dashboard_result_path(label, "meta.json")
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+@st.cache_data(show_spinner=False)
 def load_saved_result(label: str) -> dict | None:
     """Read a pre-saved backtest result from dashboard_results/<label>/.
     Returns None if any file is missing. Cloud mode fetches each file
@@ -394,8 +410,14 @@ def macro_score_series(macro_df: pd.DataFrame,
     )
 
 
-def trial_to_config(trial: optuna.trial.FrozenTrial) -> BacktestConfig:
-    p = trial.params
+def trial_to_config(trial: optuna.trial.FrozenTrial,
+                    fixed_values: dict | None = None) -> BacktestConfig:
+    """Reconstruct a BacktestConfig from a completed trial. fixed_values
+    fills in search-space params that weren't sampled — needed for
+    hypothesis-style studies where trial.params only contains the
+    varied tunables (held-fixed ones skip trial.suggest_*). Default
+    None preserves bit-identical behavior for v1 studies."""
+    p = {**(fixed_values or {}), **trial.params}
     return BacktestConfig(
         weight_fundamental       = p["weight_fundamental"],
         weight_technical         = p["weight_technical"],
@@ -489,6 +511,22 @@ def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None
 
     s = optuna.load_study(study_name=study_name, storage=_db_url())
 
+    # Hypothesis-style studies record fixed_tunables in their saved
+    # best-trial meta.json (study-level property — every trial in the
+    # study shares the same held values). Look it up once per render so
+    # both Best and Custom branches can pass it to trial_to_config.
+    # v1 studies produce None here (no fixed_tunables key in meta) →
+    # bit-identical to pre-Archetype-3 behavior because trial_to_config's
+    # default-None merge is a no-op when trial.params has all 9 keys.
+    fixed_for_study: dict | None = None
+    try:
+        best_label = f"best_{study_name}_{s.best_trial.number}"
+        saved_meta = _load_meta_only(best_label)
+        if saved_meta and isinstance(saved_meta.get("fixed_tunables"), dict):
+            fixed_for_study = saved_meta["fixed_tunables"]
+    except ValueError:
+        pass  # study has no completed trials — handled in branches below
+
     if mode == "Best trial of selected study":
         try:
             t = s.best_trial
@@ -497,7 +535,7 @@ def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None
             return "default", BacktestConfig(), None, None
         trial_number = t.number
         label = f"best_{study_name}_{trial_number}"
-        cfg = trial_to_config(t)
+        cfg = trial_to_config(t, fixed_values=fixed_for_study)
         st.sidebar.caption(f"Best trial: **#{trial_number}** "
                            f"(score {t.value:.4f})")
     else:  # Custom
@@ -527,7 +565,7 @@ def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None
             if t.value is None:
                 return "default", BacktestConfig(), None, None
         label = f"custom_{study_name}_{trial_number}"
-        cfg = trial_to_config(t)
+        cfg = trial_to_config(t, fixed_values=fixed_for_study)
         st.sidebar.caption(f"Trial #{trial_number} score: "
                            f"{t.value:.4f}" if t.value is not None
                            else "Trial has no value")
