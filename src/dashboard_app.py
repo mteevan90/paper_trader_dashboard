@@ -438,8 +438,20 @@ def get_result_for_config(label: str, config: BacktestConfig) -> dict:
 def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None]:
     st.sidebar.title("⚙️ Config")
     studies = list_studies()
-    full_studies = sorted([s for s in studies if not s.startswith("smoke_")],
-                          reverse=True)
+    full_studies_all = sorted([s for s in studies if not s.startswith("smoke_")],
+                              reverse=True)
+
+    # Cloud mode has no live-fallback; offering a study with no pre-saved
+    # best_* dashboard_results would 404 on R2 fetch and friendly-warning-
+    # stop the user. Filter to studies that actually have results in the
+    # snapshot. Local mode keeps the full list because live-fallback works.
+    if CLOUD_MODE:
+        available_labels = set(data_source.list_dashboard_result_labels())
+        full_studies = [s for s in full_studies_all
+                        if any(lbl.startswith(f"best_{s}_")
+                               for lbl in available_labels)]
+    else:
+        full_studies = full_studies_all
 
     # Custom-trial selection requires the live-fallback backtest path,
     # which is disabled in cloud mode (segment 22 design). Hide the
@@ -455,7 +467,14 @@ def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None
 
     if mode != "Default config":
         if not full_studies:
-            st.sidebar.warning("No optuna_v1_* studies found in SQLite.")
+            if CLOUD_MODE and full_studies_all:
+                st.sidebar.warning(
+                    "No studies in SQLite have pre-saved best-trial "
+                    "results in the cloud snapshot. Showing Default "
+                    "config only."
+                )
+            else:
+                st.sidebar.warning("No optuna_v1_* studies found in SQLite.")
             mode = "Default config"
         else:
             default_idx = (full_studies.index(LOCKED_BEST_STUDY)
@@ -942,6 +961,231 @@ def tab_user_guide() -> None:
         st.warning("User guide file not found — please contact Mike.")
 
 
+def _notable_observations(
+    portfolio_df: pd.DataFrame,
+    trades_df: pd.DataFrame | None,
+    holdings: dict,
+    scores: dict,
+    spy_close: pd.Series,
+    cutoff: float | None,
+    days_uw_pct: float,
+    top3_pct: float,
+    n_sectors: int,
+    sector_map: dict,
+    feature_importance: list[dict],
+) -> list[str]:
+    """Generate auto-text observations for the Diagnostics tab. Each
+    bullet is computed defensively — any failure (missing data, empty
+    intersection) yields a silent skip, never an error message."""
+    obs: list[str] = []
+    pv = portfolio_df["portfolio_value"]
+
+    # a. Alpha gap opening: first 3-consecutive-day stretch where
+    #    60-day rolling alpha was negative.
+    try:
+        if not spy_close.empty:
+            common = pv.index.intersection(spy_close.index)
+            sys_60 = pv.loc[common].pct_change(60)
+            spy_60 = spy_close.loc[common].pct_change(60)
+            roll_alpha = sys_60 - spy_60
+            neg = roll_alpha < 0
+            run_sum = neg.rolling(3).sum()
+            hits = run_sum[run_sum >= 3]
+            if not hits.empty:
+                first = hits.index[0]
+                obs.append(
+                    f"System began trailing SPY around "
+                    f"{first.strftime('%B %Y')}"
+                )
+    except Exception:
+        pass
+
+    # b. Worst 90-day stretch
+    # c. Best 90-day stretch (skip if max <= 0)
+    try:
+        if not spy_close.empty:
+            common = pv.index.intersection(spy_close.index)
+            sys_90 = pv.loc[common].pct_change(90)
+            spy_90 = spy_close.loc[common].pct_change(90)
+            r90 = (sys_90 - spy_90).dropna()
+            if not r90.empty:
+                worst_end = r90.idxmin()
+                obs.append(
+                    f"Worst 90-day stretch ended "
+                    f"{worst_end.strftime('%B %Y')}: system trailed "
+                    f"SPY by {abs(r90.min()) * 100:.1f}pp"
+                )
+                if r90.max() > 0:
+                    best_end = r90.idxmax()
+                    obs.append(
+                        f"Best 90-day stretch ended "
+                        f"{best_end.strftime('%B %Y')}: system led "
+                        f"SPY by {r90.max() * 100:.1f}pp"
+                    )
+    except Exception:
+        pass
+
+    # d. Drawdown recovery
+    try:
+        dd = pv / pv.cummax() - 1
+        worst_dd_date = dd.idxmin()
+        worst_dd_pct = float(dd.min()) * 100
+        pre_trough_max = float(pv.loc[:worst_dd_date].max())
+        post = pv.loc[worst_dd_date:]
+        recovered = post[post >= pre_trough_max]
+        if not recovered.empty:
+            recovery_date = recovered.index[0]
+            days = (recovery_date - worst_dd_date).days
+            obs.append(
+                f"Worst drawdown {worst_dd_pct:.1f}% on "
+                f"{worst_dd_date.strftime('%Y-%m-%d')}, recovered "
+                f"{days} days later"
+            )
+        else:
+            obs.append(
+                f"Worst drawdown {worst_dd_pct:.1f}% on "
+                f"{worst_dd_date.strftime('%Y-%m-%d')}, has not yet "
+                f"recovered"
+            )
+    except Exception:
+        pass
+
+    # e. Underwater interpretation
+    try:
+        if days_uw_pct > 75:
+            obs.append(
+                f"System spent {days_uw_pct:.1f}% of the period below "
+                f"its prior peak — significantly more than typical "
+                f"buy-and-hold"
+            )
+        elif days_uw_pct >= 50:
+            obs.append(
+                f"System spent {days_uw_pct:.1f}% of the period below "
+                f"its prior peak — moderately frequent recovery cycles"
+            )
+        elif days_uw_pct >= 25:
+            obs.append(
+                f"System spent {days_uw_pct:.1f}% of the period below "
+                f"its prior peak — typical for an actively managed "
+                f"strategy"
+            )
+        else:
+            obs.append(
+                f"System spent {days_uw_pct:.1f}% of the period at or "
+                f"near all-time highs"
+            )
+    except Exception:
+        pass
+
+    # f. Concentration interpretation
+    try:
+        if top3_pct > 50:
+            obs.append(
+                f"High conviction: top 3 holdings represent "
+                f"{top3_pct:.1f}% of portfolio"
+            )
+        elif top3_pct >= 25:
+            obs.append(
+                f"Moderate concentration: top 3 holdings represent "
+                f"{top3_pct:.1f}% of portfolio"
+            )
+        else:
+            obs.append(
+                f"Diversified: top 3 holdings represent "
+                f"{top3_pct:.1f}% of portfolio"
+            )
+    except Exception:
+        pass
+
+    # g. Score cutoff position
+    try:
+        if cutoff is not None and scores:
+            all_scores = [s["composite"] for s in scores.values()
+                          if isinstance(s, dict)
+                          and s.get("composite") is not None]
+            if all_scores:
+                pctile = (sum(1 for s in all_scores if s <= cutoff)
+                          / len(all_scores) * 100)
+                top_pct = 100 - pctile
+                if pctile >= 90:
+                    obs.append(
+                        f"System picks only from the top "
+                        f"{top_pct:.0f}% of scored stocks"
+                    )
+                elif pctile >= 70:
+                    obs.append(
+                        f"System picks from the top "
+                        f"{top_pct:.0f}% of scored stocks"
+                    )
+                else:
+                    obs.append(
+                        f"System picks more broadly — cutoff at "
+                        f"{pctile:.0f} percentile"
+                    )
+    except Exception:
+        pass
+
+    # h. Top feature category
+    try:
+        def _categorize(name: str) -> str:
+            n = name.lower()
+            if "vix" in n or "vol" in n:
+                return "volatility"
+            if any(p in n for p in ("sma_", "ema_", "roc_", "mom_",
+                                    "momentum_", "rs_", "rsi_", "macd_")):
+                return "momentum/technical"
+            if any(p in n for p in ("pe_", "pb_", "eps_", "_growth",
+                                    "debt_", "profit_")):
+                return "fundamental"
+            if any(p in n for p in ("macro_", "nfci_", "sahm_", "yield_")):
+                return "macro"
+            return "other"
+
+        if feature_importance:
+            top5 = sorted(feature_importance,
+                          key=lambda f: f["importance"], reverse=True)[:5]
+            cats: dict[str, int] = {}
+            for f in top5:
+                c = _categorize(f["name"])
+                cats[c] = cats.get(c, 0) + 1
+            if cats:
+                dom_cat = max(cats, key=lambda k: cats[k])
+                dom_count = cats[dom_cat]
+                obs.append(
+                    f"Top features dominated by {dom_cat}: "
+                    f"{dom_count} of top 5 features"
+                )
+    except Exception:
+        pass
+
+    # i. Sector spread + dominant sector if any > 40%
+    try:
+        if holdings and sector_map:
+            obs.append(f"Holdings span {n_sectors} of 11 GICS sectors")
+            costs = {tkr: float(h["shares"]) * float(h["entry_price"])
+                     for tkr, h in holdings.items()}
+            total_cost = sum(costs.values())
+            if total_cost > 0:
+                sector_costs: dict[str, float] = {}
+                for tkr, c in costs.items():
+                    sec = sector_map.get(tkr)
+                    if sec:
+                        sector_costs[sec] = sector_costs.get(sec, 0.0) + c
+                if sector_costs:
+                    top_sec, top_amt = max(sector_costs.items(),
+                                           key=lambda kv: kv[1])
+                    pct = top_amt / total_cost * 100
+                    if pct > 40:
+                        obs.append(
+                            f"Sector concentration: {pct:.1f}% in "
+                            f"{top_sec}"
+                        )
+    except Exception:
+        pass
+
+    return obs
+
+
 def tab_diagnostics(label: str, config: BacktestConfig, result: dict) -> None:
     st.header("Diagnostics")
     st.caption(f"Showing config: **{label}** "
@@ -1054,6 +1298,10 @@ def tab_diagnostics(label: str, config: BacktestConfig, result: dict) -> None:
         delta_color="off",
     )
     m[3].metric("Days underwater", f"{days_uw_pct:.1f}%")
+    st.caption(
+        "Annualized alpha is β-adjusted (Jensen's alpha) — not the "
+        "same as cumulative excess return (system total minus SPY total)."
+    )
 
     # ----- Section 2: Is the signal real? -----
     st.divider()
@@ -1066,19 +1314,26 @@ def tab_diagnostics(label: str, config: BacktestConfig, result: dict) -> None:
         "(only the most-recent rebalance is saved); date picker deferred."
     )
 
+    # Hoisted out of the c1 block so the Notable observations section
+    # below can reuse cutoff (lowest score among held stocks).
+    cutoff: float | None = None
+    held_vals: list[float] = []
+    skip_vals: list[float] = []
+    if scores:
+        held_set = set(holdings.keys())
+        held_vals = [s["composite"] for tkr, s in scores.items()
+                     if tkr in held_set
+                     and isinstance(s, dict)
+                     and s.get("composite") is not None]
+        skip_vals = [s["composite"] for tkr, s in scores.items()
+                     if tkr not in held_set
+                     and isinstance(s, dict)
+                     and s.get("composite") is not None]
+        cutoff = min(held_vals) if held_vals else None
+
     c1, c2 = st.columns([1, 1])
     with c1:
         if scores:
-            held_set = set(holdings.keys())
-            held_vals = [s["composite"] for tkr, s in scores.items()
-                         if tkr in held_set
-                         and isinstance(s, dict)
-                         and s.get("composite") is not None]
-            skip_vals = [s["composite"] for tkr, s in scores.items()
-                         if tkr not in held_set
-                         and isinstance(s, dict)
-                         and s.get("composite") is not None]
-            cutoff = min(held_vals) if held_vals else None
             fig = go.Figure()
             fig.add_trace(go.Histogram(
                 x=skip_vals, name="Not held",
@@ -1171,6 +1426,19 @@ def tab_diagnostics(label: str, config: BacktestConfig, result: dict) -> None:
                     f"(by entry-cost weight)")
         st.markdown(f"**Worst drawdown:** {worst_dd_pct:.1f}% on "
                     f"{worst_dd_date}")
+
+    # ----- Section 4: Notable observations -----
+    st.divider()
+    st.subheader("Notable observations")
+    obs = _notable_observations(
+        portfolio_df, trades_df, holdings, scores, spy_close,
+        cutoff, days_uw_pct, top3_pct, n_sectors, sector_map,
+        load_feature_importance(),
+    )
+    if obs:
+        st.markdown("\n".join(f"- {o}" for o in obs))
+    else:
+        st.caption("(No observations available — empty backtest result.)")
 
 
 # ---------------------------------------------------------------------------
