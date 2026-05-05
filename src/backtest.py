@@ -357,6 +357,7 @@ def run_backtest(
     config: BacktestConfig | None = None,
     legacy_predict: bool = False,
     legacy_scoring: bool = False,
+    market_data: dict[str, pd.DataFrame] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict, dict]:
     """Run a single-sleeve monthly-rebalance backtest.
 
@@ -440,8 +441,14 @@ def run_backtest(
     spy_end = (all_dates[-1] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     market_cache_dir = os.path.join(os.path.dirname(__file__),
                                     "..", "models", "price_cache")
-    market = get_stock_data_cached(["SPY", "^VIX"], spy_start, spy_end,
-                                   cache_dir=market_cache_dir)
+    if market_data is not None:
+        # Reuse preloaded SPY+VIX from optuna_runner._load_shared_data.
+        # Avoids per-trial yfinance.download which is not thread-safe and
+        # under n_jobs>1 produces InvalidIndexError races at fetch_data.py:438.
+        market = market_data
+    else:
+        market = get_stock_data_cached(["SPY", "^VIX"], spy_start, spy_end,
+                                       cache_dir=market_cache_dir)
     spy = market.get("SPY", pd.DataFrame())
     vix = market.get("^VIX", pd.DataFrame())
     if not spy.empty:

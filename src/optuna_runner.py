@@ -138,9 +138,9 @@ def _load_shared_data(train_start: str, train_end: str) -> dict:
     )
     price_data = _filter_to_window(price_data, train_end)
 
-    print("[OPTUNA]   SPY close...")
+    print("[OPTUNA]   SPY + VIX market data...")
     market = get_stock_data_cached(
-        ["SPY"], _DEFAULTS.train_start, _DEFAULTS.validate_end,
+        ["SPY", "^VIX"], _DEFAULTS.train_start, _DEFAULTS.validate_end,
         cache_dir=PRICE_CACHE,
     )
     spy_close = market["SPY"]["Close"]
@@ -221,6 +221,7 @@ def _load_shared_data(train_start: str, train_end: str) -> dict:
         "featured_data":  feature_matrix,
         "price_data":     price_data,
         "spy_close":      spy_close,
+        "market_data":    market,
         "sector_map":     sector_map,
         "fund_data":      fund_data,
         "earnings_dates": earn_dates,
@@ -370,6 +371,7 @@ def objective_fn(trial: optuna.Trial,
             model=shared_data["model"],
             config=config,
             legacy_predict=False,
+            market_data=shared_data.get("market_data"),
         )
         summary    = summarize_backtest(portfolio_df, shared_data["spy_close"])
         score      = compute_objective(summary)
@@ -573,6 +575,7 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
         earnings_dates=shared["earnings_dates"],
         model=shared["model"],
         config=config,
+        market_data=shared.get("market_data"),
     )
     elapsed = time.perf_counter() - t0
     print(f"[SAVE]   backtest done in {elapsed:.1f}s, "
@@ -660,7 +663,7 @@ def _load_full_shared_data() -> dict:
         cache_dir=PRICE_CACHE,
     )
     market = get_stock_data_cached(
-        ["SPY"], cfg.train_start, cfg.validate_end,
+        ["SPY", "^VIX"], cfg.train_start, cfg.validate_end,
         cache_dir=PRICE_CACHE,
     )
     spy_close = market["SPY"]["Close"]
@@ -683,6 +686,7 @@ def _load_full_shared_data() -> dict:
         "featured_data":  feature_matrix,
         "price_data":     price_data,
         "spy_close":      spy_close,
+        "market_data":    market,
         "sector_map":     sector_map,
         "fund_data":      fund_data,
         "earnings_dates": earn_dates,
