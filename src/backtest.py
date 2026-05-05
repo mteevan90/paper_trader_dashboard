@@ -345,7 +345,11 @@ def compute_composite_scores(
     """
     if config is None:
         config = BacktestConfig()
-    available = [t for t in tickers if t in model_scores]
+    # fund_data filter: skip tickers missing fundamentals (e.g., recent
+    # universe entrants like ARM/GEHC/GEV/VLTO that yfinance hasn't
+    # surfaced via .info yet). Without this, score_fundamentals raises
+    # KeyError on the dict comprehension over missing tickers.
+    available = [t for t in tickers if t in model_scores and t in fund_data]
     f_scores = score_fundamentals(fund_data, available)
     t_scores = score_technical(price_data, featured_data, date, available)
     # Alt bucket: equal-weight mean of registered alt signals (currently
