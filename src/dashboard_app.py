@@ -446,7 +446,8 @@ def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None
     # stop the user. Filter to studies that actually have results in the
     # snapshot. Local mode keeps the full list because live-fallback works.
     if CLOUD_MODE:
-        available_labels = set(data_source.list_dashboard_result_labels())
+        available_labels = set(
+            data_source.list_promoted_dashboard_result_labels())
         full_studies = [s for s in full_studies_all
                         if any(lbl.startswith(f"best_{s}_")
                                for lbl in available_labels)]
@@ -469,9 +470,8 @@ def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None
         if not full_studies:
             if CLOUD_MODE and full_studies_all:
                 st.sidebar.warning(
-                    "No studies in SQLite have pre-saved best-trial "
-                    "results in the cloud snapshot. Showing Default "
-                    "config only."
+                    "No promoted studies available in the cloud "
+                    "snapshot. Showing Default config only."
                 )
             else:
                 st.sidebar.warning("No optuna_v1_* studies found in SQLite.")

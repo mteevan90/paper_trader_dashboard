@@ -200,3 +200,23 @@ def list_dashboard_result_labels() -> list[str]:
             if len(parts) >= 3 and parts[0] == "dashboard_results":
                 labels.add(parts[1])
     return sorted(labels)
+
+
+@st.cache_data(show_spinner=False)
+def list_promoted_dashboard_result_labels() -> list[str]:
+    """Subset of list_dashboard_result_labels() restricted to labels
+    whose meta.json has promoted=true. Used by the cloud dashboard's
+    Best Trial picker to hide experimental studies. Missing/malformed
+    meta.json or missing "promoted" field is treated as not promoted."""
+    out: list[str] = []
+    for label in list_dashboard_result_labels():
+        try:
+            meta_path = path_to(
+                f"models/cache/dashboard_results/{label}/meta.json")
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            if meta.get("promoted") is True:
+                out.append(label)
+        except Exception:
+            continue
+    return out

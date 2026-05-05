@@ -50,6 +50,17 @@ R2_ENDPOINT_URL      = os.getenv("R2_ENDPOINT_URL")
 R2_BUCKET_NAME       = os.getenv("R2_BUCKET_NAME")
 
 
+# Manually-graduated labels. Anything else defaults to promoted=false
+# (i.e. experimental — hidden from the cloud dashboard's Best Trial
+# picker). To graduate a new study, either add its label here, OR set
+# "promoted": true in its local meta.json (which the snapshot honors
+# verbatim).
+PROMOTED_LABELS: frozenset[str] = frozenset({
+    "default",
+    "best_optuna_v1_20260504_103429_706",
+})
+
+
 def _check_creds() -> None:
     missing = [k for k, v in (
         ("R2_ACCESS_KEY_ID",     R2_ACCESS_KEY_ID),
@@ -143,6 +154,35 @@ def _list_remote_keys(client) -> set[str]:
     return keys
 
 
+def _is_dashboard_meta(r2_key: str) -> tuple[bool, str | None]:
+    """Return (is_meta, label) for keys of shape
+    dashboard_results/<label>/meta.json. (False, None) otherwise."""
+    parts = r2_key.split("/")
+    if (len(parts) == 3
+            and parts[0] == "dashboard_results"
+            and parts[2] == "meta.json"):
+        return True, parts[1]
+    return False, None
+
+
+def _meta_with_promoted(local: Path, label: str) -> tuple[bytes, bool]:
+    """Read a dashboard_results meta.json; return (bytes_to_upload,
+    promoted_flag).
+
+    If "promoted" is already present, honor it verbatim (return original
+    bytes). Otherwise default-fill: PROMOTED_LABELS -> True, else False.
+    The local file is NOT modified — only the snapshot upload is augmented.
+    """
+    with open(local, "rb") as f:
+        original = f.read()
+    meta = json.loads(original)
+    if "promoted" in meta:
+        return original, bool(meta["promoted"])
+    meta["promoted"] = label in PROMOTED_LABELS
+    return (json.dumps(meta, indent=2).encode("utf-8"),
+            bool(meta["promoted"]))
+
+
 def main():
     _check_creds()
     client = _client()
@@ -173,12 +213,32 @@ def main():
     total_bytes = 0
     t0 = time.perf_counter()
     file_records = []
+    promoted_log: dict[str, bool] = {}
     for local, r2_key in to_upload:
-        size = local.stat().st_size
+        is_meta, label = _is_dashboard_meta(r2_key)
+        if is_meta and label is not None:
+            body, promoted = _meta_with_promoted(local, label)
+            promoted_log[label] = promoted
+            size = len(body)
+        else:
+            body = None
+            size = local.stat().st_size
         total_bytes += size
         print(f"  [UPLOAD] {r2_key:<60} ({size:>10,} bytes)")
-        client.upload_file(str(local), R2_BUCKET_NAME, r2_key)
+        if body is not None:
+            client.put_object(
+                Bucket=R2_BUCKET_NAME, Key=r2_key,
+                Body=body, ContentType="application/json",
+            )
+        else:
+            client.upload_file(str(local), R2_BUCKET_NAME, r2_key)
         file_records.append({"key": r2_key, "size": size})
+
+    if promoted_log:
+        print("\n[SNAPSHOT] Promoted vs experimental dashboard_results:")
+        for label, p in sorted(promoted_log.items()):
+            flag = "PROMOTED" if p else "experimental"
+            print(f"  [{flag:<12}] {label}")
 
     # Manifest
     manifest = {
