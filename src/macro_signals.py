@@ -56,7 +56,12 @@ def _snapshot_miss(cache_name: str, path: str, required: str) -> "RuntimeError":
 # is always traceable to a human-edited number.
 # v2 (segment 11): added NFCI, SAHMREALTIME, T10Y3M to FRED_SERIES;
 # compute_macro_score now averages 7 components instead of 4.
-MACRO_VERSION   = "v2"
+# v3 (macro fix 2026-05-06): added spy_drawdown column derived from
+# price_cache/SPY.parquet (trailing 252d rolling drawdown). compute_macro
+# _score now averages 8 components — the new equity-stress sub-score
+# detects Q4-2018-style vol shocks that the recession-skewed FRED
+# components missed.
+MACRO_VERSION   = "v3"
 ANALYST_VERSION = "v1"
 
 FRED_SERIES = {
@@ -126,6 +131,49 @@ def _fetch_fred_series(fred: Fred, start: str, end: str) -> pd.DataFrame:
     # non-NaN reading. Backfill is deliberately NOT used — it would
     # propagate future readings to past dates (lookahead bias).
     df = df.ffill()
+    return df
+
+
+def _attach_spy_drawdown(df: pd.DataFrame) -> pd.DataFrame:
+    """Attach a `spy_drawdown` column to a macro DataFrame.
+
+    Computes SPY's trailing 252-day rolling drawdown (close / rolling
+    max − 1). Reads SPY from `<DATA_ROOT>/price_cache/SPY.parquet`
+    when present (the path the rest of the codebase uses), falls back
+    to a yfinance fetch sized to df's date range in live mode. In
+    snapshot mode the price file is required and a missing file
+    hard-fails per the existing _snapshot_miss convention.
+
+    The 252-day lookback intentionally matches the equity-drawdown
+    investigation in models/snapshots/macro_signal_investigation_
+    20260506/ — long enough to span a typical bear-market cycle,
+    short enough that "recovery" gets re-detected within a year of
+    a new high.
+    """
+    spy_path = os.path.join(DATA_ROOT, "price_cache", "SPY.parquet")
+    if os.path.exists(spy_path):
+        spy = pd.read_parquet(spy_path)
+        spy.index = pd.to_datetime(spy.index)
+        close = spy["Close"]
+    elif SNAPSHOT_MODE:
+        raise _snapshot_miss(
+            "spy_price_for_macro_drawdown", spy_path,
+            "SPY.parquet present in <DATA_ROOT>/price_cache")
+    else:
+        # Live-mode fallback: fetch SPY directly so an empty price
+        # cache doesn't break macro signal generation.
+        h = yf.Ticker("SPY").history(
+            start=df.index.min().strftime("%Y-%m-%d"),
+            end=(df.index.max() + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+            auto_adjust=True,
+        )
+        close = h["Close"]
+        if hasattr(close.index, "tz_convert"):
+            close.index = pd.to_datetime(close.index).tz_localize(None)
+    roll_max = close.rolling(252, min_periods=20).max()
+    dd = (close / roll_max - 1.0)
+    df = df.copy()
+    df["spy_drawdown"] = dd.reindex(df.index, method="ffill")
     return df
 
 
@@ -212,6 +260,7 @@ def fetch_macro_signals(start: str, end: str) -> pd.DataFrame:
             if not back.empty:
                 cached = pd.concat([back, cached])
                 cached = cached[~cached.index.duplicated(keep="last")].sort_index()
+                cached = _attach_spy_drawdown(cached)
                 print(f"  [MACRO] Backfilled {len(back)} rows "
                       f"(from {cached.index.min().date()})")
 
@@ -229,6 +278,7 @@ def fetch_macro_signals(start: str, end: str) -> pd.DataFrame:
             if not fresh.empty:
                 cached = pd.concat([cached, fresh])
                 cached = cached[~cached.index.duplicated(keep="last")].sort_index()
+                cached = _attach_spy_drawdown(cached)
                 print(f"  [MACRO] Appended {len(fresh)} new rows "
                       f"(through {cached.index.max().date()})")
 
@@ -252,6 +302,7 @@ def fetch_macro_signals(start: str, end: str) -> pd.DataFrame:
     df = _fetch_fred_series(fred, start, end)
     if df.empty:
         return df
+    df = _attach_spy_drawdown(df)
     try:
         df.to_parquet(MACRO_CACHE)
         _save_macro_meta(df, start, end)
@@ -271,7 +322,7 @@ def _clip01(x: float) -> float:
 def compute_macro_score(macro_df: pd.DataFrame, date) -> float:
     """Map macro conditions at ``date`` to a single score in [0, 1].
 
-    1.0 = very bullish, 0.0 = very bearish. Seven equal-weight components:
+    1.0 = very bullish, 0.0 = very bearish. Eight equal-weight components:
       * HY spread level: ≤3% -> 1, ≥8% -> 0 (tight credit = bullish)
       * HY spread 20-day change: ≤-0.5pp -> 1, ≥+1pp -> 0 (tightening = bullish)
       * 10y-2y slope: ≥+1% -> 1, ≤-1% -> 0 (steep = bullish, inverted = bearish)
@@ -279,6 +330,13 @@ def compute_macro_score(macro_df: pd.DataFrame, date) -> float:
       * NFCI: ≤-0.5 -> 1, ≥+1.0 -> 0 (loose financial conditions = bullish)
       * Sahm Rule: ≤0.0 -> 1, ≥+0.5 -> 0 (recession trigger fires at 0.5)
       * 10y-3m slope: ≥+1% -> 1, ≤-1% -> 0 (NY-Fed-preferred recession signal)
+      * SPY 252d drawdown: 0% -> 1, ≤-20% -> 0 (equity-stress regime)
+
+    The SPY-drawdown component (added 2026-05-06) targets fast equity-vol
+    shocks that the recession-skewed FRED components miss — Q4 2018 and
+    2022 had no recession trigger but >19% and >24% trough drawdowns
+    respectively. See models/snapshots/macro_signal_investigation_
+    20260506/report.md for the analysis that motivated this.
 
     TODO: 10y-3m anchors may widen to ±1.5pp if score saturates during
     extreme inversions like 2023's -1.5pp; observe distribution before
@@ -327,9 +385,15 @@ def compute_macro_score(macro_df: pd.DataFrame, date) -> float:
     yc3m = row.get("yc_3m", np.nan)
     yc3m_score = (0.5 + yc3m / 2) if pd.notna(yc3m) else 0.5
 
+    # 8. SPY 252d drawdown — equity-stress signal. 0% = bullish (1.0),
+    # -20% = max stress (0.0). Linear, clipped. See module-level
+    # comment on _attach_spy_drawdown for the data-source details.
+    spy_dd = row.get("spy_drawdown", np.nan)
+    spy_dd_score = (1.0 + spy_dd / 0.20) if pd.notna(spy_dd) else 0.5
+
     components = [hy_level_score, hy_change_score, yc_score, vix_score,
-                  nfci_score, sahm_score, yc3m_score]
-    return _clip01(sum(_clip01(c) for c in components) / 7)
+                  nfci_score, sahm_score, yc3m_score, spy_dd_score]
+    return _clip01(sum(_clip01(c) for c in components) / 8)
 
 
 # --- CBOE put/call ratio ----------------------------------------------------
