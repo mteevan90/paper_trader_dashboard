@@ -262,19 +262,22 @@ def _launcher_main() -> int:
     # Optuna's create_study(load_if_exists=True) is idempotent and
     # safe to race-call from N workers, but pre-creating in the
     # launcher gives us a clean log line and avoids an N-way race for
-    # the first SQLite write on study creation.
+    # the first storage write on study creation.
     import optuna           # noqa: E402  (after env-var setup)
     from optuna.samplers import TPESampler
-    from optuna_runner import STUDY_DB_PATH
-    storage_url = f"sqlite:///{STUDY_DB_PATH}"
+    from optuna_runner import get_storage
+    storage = get_storage()
     optuna.create_study(
         study_name=args.study_name,
-        storage=storage_url,
+        storage=storage,
         sampler=TPESampler(),
         direction="maximize",
         load_if_exists=True,
     )
-    print(f"[PARALLEL] Study {args.study_name!r} ready at {storage_url}")
+    backend_name = ("journal" if os.environ.get("PAPER_TRADER_STORAGE",
+                                                 "sqlite").lower() == "journal"
+                    else "sqlite")
+    print(f"[PARALLEL] Study {args.study_name!r} ready (storage={backend_name})")
 
     # ---- Distribute trials across workers ----
     per_worker = math.ceil(args.n_trials_total / args.n_workers)
@@ -355,8 +358,8 @@ def _launcher_main() -> int:
 
     wall_s = time.perf_counter() - t_start
 
-    # ---- Summary across all workers (read from the SQLite study) ----
-    study = optuna.load_study(study_name=args.study_name, storage=storage_url)
+    # ---- Summary across all workers (read from the shared study) ----
+    study = optuna.load_study(study_name=args.study_name, storage=storage)
     n_complete = sum(1 for t in study.trials
                      if t.state == optuna.trial.TrialState.COMPLETE)
     n_pruned = sum(1 for t in study.trials

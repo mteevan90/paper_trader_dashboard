@@ -73,7 +73,38 @@ _LIVE_DATA_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", "models"))
 _LIVE_CACHE_DIR = os.path.join(_LIVE_DATA_ROOT, "cache")
 CACHE_DIR        = _LIVE_CACHE_DIR  # back-compat for any external readers
 STUDY_DB_PATH    = os.path.join(_LIVE_CACHE_DIR, "optuna_studies.db")
+JOURNAL_LOG_PATH = os.path.join(_LIVE_CACHE_DIR, "optuna_journal.log")
 TRIALS_LOG_PATH  = os.path.join(_LIVE_CACHE_DIR, "optuna_trials.jsonl")
+
+
+def get_storage():
+    """Return the Optuna storage to use, resolved at call-time.
+
+    PAPER_TRADER_STORAGE=journal switches to JournalStorage backed by a
+    file at JOURNAL_LOG_PATH (lower SQLite-style read-lock contention
+    under N-way fan-out). Default and any other value falls back to the
+    SQLite RDBStorage URL string. Returning either a string URL or a
+    BaseStorage instance is supported by every Optuna call site
+    (create_study, load_study, get_all_study_summaries, delete_study).
+
+    Resolved per-call so a single Python process can switch between
+    backends across studies if needed (e.g. dashboard reads vs parallel
+    workers in the same launcher invocation).
+    """
+    if os.environ.get("PAPER_TRADER_STORAGE", "sqlite").lower() == "journal":
+        from optuna.storages import JournalStorage
+        from optuna.storages.journal import (JournalFileBackend,
+                                             JournalFileOpenLock)
+        os.makedirs(os.path.dirname(JOURNAL_LOG_PATH), exist_ok=True)
+        # JournalFileBackend's default lock is JournalFileSymlinkLock,
+        # which calls os.symlink() — that needs Developer Mode or admin
+        # on Windows. JournalFileOpenLock uses exclusive file-open
+        # semantics that work on every platform without elevation.
+        return JournalStorage(JournalFileBackend(
+            JOURNAL_LOG_PATH,
+            lock_obj=JournalFileOpenLock(JOURNAL_LOG_PATH),
+        ))
+    return f"sqlite:///{STUDY_DB_PATH}"
 
 _FAILURE_SENTINEL = -1e6
 
@@ -616,11 +647,11 @@ def run_study(n_trials: int, n_jobs: int, study_name: str,
     build_search_space. Defaults of None preserve the pre-Archetype-3
     behavior (existing v1/smoke/resume callers see no change)."""
     os.makedirs(CACHE_DIR, exist_ok=True)
-    storage_url = f"sqlite:///{STUDY_DB_PATH}"
+    storage = get_storage()
 
     study = optuna.create_study(
         study_name=study_name,
-        storage=storage_url,
+        storage=storage,
         sampler=TPESampler(),
         direction="maximize",
         load_if_exists=True,
@@ -684,11 +715,11 @@ def run_study(n_trials: int, n_jobs: int, study_name: str,
 # ---------------------------------------------------------------------------
 
 def print_report(study_name: str, top_n: int = 10) -> None:
-    storage_url = f"sqlite:///{STUDY_DB_PATH}"
+    storage = get_storage()
     try:
-        study = optuna.load_study(study_name=study_name, storage=storage_url)
+        study = optuna.load_study(study_name=study_name, storage=storage)
     except KeyError:
-        print(f"[OPTUNA] Study {study_name!r} not found in {STUDY_DB_PATH}")
+        print(f"[OPTUNA] Study {study_name!r} not found in storage")
         sys.exit(1)
 
     complete = [t for t in study.trials
@@ -992,10 +1023,10 @@ def save_dashboard_results() -> None:
     _save_one_backtest_result("default", BacktestConfig(), shared)
 
     # 2. Locked best trial (#706 of optuna_v1_20260504_103429)
-    storage_url = f"sqlite:///{STUDY_DB_PATH}"
+    storage = get_storage()
     try:
         study = optuna.load_study(study_name=LOCKED_BEST_STUDY,
-                                  storage=storage_url)
+                                  storage=storage)
         trial = study.trials[LOCKED_BEST_TRIAL]
         cfg_best = _trial_to_config(trial)
         label = f"best_{LOCKED_BEST_STUDY}_{LOCKED_BEST_TRIAL}"
@@ -1049,8 +1080,8 @@ def save_hypothesis_result(
     studies stay hidden from the cloud dashboard's Best-Trial picker
     until manual graduation.
     """
-    storage_url = f"sqlite:///{STUDY_DB_PATH}"
-    study = optuna.load_study(study_name=study_name, storage=storage_url)
+    storage = get_storage()
+    study = optuna.load_study(study_name=study_name, storage=storage)
     if trial_number is None:
         trial = study.best_trial
         trial_number = trial.number
