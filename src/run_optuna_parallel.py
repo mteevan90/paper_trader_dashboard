@@ -209,6 +209,11 @@ def _launcher_main() -> int:
     p.add_argument("--worker-log-dir", default=None,
                    help="Directory for per-worker stdout/stderr logs. "
                         "Default: models/cache/parallel_logs/<study_name>/")
+    p.add_argument("--tpe-startup", type=int, default=None,
+                   help="Override TPESampler.n_startup_trials (default: "
+                        "max(10, n_trials_total // 5) — auto-scales the "
+                        "random-warmup phase to ~20%% of the total trial "
+                        "budget so short studies still get TPE refinement).")
     args = p.parse_args()
 
     if args.window == "validate":
@@ -233,6 +238,26 @@ def _launcher_main() -> int:
     if args.architecture != "legacy":
         os.environ["PAPER_TRADER_ARCHITECTURE"] = args.architecture
         print(f"[PARALLEL] Using architecture: {args.architecture}")
+
+    # ---- Resolve n_startup_trials (auto-scales to ~20% of total) ----
+    # Set the env var BEFORE the launcher's pre-create call so its own
+    # make_sampler() reads the resolved value, AND before workers spawn
+    # so they inherit it via env propagation. CLI override > pre-existing
+    # env var > auto-formula. The formula gives short studies enough
+    # random-warmup to be cheap but leaves room for TPE refinement;
+    # production-scale studies get the canonical 200-trial warmup.
+    if args.tpe_startup is not None:
+        n_startup = args.tpe_startup
+        source = "override"
+    elif os.environ.get("PAPER_TRADER_TPE_STARTUP"):
+        n_startup = int(os.environ["PAPER_TRADER_TPE_STARTUP"])
+        source = "env"
+    else:
+        n_startup = max(10, args.n_trials_total // 5)
+        source = "auto"
+    os.environ["PAPER_TRADER_TPE_STARTUP"] = str(n_startup)
+    print(f"[PARALLEL] n_startup_trials={n_startup} "
+          f"({source} for {args.n_trials_total} trials)")
 
     # ---- Load base config ----
     base_path = Path(args.base_config)
@@ -264,13 +289,12 @@ def _launcher_main() -> int:
     # launcher gives us a clean log line and avoids an N-way race for
     # the first storage write on study creation.
     import optuna           # noqa: E402  (after env-var setup)
-    from optuna.samplers import TPESampler
-    from optuna_runner import get_storage
+    from optuna_runner import get_storage, make_sampler
     storage = get_storage()
     optuna.create_study(
         study_name=args.study_name,
         storage=storage,
-        sampler=TPESampler(),
+        sampler=make_sampler(),
         direction="maximize",
         load_if_exists=True,
     )
