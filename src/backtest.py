@@ -395,6 +395,7 @@ def run_backtest(
     legacy_predict: bool = False,
     legacy_scoring: bool = False,
     market_data: dict[str, pd.DataFrame] | None = None,
+    compute_rolling_metrics: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict, dict]:
     """Run a single-sleeve monthly-rebalance backtest.
 
@@ -768,6 +769,29 @@ def run_backtest(
     final_holdings = {tkr: {"shares": shares, "entry_price": entry_prices[tkr],
                             "stop_price": stop_prices.get(tkr, 0)}
                       for tkr, shares in positions.items()}
+
+    # Rolling-window metrics: opt-in via kwarg. Result attached to
+    # portfolio_df.attrs to avoid changing the return-tuple shape (every
+    # existing caller stays bit-identical when this is False).
+    if compute_rolling_metrics and not portfolio_df.empty:
+        try:
+            from rolling_metrics import compute_full_rolling_bundle
+            from benchmarks import get_benchmark_returns
+            strat_ret = portfolio_df["portfolio_value"].pct_change().dropna()
+            bench_ret = get_benchmark_returns(
+                "SPY",
+                strat_ret.index[0] if len(strat_ret) else split_date,
+                strat_ret.index[-1] if len(strat_ret) else split_date,
+                market_data=market_data if market_data is not None else {"SPY": spy},
+            )
+            portfolio_df.attrs["rolling_metrics"] = compute_full_rolling_bundle(
+                strat_ret, bench_ret)
+        except Exception as e:
+            # Don't crash the backtest just because rolling-metrics failed.
+            # Record the error so callers can detect it.
+            portfolio_df.attrs["rolling_metrics_error"] = (
+                f"{type(e).__name__}: {e}")
+
     return portfolio_df, trades_df, latest_scores, final_holdings
 
 

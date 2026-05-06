@@ -77,6 +77,18 @@ TRIALS_LOG_PATH  = os.path.join(_LIVE_CACHE_DIR, "optuna_trials.jsonl")
 
 _FAILURE_SENTINEL = -1e6
 
+# --- Objective version selector --------------------------------------------
+# Default "legacy" preserves pre-rolling-framework behavior:
+#   alpha_annualized − 1.5 * max(0, drawdown − 0.15)
+#   (computed by objective.compute_objective on summarize_backtest output)
+# Set PAPER_TRADER_OBJECTIVE=rolling_p75_p25 to switch to the new framework:
+#   p75(rolling_12mo_alpha) − 0.5 * max(0, −p25(rolling_12mo_alpha))
+# Read at trial-time inside objective_fn so it can be flipped between
+# studies in the same process if needed.
+_OBJECTIVE_LEGACY = "legacy"
+_OBJECTIVE_ROLLING = "rolling_p75_p25"
+_VALID_OBJECTIVES = (_OBJECTIVE_LEGACY, _OBJECTIVE_ROLLING)
+
 # Train window from the locked architecture decisions. Pulled from
 # BacktestConfig() defaults rather than hardcoded so a future config
 # revision flows through without missing this file.
@@ -371,6 +383,13 @@ def objective_fn(trial: optuna.Trial,
         _append_trial_log(jsonl_path, log_lock, record)
         raise optuna.TrialPruned(str(e))
 
+    objective_version = os.environ.get("PAPER_TRADER_OBJECTIVE",
+                                       _OBJECTIVE_LEGACY)
+    if objective_version not in _VALID_OBJECTIVES:
+        raise ValueError(
+            f"PAPER_TRADER_OBJECTIVE={objective_version!r} not in "
+            f"{_VALID_OBJECTIVES}")
+
     try:
         portfolio_df, _trades_df, _scores, _holdings = run_backtest(
             shared_data["featured_data"],
@@ -383,21 +402,43 @@ def objective_fn(trial: optuna.Trial,
             config=config,
             legacy_predict=False,
             market_data=shared_data.get("market_data"),
+            compute_rolling_metrics=(
+                objective_version == _OBJECTIVE_ROLLING),
         )
         summary    = summarize_backtest(portfolio_df, shared_data["spy_close"])
-        score      = compute_objective(summary)
+        legacy_score      = compute_objective(summary)
         components = compute_objective_components(summary)
+
+        if objective_version == _OBJECTIVE_ROLLING:
+            from rolling_metrics import compute_objective_score  # local import
+            rolling_bundle = portfolio_df.attrs.get("rolling_metrics") or {}
+            rolling_12mo = rolling_bundle.get("rolling_12mo", {})
+            # Use the precomputed objective_score from the bundle.
+            score = float(rolling_12mo.get("objective_score", _FAILURE_SENTINEL))
+        else:
+            score = legacy_score
 
         record = {
             "study_name":   study_name,
             "trial_number": trial.number,
             "state":        "COMPLETE",
             "score":        score,
+            "objective_version": objective_version,
+            "legacy_score": legacy_score,
             "config":       config.to_dict(),
             "components":   components,
             "started_at":   started_at.isoformat(),
             "duration_seconds": round(time.perf_counter() - t0, 3),
         }
+        if objective_version == _OBJECTIVE_ROLLING:
+            # Trim the windows lists out of the JSONL record (verbose); keep
+            # only summary stats. Full bundle still ends up in dashboard
+            # meta.json via _save_one_backtest_result.
+            r12 = portfolio_df.attrs.get("rolling_metrics", {}).get("rolling_12mo", {})
+            record["rolling_12mo_summary"] = {
+                "alpha_distribution_stats": r12.get("alpha_distribution_stats"),
+                "objective_score":          r12.get("objective_score"),
+            }
         _append_trial_log(jsonl_path, log_lock, record)
         return float(score)
     except Exception as e:
@@ -587,6 +628,7 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
         model=shared["model"],
         config=config,
         market_data=shared.get("market_data"),
+        compute_rolling_metrics=True,
     )
     elapsed = time.perf_counter() - t0
     print(f"[SAVE]   backtest done in {elapsed:.1f}s, "
@@ -637,6 +679,14 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
         "runtime_seconds": round(elapsed, 3),
         "cache_snapshot":  cache_snapshot,
     }
+    # Rolling-window evaluation framework — present if run_backtest was
+    # called with compute_rolling_metrics=True (which we always do here).
+    rolling_bundle = portfolio_df.attrs.get("rolling_metrics")
+    if rolling_bundle:
+        meta["rolling_metrics"] = rolling_bundle
+    rolling_err = portfolio_df.attrs.get("rolling_metrics_error")
+    if rolling_err:
+        meta["rolling_metrics_error"] = rolling_err
     if extra_meta:
         meta.update(extra_meta)
     with open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8") as f:
