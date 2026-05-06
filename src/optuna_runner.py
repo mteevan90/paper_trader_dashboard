@@ -1028,15 +1028,21 @@ def save_hypothesis_result(
     convention save_dashboard_results uses for v1, so the dashboard's
     Best-Trial picker discovers the new entry without code changes.
 
-    window:
-      "train": loads training-window-filtered data and uses
-        split_date=config.train_start. Hypothesis studies run on training
-        only by design (the validation window is held out for manual
-        graduation per the v3 hypothesis spec).
-      anything else: falls back to v1-style validation-window save.
-        run_hypothesis.py errors out on --window validate, so this branch
-        is unreachable from the launcher today; kept so direct
-        programmatic callers retain a sensible default.
+    Two-backtest save (matches Phase 0's save_dashboard_results pattern):
+      1. Training-window verification backtest (only when window=="train").
+         Captures objective-verification metrics into
+         extra_meta["training_window"] for cross-window comparison. No
+         disk artefacts beyond the meta entry — the parquet/json files
+         from this run are intentionally discarded.
+      2. Validation-window backtest. This becomes the dashboard payload
+         (portfolio.parquet, trades.parquet, scores.json, holdings.json)
+         so the dashboard shows the held-out 2024+ data — same convention
+         as Phase 0. window=="train" hypothesis runs no longer save
+         training-window data on disk.
+
+    The window parameter still records which window the trial was
+    optimized on (for provenance in meta.json), independent of the
+    dashboard payload, which is now always validation.
 
     promoted is forced to False. snapshot_for_cloud._meta_with_promoted
     honors any explicit promoted key, so this guarantees experimental
@@ -1067,17 +1073,47 @@ def save_hypothesis_result(
     }
 
     if window == "train":
-        shared = _load_shared_data(cfg.train_start, cfg.train_end)
-        split_date = cfg.train_start
-    else:
-        shared = _load_full_shared_data()
-        split_date = cfg.validate_start
+        train_shared = _load_shared_data(cfg.train_start, cfg.train_end)
+        print(f"[HYPOTHESIS SAVE] Training-window verification backtest "
+              f"(split_date={cfg.train_start})...")
+        t0 = time.perf_counter()
+        train_pf, train_tr, _scores, train_hold = run_backtest(
+            train_shared["featured_data"], train_shared["price_data"],
+            split_date=cfg.train_start,
+            fund_data=train_shared["fund_data"],
+            sector_map=train_shared["sector_map"],
+            earnings_dates=train_shared["earnings_dates"],
+            model=train_shared["model"],
+            config=cfg,
+            market_data=train_shared.get("market_data"),
+            compute_rolling_metrics=True,
+        )
+        train_summary = summarize_backtest(train_pf, train_shared["spy_close"])
+        train_block = {
+            "split_date":      cfg.train_start,
+            "n_days":          int(len(train_pf)),
+            "n_trades":        int(len(train_tr)),
+            "n_holdings":      int(len(train_hold)),
+            "score":           float(compute_objective(train_summary)),
+            "components":      compute_objective_components(train_summary),
+            "runtime_seconds": round(time.perf_counter() - t0, 3),
+        }
+        train_rolling = train_pf.attrs.get("rolling_metrics")
+        if train_rolling:
+            train_block["rolling_metrics"] = train_rolling
+        train_regime = train_pf.attrs.get("regime_stats")
+        if train_regime:
+            train_block["regime_stats"] = train_regime
+        extra_meta["training_window"] = train_block
 
+    # Validation-window run is always the dashboard payload — the on-disk
+    # parquet/json artefacts come from THIS run, not the training one.
+    val_shared = _load_full_shared_data()
     _save_one_backtest_result(
-        label, cfg, shared,
+        label, cfg, val_shared,
         extra_meta=extra_meta,
         output_dir=output_dir,
-        split_date=split_date,
+        split_date=cfg.validate_start,
     )
     out_root = output_dir if output_dir is not None else DASHBOARD_RESULTS_DIR
     print(f"[HYPOTHESIS SAVE] label={label} -> {out_root}")
