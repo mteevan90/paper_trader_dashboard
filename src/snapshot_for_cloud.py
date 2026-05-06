@@ -50,17 +50,6 @@ R2_ENDPOINT_URL      = os.getenv("R2_ENDPOINT_URL")
 R2_BUCKET_NAME       = os.getenv("R2_BUCKET_NAME")
 
 
-# Manually-graduated labels. Anything else defaults to promoted=false
-# (i.e. experimental — hidden from the cloud dashboard's Best Trial
-# picker). To graduate a new study, either add its label here, OR set
-# "promoted": true in its local meta.json (which the snapshot honors
-# verbatim).
-PROMOTED_LABELS: frozenset[str] = frozenset({
-    "default",
-    "best_optuna_v1_20260504_103429_706",
-})
-
-
 def _check_creds() -> None:
     missing = [k for k, v in (
         ("R2_ACCESS_KEY_ID",     R2_ACCESS_KEY_ID),
@@ -169,8 +158,13 @@ def _meta_with_promoted(local: Path, label: str) -> tuple[bytes, bool]:
     """Read a dashboard_results meta.json; return (bytes_to_upload,
     promoted_flag).
 
-    If "promoted" is already present, honor it verbatim (return original
-    bytes). Otherwise default-fill: PROMOTED_LABELS -> True, else False.
+    If "promoted" is present, honor it verbatim (return original bytes).
+    If absent, default-fill to False — every label is experimental until
+    explicitly promoted, no hardcoded exceptions. To graduate a study,
+    set "promoted": true in its local meta.json (the saver already does
+    this for save_dashboard_results; hypothesis runs save with
+    promoted=False and require manual flip).
+
     The local file is NOT modified — only the snapshot upload is augmented.
     """
     with open(local, "rb") as f:
@@ -178,9 +172,8 @@ def _meta_with_promoted(local: Path, label: str) -> tuple[bytes, bool]:
     meta = json.loads(original)
     if "promoted" in meta:
         return original, bool(meta["promoted"])
-    meta["promoted"] = label in PROMOTED_LABELS
-    return (json.dumps(meta, indent=2).encode("utf-8"),
-            bool(meta["promoted"]))
+    meta["promoted"] = False
+    return (json.dumps(meta, indent=2).encode("utf-8"), False)
 
 
 def main():

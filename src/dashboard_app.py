@@ -156,7 +156,7 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 # Cached loaders
 # ---------------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def list_studies() -> list[str]:
     db_path = _db_path()
     if not os.path.exists(db_path):
@@ -164,7 +164,7 @@ def list_studies() -> list[str]:
     return optuna.get_all_study_names(storage=_db_url())
 
 
-@st.cache_data(show_spinner="Loading study trials...")
+@st.cache_data(ttl=300, show_spinner="Loading study trials...")
 def load_study_trials_df(study_name: str) -> pd.DataFrame:
     """Flat DataFrame of every trial in the study with params + value + state."""
     s = optuna.load_study(study_name=study_name, storage=_db_url())
@@ -179,7 +179,7 @@ def load_study_trials_df(study_name: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_trial_jsonl_records(study_name: str) -> list[dict]:
     out: list[dict] = []
     jsonl_path = _trials_jsonl_path()
@@ -196,7 +196,7 @@ def load_trial_jsonl_records(study_name: str) -> list[dict]:
     return out
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_macro_df() -> pd.DataFrame:
     macro_path = _macro_parquet_path()
     if not os.path.exists(macro_path):
@@ -204,7 +204,7 @@ def load_macro_df() -> pd.DataFrame:
     return pd.read_parquet(macro_path)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_model_meta() -> dict:
     meta_path = _model_meta_path()
     if not os.path.exists(meta_path):
@@ -213,7 +213,7 @@ def load_model_meta() -> dict:
         return json.load(f)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_feature_importance() -> list[dict]:
     """Read models/cache/feature_importance.json (written by
     snapshot_for_cloud.py before each snapshot upload)."""
@@ -225,7 +225,7 @@ def load_feature_importance() -> list[dict]:
     return data.get("features", []) or []
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_sector_map() -> dict:
     p = _sector_map_path()
     if not os.path.exists(p):
@@ -234,7 +234,7 @@ def load_sector_map() -> dict:
         return json.load(f)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_ticker_names() -> dict:
     """Read models/cache/ticker_names.json. Returns {} on miss so callers
     fall back to plain ticker strings — never crashes the dashboard."""
@@ -314,7 +314,7 @@ def _render_df_with_ticker_links(df: pd.DataFrame, **kwargs) -> None:
     st.dataframe(show, column_config=column_config, **kwargs)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _load_meta_only(label: str) -> dict | None:
     """Read just the meta.json from a dashboard_results label. Returns
     None on missing/unreadable. Used by sidebar_config_picker to extract
@@ -330,7 +330,7 @@ def _load_meta_only(label: str) -> dict | None:
         return None
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_saved_result(label: str) -> dict | None:
     """Read a pre-saved backtest result from dashboard_results/<label>/.
     Returns None if any file is missing. Cloud mode fetches each file
@@ -360,7 +360,7 @@ def load_saved_result(label: str) -> dict | None:
     }
 
 
-@st.cache_data(show_spinner="Downloading benchmark...")
+@st.cache_data(ttl=3600, show_spinner="Downloading benchmark...")
 def cached_benchmark(ticker: str, start: str, end: str) -> pd.Series:
     return _download_benchmark(ticker, start, end)
 
