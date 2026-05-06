@@ -671,11 +671,9 @@ def tab_overview(label: str, config: BacktestConfig, result: dict) -> None:
         "This is a paper-trading research dashboard. The system runs on a "
         "491-ticker universe of large-cap US equities with a macro overlay "
         "and ML-driven composite scoring. All performance shown is paper "
-        "trading, not real money. The strategy is research-grade and "
-        "currently does not beat the S&P 500 — see the Overview metrics "
-        "for current alpha. Use the sidebar to switch between **Default "
-        "config** (the unoptimized baseline) and **Best trial** (the "
-        "locked Optuna-tuned config from training)."
+        "trading, not real money. Use the sidebar to switch between "
+        "**Default config** (the unoptimized baseline) and **Best trial** "
+        "(the locked Optuna-tuned config from training)."
     )
 
     portfolio_df = result["portfolio_df"]
