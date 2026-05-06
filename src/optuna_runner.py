@@ -106,6 +106,29 @@ def get_storage():
         ))
     return f"sqlite:///{STUDY_DB_PATH}"
 
+
+def make_sampler():
+    """Build the Optuna sampler used by run_study and the parallel launcher.
+
+    PAPER_TRADER_TPE_STARTUP env var controls n_startup_trials (default
+    200). The first n_startup_trials samples use Optuna's internal
+    random sampling — O(1) per sample — before TPE refinement kicks
+    in. This sidesteps TPE's O(n_complete) per-sample fitting cost
+    during the early phase when the history is too small to inform
+    refinement anyway. With 8 fan-out workers each instantiating their
+    own TPESampler against the shared trial history, the first ~N
+    completed trials globally end up random; subsequent trials use
+    TPE on a warmed-up sample population.
+
+    seed=42 keeps the random sequence reproducible across smokes; for
+    the resulting study to be reproducible end-to-end the sampling
+    side is now deterministic, which the previous seedless TPESampler()
+    was not.
+    """
+    n_startup = int(os.environ.get("PAPER_TRADER_TPE_STARTUP", "200"))
+    return TPESampler(n_startup_trials=n_startup, seed=42)
+
+
 _FAILURE_SENTINEL = -1e6
 
 # --- Objective version selector --------------------------------------------
@@ -652,7 +675,7 @@ def run_study(n_trials: int, n_jobs: int, study_name: str,
     study = optuna.create_study(
         study_name=study_name,
         storage=storage,
-        sampler=TPESampler(),
+        sampler=make_sampler(),
         direction="maximize",
         load_if_exists=True,
     )
