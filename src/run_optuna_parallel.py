@@ -91,11 +91,26 @@ def _worker_main() -> int:
 # ---------------------------------------------------------------------------
 
 # Same lists as run_hypothesis.py — kept locally so the launcher is
-# self-contained and doesn't rely on internals of its sibling.
+# self-contained and doesn't rely on internals of its sibling. Union of
+# every search-space param across all three architectures so
+# --override-range works for V2 Track A (regime-dependent, samples both
+# defensive + offensive sets + regime_threshold) and Track B (single-
+# regime, samples only the offensive set + shared params). The legacy
+# 9-name set is the lower-half: weight/atr/position/rebalance + 3
+# shared. Source of truth: build_regime_dependent_search_space and
+# build_single_regime_search_space in optuna_runner.py.
 _SEARCH_SPACE_PARAMS: frozenset[str] = frozenset({
+    # Legacy / defensive set (regime-dependent uses these as the
+    # defensive-half names; build_search_space samples them all).
     "weight_fundamental", "weight_technical", "weight_model",
     "macro_threshold_low", "macro_threshold_gap", "atr_multiplier",
     "analyst_weight", "rebalance_frequency_days", "position_count",
+    # Offensive set (regime-dependent + single-regime architectures).
+    "weight_fundamental_offensive", "weight_technical_offensive",
+    "weight_model_offensive", "atr_multiplier_offensive",
+    "position_count_offensive", "rebalance_frequency_days_offensive",
+    # Regime switch threshold (regime-dependent only).
+    "regime_threshold",
 })
 _DIRECT_FIELDS: frozenset[str] = frozenset({
     "weight_fundamental", "weight_technical", "weight_model",
