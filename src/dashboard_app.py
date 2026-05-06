@@ -118,6 +118,10 @@ def _sector_map_path() -> str:
     return data_source.path_to("models/cache/sector_map.json")
 
 
+def _ticker_names_path() -> str:
+    return data_source.path_to("models/cache/ticker_names.json")
+
+
 LOCKED_BEST_STUDY = "optuna_v1_20260504_103429"
 LOCKED_BEST_TRIAL = 706
 
@@ -229,6 +233,86 @@ def load_sector_map() -> dict:
         return {}
     with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+@st.cache_data(show_spinner=False)
+def load_ticker_names() -> dict:
+    """Read models/cache/ticker_names.json. Returns {} on miss so callers
+    fall back to plain ticker strings — never crashes the dashboard."""
+    p = _ticker_names_path()
+    if not os.path.exists(p):
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _yf_url(ticker: str) -> str:
+    """Yahoo Finance quote URL for a ticker."""
+    return f"https://finance.yahoo.com/quote/{ticker}"
+
+
+def _render_df_with_ticker_links(df: pd.DataFrame, **kwargs) -> None:
+    """Render a DataFrame via st.dataframe with the ticker column as
+    clickable Yahoo Finance links + a wrapped Company-name column
+    injected immediately after.
+
+    Detection is case-insensitive: column named 'ticker' or 'Ticker'
+    both work (the latter is what dashboard._top_traded_stocks emits).
+
+    The Name column comes from ticker_names.json (cached via
+    load_ticker_names). Missing entries fall back to the ticker
+    string. If ticker_names.json is empty/missing, no Name column is
+    injected (graceful fallback)."""
+    if df is None or df.empty:
+        st.dataframe(df, **kwargs)
+        return
+    # Find the ticker column (case-insensitive)
+    ticker_col = next((c for c in df.columns if c.lower() == "ticker"), None)
+    if ticker_col is None:
+        st.dataframe(df, **kwargs)
+        return
+
+    show = df.copy()
+
+    # Inject Name column right after the ticker column (only if names
+    # cache is available — empty dict means cache missing/unbuilt).
+    names = load_ticker_names()
+    name_col_label = None
+    if names:
+        # Pick a label that won't clobber an existing column.
+        name_col_label = "Name" if "Name" not in show.columns else "Company"
+        if name_col_label in show.columns:
+            # Both Name and Company already exist; skip injection.
+            name_col_label = None
+    if name_col_label is not None:
+        name_series = show[ticker_col].apply(lambda t: names.get(t, t))
+        cols = list(show.columns)
+        idx = cols.index(ticker_col)
+        cols.insert(idx + 1, name_col_label)
+        show[name_col_label] = name_series
+        show = show[cols]
+
+    # Transform ticker to URL for LinkColumn rendering
+    show[ticker_col] = show[ticker_col].apply(_yf_url)
+
+    column_config = kwargs.pop("column_config", None) or {}
+    column_config[ticker_col] = st.column_config.LinkColumn(
+        ticker_col,
+        display_text=r"quote/([\w\.\-]+)",
+        help="Open Yahoo Finance for this ticker",
+    )
+    if name_col_label is not None:
+        # width="medium" constrains the column so long names wrap rather
+        # than expanding the table out wide.
+        column_config[name_col_label] = st.column_config.TextColumn(
+            name_col_label,
+            width="medium",
+            help="Company name (shortened — corporate suffixes stripped)",
+        )
+    st.dataframe(show, column_config=column_config, **kwargs)
 
 
 @st.cache_data(show_spinner=False)
@@ -903,7 +987,7 @@ def tab_positions(config: BacktestConfig, result: dict) -> None:
             "composite": round(float(score), 3) if pd.notna(score) else None,
         })
     df = pd.DataFrame(rows).sort_values("composite", ascending=False)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    _render_df_with_ticker_links(df, use_container_width=True, hide_index=True)
 
     st.caption("Note: `entry`/`stop` are from the saved backtest's "
                "final_holdings. Real-time current price is intentionally "
@@ -965,11 +1049,11 @@ def tab_trades(result: dict) -> None:
     show["buy_price"] = show["buy_price"].round(2)
     show["sell_price"] = show["sell_price"].round(2)
     show["return_pct"] = show["return_pct"].round(2)
-    st.dataframe(show, use_container_width=True, hide_index=True)
+    _render_df_with_ticker_links(show, use_container_width=True, hide_index=True)
 
     st.subheader("Top traded tickers")
-    st.dataframe(_top_traded_stocks(trades_df), use_container_width=True,
-                 hide_index=True)
+    _render_df_with_ticker_links(_top_traded_stocks(trades_df),
+                                 use_container_width=True, hide_index=True)
 
 
 def tab_user_guide() -> None:
@@ -997,6 +1081,71 @@ def tab_user_guide() -> None:
         )
     else:
         st.warning("User guide file not found — please contact Mike.")
+
+
+def _reconstruct_sector_weights(
+    portfolio_df: pd.DataFrame,
+    trades_df: pd.DataFrame | None,
+    sector_map: dict,
+) -> pd.DataFrame:
+    """Reconstruct daily sector allocation by entry-cost weight.
+
+    Walks the trades log chronologically: BUYs add a position at
+    shares × buy_price (cost basis); SELL/STOP* removes the position
+    entirely. At each portfolio_df date, snapshots the per-sector cost
+    basis and divides by the day's total cost basis to get weights (%).
+
+    Returns a DataFrame indexed by date with one column per sector.
+    Missing sectors at a given date are 0%.
+
+    Caveat: cost-basis weight, NOT mark-to-market. Per-position weights
+    don't drift with intraday price moves; they only step when a position
+    is opened or closed. Sufficient for a sector-composition diagnostic;
+    not sufficient for exact daily portfolio dollar values."""
+    if trades_df is None or trades_df.empty or portfolio_df is None or portfolio_df.empty:
+        return pd.DataFrame()
+    td = trades_df.copy()
+    td["date"] = pd.to_datetime(td["date"])
+    td = td.sort_values("date").reset_index(drop=True)
+
+    positions: dict[str, dict] = {}  # ticker -> {"shares", "cost"}
+    rows: list[dict] = []
+    trade_idx = 0
+    n_trades = len(td)
+    sell_actions = {"SELL", "STOP", "STOP10", "STOP_ATR"}
+
+    for date in portfolio_df.index:
+        # Apply all trades on or before this date
+        while trade_idx < n_trades and td.iloc[trade_idx]["date"] <= date:
+            tr = td.iloc[trade_idx]
+            tkr = tr["ticker"]
+            if tr["action"] == "BUY":
+                positions[tkr] = {
+                    "shares": float(tr["shares"]),
+                    "cost":   float(tr["shares"]) * float(tr["price"]),
+                }
+            elif tr["action"] in sell_actions:
+                positions.pop(tkr, None)
+            trade_idx += 1
+
+        # Snapshot per-sector cost
+        sec_costs: dict[str, float] = {}
+        for tkr, pos in positions.items():
+            sec = sector_map.get(tkr) or "other"
+            sec_costs[sec] = sec_costs.get(sec, 0.0) + pos["cost"]
+        total = sum(sec_costs.values())
+        rec: dict = {"date": date}
+        if total > 0:
+            for sec, c in sec_costs.items():
+                rec[sec] = c / total * 100.0
+        rows.append(rec)
+
+    out = pd.DataFrame(rows).set_index("date").fillna(0.0)
+    # Order columns by mean weight (largest sectors first → top of legend)
+    if not out.empty:
+        order = out.mean().sort_values(ascending=False).index.tolist()
+        out = out[order]
+    return out
 
 
 def _notable_observations(
@@ -1465,9 +1614,60 @@ def tab_diagnostics(label: str, config: BacktestConfig, result: dict) -> None:
         st.markdown(f"**Worst drawdown:** {worst_dd_pct:.1f}% on "
                     f"{worst_dd_date}")
 
+    # ----- Section 3.5: Sector allocation over time -----
+    st.divider()
+    st.subheader("Sector allocation over time")
+    st.caption("Portfolio composition by sector across the backtest period "
+               "(by entry-cost weight; positions step when opened/closed).")
+    sec_df = _reconstruct_sector_weights(portfolio_df, trades_df, sector_map)
+    if sec_df.empty:
+        st.info("No trades recorded — sector allocation chart unavailable.")
+    else:
+        fig = go.Figure()
+        for col in sec_df.columns:
+            fig.add_trace(go.Scatter(
+                x=sec_df.index, y=sec_df[col],
+                mode="lines", name=col,
+                hovertemplate="%{y:.1f}%<extra>" + col + "</extra>",
+            ))
+        fig.update_layout(
+            xaxis_title="", yaxis_title="% of portfolio",
+            height=380, margin=dict(l=10, r=10, t=10, b=10),
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                        xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
     # ----- Section 4: Notable observations -----
     st.divider()
     st.subheader("Notable observations")
+    st.markdown("#### Strategy summary")
+    st.markdown(
+        "This is a long-only equity strategy that scores ~486 large-cap "
+        "US stocks on a composite of fundamental, technical, "
+        "model-predicted, and alternative-data signals. The strategy "
+        "holds 10 positions at a time, rebalances every ~35 days, and "
+        "uses a macro regime signal to size positions at 50/75/100% "
+        "based on market conditions. Trailing ATR-based stops protect "
+        "against drawdowns, with earnings blackout windows preventing "
+        "premature exits."
+    )
+    st.markdown(
+        "Validation testing reveals a regime-dependent profile: the "
+        "strategy generates significant alpha during crisis-recovery "
+        "periods (capturing rebounds via defensive sizing), but tends "
+        "to underperform during steady bull markets (when the macro "
+        "overlay forces market participation that the stock selection "
+        "process can't fully capture). Backtest analysis across "
+        "2018-2023 shows the strategy outperforms benchmark in ~47% of "
+        "12-month rolling windows, with strong concentration of "
+        "outperformance in volatile/recovery periods and underperformance "
+        "during sustained uptrends. The strategy is best understood as "
+        "an asymmetric exposure to crisis recovery rather than a "
+        "general market-beating allocation."
+    )
+    st.divider()
     obs = _notable_observations(
         portfolio_df, trades_df, holdings, scores, spy_close,
         cutoff, days_uw_pct, top3_pct, n_sectors, sector_map,
