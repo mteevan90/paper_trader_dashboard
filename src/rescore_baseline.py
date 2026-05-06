@@ -6,10 +6,15 @@ comparable to a hypothesis run on Day-N+M caches. This script lets you
 re-score an existing baseline (any meta.json with a "config" key) against
 a frozen snapshot, producing a comparable score on the same data context.
 
-Output is written to <snapshot>/phase0_baseline.json (or with a different
-name via --output-name) so the snapshot becomes self-contained: hypothesis
-runs against the snapshot can compare directly against the baseline file
-sitting alongside.
+Output is written to <snapshot>/<config_label>_rescore.json by default,
+where <config_label> comes from the base config's "label" field (or its
+parent directory name as fallback). Pass --output-name to override —
+useful for the historical phase0_baseline.json convention. Each rescored
+file sits alongside the snapshot so hypothesis runs can compare directly.
+
+Each per-window block now includes both legacy objective components and a
+rolling_metrics bundle (CAPM rolling alpha 12mo+6mo, capture, recovery)
+so any rolling-window objective can be evaluated post-hoc.
 
 Usage:
 
@@ -78,11 +83,16 @@ def _git_sha() -> str:
         return "unknown"
 
 
-def _score_window(cfg: BacktestConfig, window: str) -> dict:
-    """Run a single backtest in the chosen window, return summary metrics.
+def _score_window(cfg: BacktestConfig, window: str) -> tuple[str, dict]:
+    """Run a single backtest in the chosen window, return (suffix, block).
 
     "train": backtest with split_date=cfg.train_start, training-only data.
     "validate": backtest with split_date=cfg.validate_start, full-window data.
+
+    The returned block holds nested per-window metrics — components,
+    rolling_metrics (CAPM rolling alpha distribution + capture + recovery),
+    n_days, n_trades, n_holdings, score. The caller is responsible for
+    flattening the score back to a top-level field for backward compat.
     """
     if window == "train":
         shared = _load_shared_data(cfg.train_start, cfg.train_end)
@@ -103,18 +113,28 @@ def _score_window(cfg: BacktestConfig, window: str) -> dict:
         earnings_dates=shared["earnings_dates"],
         model=shared["model"],
         config=cfg,
+        market_data=shared.get("market_data"),
+        compute_rolling_metrics=True,
     )
 
     summary = summarize_backtest(portfolio_df, shared["spy_close"])
     score = compute_objective(summary)
     components = compute_objective_components(summary)
-    return {
-        f"{suffix}_score": float(score),
-        f"{suffix}_components": components,
-        f"{suffix}_n_days": int(len(portfolio_df)),
-        f"{suffix}_n_trades": int(len(trades_df)),
-        f"{suffix}_n_holdings": int(len(holdings)),
+
+    block: dict = {
+        "score":          float(score),
+        "components":     components,
+        "n_days":         int(len(portfolio_df)),
+        "n_trades":       int(len(trades_df)),
+        "n_holdings":     int(len(holdings)),
     }
+    rolling_bundle = portfolio_df.attrs.get("rolling_metrics")
+    if rolling_bundle:
+        block["rolling_metrics"] = rolling_bundle
+    rolling_err = portfolio_df.attrs.get("rolling_metrics_error")
+    if rolling_err:
+        block["rolling_metrics_error"] = rolling_err
+    return suffix, block
 
 
 def main() -> None:
@@ -130,10 +150,13 @@ def main() -> None:
                    required=True,
                    help="Which window(s) to score. 'both' runs both and "
                         "stores all metrics together.")
-    p.add_argument("--output-name", default="phase0_baseline.json",
-                   help="Filename inside the snapshot directory to write "
-                        "the rescored baseline JSON. Default: "
-                        "phase0_baseline.json.")
+    p.add_argument("--output-name", default=None,
+                   help="Filename (with or without .json) inside the "
+                        "snapshot directory. If omitted, defaults to "
+                        "<config_label>_rescore.json where config_label "
+                        "is the base config's 'label' (or its parent "
+                        "directory name as fallback). Use this flag to "
+                        "preserve historical names like phase0_baseline.")
     args = p.parse_args()
 
     base_path = Path(args.base_config)
@@ -150,6 +173,16 @@ def main() -> None:
         if k in BacktestConfig.__dataclass_fields__
     })
 
+    # Derive default output filename from the base config's identity, so
+    # rescoring different baselines produces distinct files instead of
+    # silently overwriting a fixed phase0_baseline.json. The snapshot
+    # directory ends up with one rescore file per config, named after the
+    # config it was rescored against.
+    config_label = meta.get("label") or base_path.parent.name
+    output_name = args.output_name or f"{config_label}_rescore"
+    if not output_name.endswith(".json"):
+        output_name = f"{output_name}.json"
+
     out: dict = {
         "base_config_ref":  str(base_path).replace("\\", "/"),
         "cache_snapshot":   args.cache_snapshot,
@@ -160,11 +193,26 @@ def main() -> None:
     }
 
     if args.window in ("train", "both"):
-        out.update(_score_window(cfg, "train"))
+        suffix, block = _score_window(cfg, "train")
+        out[suffix] = block
+        # Backward-compat flat fields. Existing readers that look up
+        # training_score / training_components keep working without code
+        # changes; new readers should use out["training"][...] instead.
+        out[f"{suffix}_score"]      = block["score"]
+        out[f"{suffix}_components"] = block["components"]
+        out[f"{suffix}_n_days"]     = block["n_days"]
+        out[f"{suffix}_n_trades"]   = block["n_trades"]
+        out[f"{suffix}_n_holdings"] = block["n_holdings"]
     if args.window in ("validate", "both"):
-        out.update(_score_window(cfg, "validate"))
+        suffix, block = _score_window(cfg, "validate")
+        out[suffix] = block
+        out[f"{suffix}_score"]      = block["score"]
+        out[f"{suffix}_components"] = block["components"]
+        out[f"{suffix}_n_days"]     = block["n_days"]
+        out[f"{suffix}_n_trades"]   = block["n_trades"]
+        out[f"{suffix}_n_holdings"] = block["n_holdings"]
 
-    out_path = os.path.join(_snap_root, args.output_name)
+    out_path = os.path.join(_snap_root, output_name)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2, sort_keys=True)
 
@@ -173,6 +221,16 @@ def main() -> None:
         print(f"[RESCORE] training_score = {out['training_score']:.6f}")
     if "validation_score" in out:
         print(f"[RESCORE] validation_score = {out['validation_score']:.6f}")
+    if "training" in out and "rolling_metrics" in out["training"]:
+        rm = out["training"]["rolling_metrics"]
+        if "rolling_12mo" in rm:
+            print(f"[RESCORE] training rolling_12mo objective_score = "
+                  f"{rm['rolling_12mo'].get('objective_score')}")
+    if "validation" in out and "rolling_metrics" in out["validation"]:
+        rm = out["validation"]["rolling_metrics"]
+        if "rolling_12mo" in rm:
+            print(f"[RESCORE] validation rolling_12mo objective_score = "
+                  f"{rm['rolling_12mo'].get('objective_score')}")
 
 
 if __name__ == "__main__":
