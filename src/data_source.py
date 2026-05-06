@@ -202,7 +202,7 @@ def list_dashboard_result_labels() -> list[str]:
     return sorted(labels)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def list_promoted_dashboard_result_labels() -> list[str]:
     """Subset of list_dashboard_result_labels() restricted to labels
     whose meta.json has promoted=true. Used by the cloud dashboard's

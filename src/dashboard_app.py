@@ -122,8 +122,7 @@ def _ticker_names_path() -> str:
     return data_source.path_to("models/cache/ticker_names.json")
 
 
-LOCKED_BEST_STUDY = "optuna_v1_20260504_103429"
-LOCKED_BEST_TRIAL = 706
+LOCKED_BEST_STUDY = "regime_dependent_v1_20260505_2240"
 
 
 # Human-readable display labels for SQLite study names. Forward-compatible:
