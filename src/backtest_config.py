@@ -73,6 +73,24 @@ class BacktestConfig:
     validate_start:         str   = "2024-01-01"
     validate_end:           str   = "2026-04-30"
 
+    # --- Regime-dependent architecture (per regime_dependent_v1_spec) ----
+    # When architecture == "legacy" (default), the existing single-value
+    # tunables above are used unconditionally and all *_offensive fields
+    # are ignored. When architecture == "regime-dependent", the existing
+    # fields hold the DEFENSIVE values and the *_offensive fields hold
+    # the OFFENSIVE values; the per-rebalance macro signal is compared
+    # against regime_threshold to pick which set to apply via
+    # get_active_tunables(macro_signal).
+    architecture: str = "legacy"
+    regime_threshold:                    float | None = None
+    weight_fundamental_offensive:        float | None = None
+    weight_technical_offensive:          float | None = None
+    weight_model_offensive:              float | None = None
+    weight_alt_offensive:                float | None = None
+    atr_multiplier_offensive:            float | None = None
+    position_count_offensive:            int | None = None
+    rebalance_frequency_days_offensive:  int | None = None
+
     def __post_init__(self) -> None:
         # Derive weight_alt from the three free weights and validate the
         # composite sums to 1.0. Frozen dataclasses disallow normal
@@ -96,6 +114,90 @@ class BacktestConfig:
                 f"Composite weights sum to {total}, expected 1.0 "
                 f"(tolerance {_WEIGHT_SUM_TOL})"
             )
+
+        # --- Regime-dependent validation + offensive weight_alt derivation ---
+        if self.architecture == "regime-dependent":
+            if self.regime_threshold is None:
+                raise ValueError(
+                    "architecture='regime-dependent' requires regime_threshold")
+            required = {
+                "weight_fundamental_offensive":        self.weight_fundamental_offensive,
+                "weight_technical_offensive":          self.weight_technical_offensive,
+                "weight_model_offensive":              self.weight_model_offensive,
+                "atr_multiplier_offensive":            self.atr_multiplier_offensive,
+                "position_count_offensive":            self.position_count_offensive,
+                "rebalance_frequency_days_offensive":  self.rebalance_frequency_days_offensive,
+            }
+            missing = [k for k, v in required.items() if v is None]
+            if missing:
+                raise ValueError(
+                    f"architecture='regime-dependent' requires offensive "
+                    f"tunables; missing: {missing}")
+
+            # Derive weight_alt_offensive from the 3 free offensive weights
+            # (mirrors the legacy weight_alt derivation above).
+            free_sum_off = (self.weight_fundamental_offensive
+                            + self.weight_technical_offensive
+                            + self.weight_model_offensive)
+            if free_sum_off > 1.0 + _WEIGHT_SUM_TOL:
+                raise ValueError(
+                    f"Offensive weights sum to {free_sum_off} > 1.0; "
+                    f"cannot derive non-negative weight_alt_offensive")
+            derived_alt_off = max(0.0, 1.0 - free_sum_off)
+            if self.weight_alt_offensive is None:
+                object.__setattr__(self, "weight_alt_offensive", derived_alt_off)
+            else:
+                total_off = (self.weight_fundamental_offensive
+                             + self.weight_technical_offensive
+                             + self.weight_model_offensive
+                             + self.weight_alt_offensive)
+                if abs(total_off - 1.0) > _WEIGHT_SUM_TOL:
+                    raise ValueError(
+                        f"Offensive weights sum to {total_off}, expected 1.0")
+        elif self.architecture != "legacy":
+            raise ValueError(
+                f"architecture must be 'legacy' or 'regime-dependent'; "
+                f"got {self.architecture!r}")
+
+    def get_active_tunables(self, macro_signal: float) -> dict:
+        """Return the regime-active tunable values for this rebalance/day.
+
+        In legacy mode the macro_signal arg is ignored — the seven tunables
+        always come from the single-value fields. In regime-dependent mode,
+        macro_signal < regime_threshold => DEFENSIVE (legacy fields hold
+        the defensive set); >= => OFFENSIVE (use *_offensive fields).
+        """
+        if (self.architecture != "regime-dependent"
+                or self.regime_threshold is None):
+            return {
+                "weight_fundamental":       self.weight_fundamental,
+                "weight_technical":         self.weight_technical,
+                "weight_model":             self.weight_model,
+                "weight_alt":               self.weight_alt,
+                "atr_multiplier":           self.atr_multiplier,
+                "position_count":           self.position_count,
+                "rebalance_frequency_days": self.rebalance_frequency_days,
+            }
+        is_defensive = macro_signal < self.regime_threshold
+        if is_defensive:
+            return {
+                "weight_fundamental":       self.weight_fundamental,
+                "weight_technical":         self.weight_technical,
+                "weight_model":             self.weight_model,
+                "weight_alt":               self.weight_alt,
+                "atr_multiplier":           self.atr_multiplier,
+                "position_count":           self.position_count,
+                "rebalance_frequency_days": self.rebalance_frequency_days,
+            }
+        return {
+            "weight_fundamental":       self.weight_fundamental_offensive,
+            "weight_technical":         self.weight_technical_offensive,
+            "weight_model":             self.weight_model_offensive,
+            "weight_alt":               self.weight_alt_offensive,
+            "atr_multiplier":           self.atr_multiplier_offensive,
+            "position_count":           self.position_count_offensive,
+            "rebalance_frequency_days": self.rebalance_frequency_days_offensive,
+        }
 
     def to_dict(self) -> dict:
         """Return a JSON-serializable dict for the experiment log."""

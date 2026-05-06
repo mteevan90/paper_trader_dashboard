@@ -59,6 +59,8 @@ if str(_SRC_DIR) not in sys.path:
 # feature_cache, macro_signals, model). Order matters.
 _pre = argparse.ArgumentParser(add_help=False)
 _pre.add_argument("--cache-snapshot", default=None)
+_pre.add_argument("--architecture", default="legacy",
+                  choices=["legacy", "regime-dependent"])
 _pre_args, _ = _pre.parse_known_args()
 if _pre_args.cache_snapshot:
     _snap_root = os.path.abspath(os.path.join(
@@ -71,6 +73,11 @@ if _pre_args.cache_snapshot:
     os.environ["PAPER_TRADER_DATA_ROOT"] = _snap_root
     print(f"[HYPOTHESIS] Using cache snapshot: "
           f"{_pre_args.cache_snapshot} ({_snap_root})")
+if _pre_args.architecture != "legacy":
+    os.environ["PAPER_TRADER_ARCHITECTURE"] = _pre_args.architecture
+    print(f"[HYPOTHESIS] Using architecture: {_pre_args.architecture} "
+          f"(default objective: rolling_p75_p25; override via "
+          f"PAPER_TRADER_OBJECTIVE)")
 
 from optuna_runner import (    # noqa: E402  (after sys.path + env-var setup)
     _DEFAULT_RANGES,
@@ -257,6 +264,15 @@ def main() -> None:
                         "real speedup. Override only if you understand the "
                         "tradeoff (e.g., when running multiple varying "
                         "params).")
+    p.add_argument("--architecture", default="legacy",
+                   choices=["legacy", "regime-dependent"],
+                   help="Optimization architecture. 'legacy' uses single-"
+                        "value tunables (default; backward compatible). "
+                        "'regime-dependent' uses defensive+offensive "
+                        "tunable sets switched at regime_threshold based "
+                        "on macro signal — per regime_dependent_v1_spec. "
+                        "Regime-dependent runs default to the rolling "
+                        "objective (PAPER_TRADER_OBJECTIVE=rolling_p75_p25).")
     p.add_argument("--cache-snapshot", default=None,
                    help="Name of a frozen cache snapshot under "
                         "models/snapshots/<name>/ to use as input data. "

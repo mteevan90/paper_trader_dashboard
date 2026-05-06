@@ -337,14 +337,28 @@ def compute_composite_scores(
     model_scores: dict[str, float],
     date,
     config: BacktestConfig | None = None,
+    active_tunables: dict | None = None,
 ) -> dict[str, dict]:
     """Compute composite scores with full breakdown for each ticker.
 
     ``config`` defaults to ``BacktestConfig()`` so existing callers (e.g.
     main.py) that don't supply one keep their previous behavior.
+
+    ``active_tunables`` (regime-dependent runs) supplies the 4 composite
+    weights to apply at this rebalance. If None (legacy mode), the
+    weights come straight from config.weight_*. The keys expected on the
+    dict are weight_fundamental / weight_technical / weight_model /
+    weight_alt — the same shape config.get_active_tunables returns.
     """
     if config is None:
         config = BacktestConfig()
+    if active_tunables is None:
+        active_tunables = {
+            "weight_fundamental": config.weight_fundamental,
+            "weight_technical":   config.weight_technical,
+            "weight_model":       config.weight_model,
+            "weight_alt":         config.weight_alt,
+        }
     # fund_data filter: skip tickers missing fundamentals (e.g., recent
     # universe entrants like ARM/GEHC/GEV/VLTO that yfinance hasn't
     # surfaced via .info yet). Without this, score_fundamentals raises
@@ -365,10 +379,10 @@ def compute_composite_scores(
         t = t_scores.get(tkr, 0)
         m = model_scores.get(tkr, 0.5)
         a = a_scores.get(tkr, 0.5)
-        composite = (f * config.weight_fundamental
-                     + t * config.weight_technical
-                     + m * config.weight_model
-                     + a * config.weight_alt)
+        composite = (f * active_tunables["weight_fundamental"]
+                     + t * active_tunables["weight_technical"]
+                     + m * active_tunables["weight_model"]
+                     + a * active_tunables["weight_alt"])
         result[tkr] = {
             "fundamental": f,
             "technical":   t,
@@ -525,6 +539,11 @@ def run_backtest(
     trades = []
     latest_scores: dict[str, dict] = {}
 
+    # Regime-dependent accounting (zero in legacy mode; populated in
+    # regime-dependent runs and surfaced via portfolio_df.attrs at the end).
+    regime_rebalances = {"defensive": 0, "offensive": 0}
+    regime_trades     = {"defensive": 0, "offensive": 0}
+
     # Trading-day index lookup so min-hold check counts trading days, not calendar days
     date_index = {d: i for i, d in enumerate(test_dates)}
 
@@ -559,6 +578,20 @@ def run_backtest(
             predictions_by_date = {}
 
     for date in test_dates:
+        # Regime decision (legacy mode is a no-op: get_active_tunables
+        # ignores the macro_signal arg and returns the single-value
+        # tunables). Computed once per day so both the rebalance gate
+        # and the macro-sizing block downstream can reuse the value.
+        macro_score_today = compute_macro_score(macro_df, date)
+        active = config.get_active_tunables(macro_score_today)
+        if (config.architecture == "regime-dependent"
+                and config.regime_threshold is not None):
+            regime_label = ("defensive"
+                            if macro_score_today < config.regime_threshold
+                            else "offensive")
+        else:
+            regime_label = None
+
         # --- score every ticker with XGBoost (soft target regression) ---
         if not legacy_scoring:
             # Fast path: predictions were precomputed above. O(1) dict lookup.
@@ -641,16 +674,20 @@ def run_backtest(
         if date in vix_close.index and vix_close.loc[date] > 30:
             regime_scale *= 0.5  # additional 50% cut in crisis
 
-        # --- Rebalance every config.rebalance_frequency_days trading days ---
+        # --- Rebalance every active rebalance_frequency_days trading days
+        # (regime-dependent runs use the active set; legacy uses the single
+        # config.rebalance_frequency_days via get_active_tunables) ---
         days_since_rebal += 1
-        if days_since_rebal >= config.rebalance_frequency_days and model_scores:
+        if days_since_rebal >= active["rebalance_frequency_days"] and model_scores:
             days_since_rebal = 0
+            if regime_label is not None:
+                regime_rebalances[regime_label] += 1
 
             available = [t for t in model_scores if t in price_data
                          and date in price_data[t].index]
             comp_scores = compute_composite_scores(
                 available, fund_data, price_data, featured_data,
-                model_scores, date, config=config)
+                model_scores, date, config=config, active_tunables=active)
 
             # Analyst tiebreaker: composite += analyst_weight * analyst_score
             # (default 0.05). Applied post-composite so the main weighting
@@ -667,7 +704,7 @@ def run_backtest(
 
             top_tickers = select_top_tickers(
                 comp_scores, sector_map,
-                top_n=config.position_count,
+                top_n=active["position_count"],
                 max_per_sector=config.sector_cap,
                 currently_held=set(positions),
             )
@@ -700,14 +737,14 @@ def run_backtest(
 
             # Macro overlay: position-sizing based on credit + curve + VIX
             # at this date. > high: 100%, [low, high]: 75%, < low: 50%.
-            macro_score = compute_macro_score(macro_df, date)
-            if macro_score > config.macro_threshold_high:
+            # macro_score_today is already computed at top of loop.
+            if macro_score_today > config.macro_threshold_high:
                 macro_scale = 1.00
-            elif macro_score >= config.macro_threshold_low:
+            elif macro_score_today >= config.macro_threshold_low:
                 macro_scale = 0.75
             else:
                 macro_scale = 0.50
-            print(f"    [MACRO] {date.date()}: score {macro_score:.2f} "
+            print(f"    [MACRO] {date.date()}: score {macro_score_today:.2f} "
                   f"- buying at {int(macro_scale * 100)}% size")
 
             # Buy new targets (equal-weight, scaled by regime + macro)
@@ -740,7 +777,7 @@ def run_backtest(
                     fdf = featured_data.get(tkr)
                     if fdf is not None and "atr_14" in fdf.columns and date in fdf.index:
                         atr = fdf.loc[date, "atr_14"]
-                        atr_stop = buy_price - config.atr_multiplier * atr
+                        atr_stop = buy_price - active["atr_multiplier"] * atr
                         stop_prices[tkr] = min(max(atr_stop, max_stop), min_stop)
                     else:
                         stop_prices[tkr] = max_stop
@@ -769,6 +806,36 @@ def run_backtest(
     final_holdings = {tkr: {"shares": shares, "entry_price": entry_prices[tkr],
                             "stop_price": stop_prices.get(tkr, 0)}
                       for tkr, shares in positions.items()}
+
+    # Regime-dependent accounting (attached only for regime-dependent
+    # architecture; legacy runs leave portfolio_df.attrs without these
+    # keys, so save_hypothesis_result conditionally serializes them).
+    if (config.architecture == "regime-dependent"
+            and config.regime_threshold is not None):
+        # Per-trade regime classification: each trade row gets attributed
+        # to the regime active on its date, via macro_score lookup.
+        if not trades_df.empty:
+            trade_dates = pd.to_datetime(trades_df["date"])
+            n_def = sum(
+                compute_macro_score(macro_df, d) < config.regime_threshold
+                for d in trade_dates)
+            regime_trades = {"defensive": int(n_def),
+                             "offensive": int(len(trade_dates) - n_def)}
+        n_total_reb = (regime_rebalances["defensive"]
+                       + regime_rebalances["offensive"])
+        n_total_tr  = (regime_trades["defensive"]
+                       + regime_trades["offensive"])
+        portfolio_df.attrs["regime_stats"] = {
+            "regime_threshold": float(config.regime_threshold),
+            "rebalances": dict(regime_rebalances),
+            "trades":     dict(regime_trades),
+            "defensive_pct_rebalances": (
+                regime_rebalances["defensive"] / n_total_reb * 100.0
+                if n_total_reb else None),
+            "defensive_pct_trades": (
+                regime_trades["defensive"] / n_total_tr * 100.0
+                if n_total_tr else None),
+        }
 
     # Rolling-window metrics: opt-in via kwarg. Result attached to
     # portfolio_df.attrs to avoid changing the return-tuple shape (every
