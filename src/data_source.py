@@ -61,6 +61,7 @@ R2_LAYOUT: dict[str, str] = {
     "models/xgb_model.meta.json":         "model/xgb_model.meta.json",
     "models/cache/feature_importance.json": "model/feature_importance.json",
     "models/cache/sector_map.json":       "model/sector_map.json",
+    "models/cache/ticker_names.json":     "model/ticker_names.json",
 }
 MANIFEST_KEY = "snapshot_manifest.json"
 DASHBOARD_RESULTS_PREFIX_LOCAL  = "models/cache/dashboard_results/"
