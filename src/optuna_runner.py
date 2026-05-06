@@ -151,7 +151,14 @@ _VALID_OBJECTIVES = (_OBJECTIVE_LEGACY, _OBJECTIVE_ROLLING)
 # studies in the same process if needed.
 _ARCH_LEGACY  = "legacy"
 _ARCH_REGIME  = "regime-dependent"
-_VALID_ARCHITECTURES = (_ARCH_LEGACY, _ARCH_REGIME)
+# V2 Track B: structurally identical to regime-dependent (same field
+# schema), but BacktestConfig.single_regime_mode=True suppresses the
+# switch — every rebalance uses the offensive tunable set, regardless
+# of macro_signal. The objective_fn routes "single-regime" to a
+# dedicated, narrower search space (no defensive set, no
+# regime_threshold) so TPE doesn't waste samples on dead dimensions.
+_ARCH_SINGLE_REGIME = "single-regime"
+_VALID_ARCHITECTURES = (_ARCH_LEGACY, _ARCH_REGIME, _ARCH_SINGLE_REGIME)
 
 # Train window from the locked architecture decisions. Pulled from
 # BacktestConfig() defaults rather than hardcoded so a future config
@@ -508,6 +515,87 @@ def build_regime_dependent_search_space(
     }
 
 
+def build_single_regime_search_space(
+    trial: optuna.Trial,
+    *,
+    range_overrides: dict | None = None,
+    fixed_values: dict | None = None,
+) -> dict:
+    """Build a BacktestConfig kwargs dict for V2 Track B (single-regime).
+
+    Samples ONE tunable set (no defensive duplicate, no regime_threshold)
+    and returns kwargs with single_regime_mode=True. The offensive_*
+    fields hold the sampled values; the legacy fields are mirrored to
+    the same values so BacktestConfig.__post_init__'s legacy weight-sum
+    validation passes (the legacy fields are unused at runtime when
+    single_regime_mode is True).
+
+    Sampled params (9 unique): weight_{fundamental,technical,model}_offensive
+    + atr_multiplier_offensive + position_count_offensive +
+    rebalance_frequency_days_offensive + analyst_weight +
+    macro_threshold_low + macro_threshold_gap. Param names use the
+    _offensive suffix so _trial_to_config can distinguish Track B
+    (has offensive params, no regime_threshold) from legacy (no
+    offensive params) and Track A (has both).
+    """
+    range_overrides = range_overrides or {}
+    fixed_values    = fixed_values or {}
+
+    def _suggest(name: str, default_lo: float, default_hi: float):
+        if name in fixed_values:
+            return fixed_values[name]
+        lo, hi = range_overrides.get(name, (default_lo, default_hi))
+        if name in _REGIME_INT_PARAMS:
+            return trial.suggest_int(name, int(lo), int(hi))
+        return trial.suggest_float(name, float(lo), float(hi))
+
+    wf = _suggest("weight_fundamental_offensive",
+                  *_REGIME_DEPENDENT_RANGES["weight_fundamental"])
+    wt = _suggest("weight_technical_offensive",
+                  *_REGIME_DEPENDENT_RANGES["weight_technical"])
+    wm = _suggest("weight_model_offensive",
+                  *_REGIME_DEPENDENT_RANGES["weight_model"])
+    wf, wt, wm = _normalize_weight_triple(wf, wt, wm)
+    atr = _suggest("atr_multiplier_offensive",
+                   *_REGIME_DEPENDENT_RANGES["atr_multiplier"])
+    pc  = _suggest("position_count_offensive",
+                   *_REGIME_DEPENDENT_RANGES["position_count"])
+    rfd = _suggest("rebalance_frequency_days_offensive",
+                   *_REGIME_DEPENDENT_RANGES["rebalance_frequency_days"])
+    aw  = _suggest("analyst_weight",
+                   *_REGIME_DEPENDENT_RANGES["analyst_weight"])
+    ml  = _suggest("macro_threshold_low",
+                   *_REGIME_DEPENDENT_RANGES["macro_threshold_low"])
+    mg  = _suggest("macro_threshold_gap",
+                   *_REGIME_DEPENDENT_RANGES["macro_threshold_gap"])
+
+    return {
+        "architecture":          _ARCH_REGIME,
+        "single_regime_mode":    True,
+        "regime_threshold":      None,  # ignored at runtime
+        # Offensive set holds THE tunables in single-regime mode
+        "weight_fundamental_offensive":       wf,
+        "weight_technical_offensive":         wt,
+        "weight_model_offensive":             wm,
+        "atr_multiplier_offensive":           atr,
+        "position_count_offensive":           pc,
+        "rebalance_frequency_days_offensive": rfd,
+        # Legacy fields mirrored so BacktestConfig.__post_init__'s
+        # legacy weight-sum validation passes; never read at runtime
+        # because get_active_tunables short-circuits on single_regime_mode.
+        "weight_fundamental":       wf,
+        "weight_technical":         wt,
+        "weight_model":             wm,
+        "atr_multiplier":           atr,
+        "position_count":           pc,
+        "rebalance_frequency_days": rfd,
+        # Shared
+        "analyst_weight":       aw,
+        "macro_threshold_low":  ml,
+        "macro_threshold_high": ml + mg,
+    }
+
+
 def _append_trial_log(jsonl_path: str, log_lock: threading.Lock,
                       record: dict) -> None:
     line = json.dumps(record, default=str) + "\n"
@@ -548,6 +636,12 @@ def objective_fn(trial: optuna.Trial,
             range_overrides=range_overrides,
             fixed_values=fixed_values,
         )
+    elif architecture == _ARCH_SINGLE_REGIME:
+        config_kwargs = build_single_regime_search_space(
+            trial,
+            range_overrides=range_overrides,
+            fixed_values=fixed_values,
+        )
     else:
         config_kwargs = build_search_space(
             trial,
@@ -575,8 +669,11 @@ def objective_fn(trial: optuna.Trial,
 
     # Per spec D6: regime-dependent runs default to the rolling objective.
     # Legacy runs keep the legacy objective default. Either can be
-    # overridden by setting PAPER_TRADER_OBJECTIVE explicitly.
-    obj_default = (_OBJECTIVE_ROLLING if architecture == _ARCH_REGIME
+    # overridden by setting PAPER_TRADER_OBJECTIVE explicitly. Single-
+    # regime (Track B control) uses the same rolling objective as
+    # Track A so the two tracks compare apples-to-apples.
+    obj_default = (_OBJECTIVE_ROLLING
+                   if architecture in (_ARCH_REGIME, _ARCH_SINGLE_REGIME)
                    else _OBJECTIVE_LEGACY)
     objective_version = os.environ.get("PAPER_TRADER_OBJECTIVE", obj_default)
     if objective_version not in _VALID_OBJECTIVES:
@@ -612,6 +709,42 @@ def objective_fn(trial: optuna.Trial,
         else:
             score = legacy_score
 
+        # ---- V2 Track A activation constraint ----
+        # PAPER_TRADER_REQUIRE_DEFENSIVE_PCT (default 0 = no gate) sets a
+        # minimum percentage of training-window rebalances that must
+        # occur in the defensive regime; configs whose regime_threshold
+        # is too low to meaningfully exercise the defensive set get
+        # hard-rejected with the failure sentinel so TPE learns to
+        # avoid that region. Track A sets this to 10. Track B has
+        # single_regime_mode=True so the gate is a no-op (no defensive
+        # set to exercise). Legacy architecture is also exempt.
+        require_pct = float(os.environ.get(
+            "PAPER_TRADER_REQUIRE_DEFENSIVE_PCT", "0"))
+        if (require_pct > 0
+                and architecture == _ARCH_REGIME
+                and not config.single_regime_mode):
+            regime_stats = portfolio_df.attrs.get("regime_stats") or {}
+            def_pct_reb = regime_stats.get("defensive_pct_rebalances")
+            if def_pct_reb is None or def_pct_reb < require_pct:
+                record = {
+                    "study_name":      study_name,
+                    "trial_number":    trial.number,
+                    "state":           "REJECTED_ACTIVATION_PCT",
+                    "score":           _FAILURE_SENTINEL,
+                    "rejection_reason": (
+                        f"defensive_pct_rebalances="
+                        f"{def_pct_reb!r} < required {require_pct}"),
+                    "objective_version": objective_version,
+                    "architecture":      architecture,
+                    "legacy_score":      legacy_score,
+                    "config":            config.to_dict(),
+                    "regime_stats":      regime_stats,
+                    "started_at":        started_at.isoformat(),
+                    "duration_seconds":  round(time.perf_counter() - t0, 3),
+                }
+                _append_trial_log(jsonl_path, log_lock, record)
+                return float(_FAILURE_SENTINEL)
+
         record = {
             "study_name":   study_name,
             "trial_number": trial.number,
@@ -625,7 +758,7 @@ def objective_fn(trial: optuna.Trial,
             "started_at":   started_at.isoformat(),
             "duration_seconds": round(time.perf_counter() - t0, 3),
         }
-        if architecture == _ARCH_REGIME:
+        if architecture in (_ARCH_REGIME, _ARCH_SINGLE_REGIME):
             record["regime_stats"] = portfolio_df.attrs.get("regime_stats")
         if objective_version == _OBJECTIVE_ROLLING:
             # Trim the windows lists out of the JSONL record (verbose); keep
@@ -887,18 +1020,24 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
 
     # Architecture + per-regime decomposition for regime-dependent runs.
     # Legacy runs just record architecture="legacy" and skip the rest.
+    # Single-regime mode (Track B) sits inside architecture="regime-
+    # dependent" — we record single_regime_mode flag + the offensive
+    # tunables (which are the only ones that mattered) but skip the
+    # defensive_tunables block since those values are runtime-unused.
     meta["architecture"] = config.architecture
     if config.architecture == _ARCH_REGIME:
-        meta["regime_threshold"] = config.regime_threshold
-        meta["defensive_tunables"] = {
-            "weight_fundamental":       config.weight_fundamental,
-            "weight_technical":         config.weight_technical,
-            "weight_model":             config.weight_model,
-            "weight_alt":               config.weight_alt,
-            "atr_multiplier":           config.atr_multiplier,
-            "position_count":           config.position_count,
-            "rebalance_frequency_days": config.rebalance_frequency_days,
-        }
+        meta["single_regime_mode"] = bool(config.single_regime_mode)
+        meta["regime_threshold"]   = config.regime_threshold
+        if not config.single_regime_mode:
+            meta["defensive_tunables"] = {
+                "weight_fundamental":       config.weight_fundamental,
+                "weight_technical":         config.weight_technical,
+                "weight_model":             config.weight_model,
+                "weight_alt":               config.weight_alt,
+                "atr_multiplier":           config.atr_multiplier,
+                "position_count":           config.position_count,
+                "rebalance_frequency_days": config.rebalance_frequency_days,
+            }
         meta["offensive_tunables"] = {
             "weight_fundamental":       config.weight_fundamental_offensive,
             "weight_technical":         config.weight_technical_offensive,
@@ -933,13 +1072,46 @@ def _trial_to_config(trial: optuna.trial.FrozenTrial,
     trial.params). Default None preserves bit-identical behavior for
     v1 callers — fixed_values is only needed for hypothesis runs.
 
-    Architecture detection: regime-dependent trials emit a
-    'regime_threshold' param via build_regime_dependent_search_space.
-    Its presence routes us to the regime-dependent constructor; absence
-    keeps the legacy single-value constructor."""
+    Architecture detection (param-name based, no env-var dependency):
+      * 'regime_threshold' in p          -> Track A regime-dependent
+      * 'weight_fundamental_offensive' in p (no regime_threshold)
+                                         -> Track B single-regime
+      * neither                          -> legacy"""
     # Merge with trial.params winning on conflict. By construction the
     # two sets are disjoint (fixed names skip suggest_*), but defensive.
     p = {**(fixed_values or {}), **trial.params}
+
+    if ("weight_fundamental_offensive" in p
+            and "regime_threshold" not in p):
+        # Track B: single-regime control. Offensive set holds the
+        # tunables; legacy fields mirror the same values to keep
+        # BacktestConfig.__post_init__ legacy validation happy.
+        wf, wt, wm = _normalize_weight_triple(
+            p["weight_fundamental_offensive"],
+            p["weight_technical_offensive"],
+            p["weight_model_offensive"])
+        return BacktestConfig(
+            architecture          = "regime-dependent",
+            single_regime_mode    = True,
+            regime_threshold      = None,
+            weight_fundamental_offensive       = wf,
+            weight_technical_offensive         = wt,
+            weight_model_offensive             = wm,
+            atr_multiplier_offensive           = p["atr_multiplier_offensive"],
+            position_count_offensive           = p["position_count_offensive"],
+            rebalance_frequency_days_offensive = p["rebalance_frequency_days_offensive"],
+            # Mirror legacy fields (unused at runtime, validated only)
+            weight_fundamental       = wf,
+            weight_technical         = wt,
+            weight_model             = wm,
+            atr_multiplier           = p["atr_multiplier_offensive"],
+            position_count           = p["position_count_offensive"],
+            rebalance_frequency_days = p["rebalance_frequency_days_offensive"],
+            # Shared
+            analyst_weight       = p["analyst_weight"],
+            macro_threshold_low  = p["macro_threshold_low"],
+            macro_threshold_high = p["macro_threshold_low"] + p["macro_threshold_gap"],
+        )
 
     if "regime_threshold" in p:
         # Regime-dependent: 7 defensive + 7 offensive + 4 shared params.

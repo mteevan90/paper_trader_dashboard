@@ -199,7 +199,7 @@ def _launcher_main() -> int:
                    help="Number of concurrent worker processes (default 8).")
     p.add_argument("--output-dir", default=None)
     p.add_argument("--architecture", default="legacy",
-                   choices=["legacy", "regime-dependent"])
+                   choices=["legacy", "regime-dependent", "single-regime"])
     p.add_argument("--cache-snapshot", default=None)
     p.add_argument("--kill-on-error", action="store_true",
                    help="If any worker exits non-zero, immediately "

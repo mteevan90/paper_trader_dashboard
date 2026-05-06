@@ -91,6 +91,17 @@ class BacktestConfig:
     position_count_offensive:            int | None = None
     rebalance_frequency_days_offensive:  int | None = None
 
+    # --- Single-regime mode (V2 Track B control) -----------------------
+    # When True, get_active_tunables ALWAYS returns the offensive
+    # tunable set regardless of macro_signal — the regime architecture
+    # is structurally present (offensive_* fields hold the tunables) but
+    # never branches at runtime. regime_threshold is not required and
+    # has no effect. Used by Track B of the V2 study to ablate the
+    # regime-switching mechanism while keeping every other tunable +
+    # validation rule identical to Track A. Requires architecture =
+    # 'regime-dependent' so the offensive_* field set is in scope.
+    single_regime_mode: bool = False
+
     def __post_init__(self) -> None:
         # Derive weight_alt from the three free weights and validate the
         # composite sums to 1.0. Frozen dataclasses disallow normal
@@ -116,10 +127,18 @@ class BacktestConfig:
             )
 
         # --- Regime-dependent validation + offensive weight_alt derivation ---
+        if self.single_regime_mode and self.architecture != "regime-dependent":
+            raise ValueError(
+                "single_regime_mode=True requires "
+                "architecture='regime-dependent' (offensive_* fields hold "
+                "the single-regime tunables)")
         if self.architecture == "regime-dependent":
-            if self.regime_threshold is None:
+            # regime_threshold is required only in two-regime mode; in
+            # single_regime_mode it's never read so None is fine.
+            if not self.single_regime_mode and self.regime_threshold is None:
                 raise ValueError(
-                    "architecture='regime-dependent' requires regime_threshold")
+                    "architecture='regime-dependent' requires regime_threshold "
+                    "(unless single_regime_mode=True)")
             required = {
                 "weight_fundamental_offensive":        self.weight_fundamental_offensive,
                 "weight_technical_offensive":          self.weight_technical_offensive,
@@ -166,7 +185,22 @@ class BacktestConfig:
         always come from the single-value fields. In regime-dependent mode,
         macro_signal < regime_threshold => DEFENSIVE (legacy fields hold
         the defensive set); >= => OFFENSIVE (use *_offensive fields).
+
+        In single_regime_mode (V2 Track B), the offensive_* fields hold
+        THE tunables and are returned unconditionally — macro_signal and
+        regime_threshold are ignored. This makes the rebalance loop
+        identical-shape to Track A but never exercises the switch.
         """
+        if self.single_regime_mode:
+            return {
+                "weight_fundamental":       self.weight_fundamental_offensive,
+                "weight_technical":         self.weight_technical_offensive,
+                "weight_model":             self.weight_model_offensive,
+                "weight_alt":               self.weight_alt_offensive,
+                "atr_multiplier":           self.atr_multiplier_offensive,
+                "position_count":           self.position_count_offensive,
+                "rebalance_frequency_days": self.rebalance_frequency_days_offensive,
+            }
         if (self.architecture != "regime-dependent"
                 or self.regime_threshold is None):
             return {

@@ -584,8 +584,12 @@ def run_backtest(
         # and the macro-sizing block downstream can reuse the value.
         macro_score_today = compute_macro_score(macro_df, date)
         active = config.get_active_tunables(macro_score_today)
-        if (config.architecture == "regime-dependent"
-                and config.regime_threshold is not None):
+        if config.single_regime_mode:
+            # All rebalances/trades attributed to "offensive" in single-
+            # regime mode so regime_stats accounting stays well-formed.
+            regime_label = "offensive"
+        elif (config.architecture == "regime-dependent"
+              and config.regime_threshold is not None):
             regime_label = ("defensive"
                             if macro_score_today < config.regime_threshold
                             else "offensive")
@@ -810,8 +814,23 @@ def run_backtest(
     # Regime-dependent accounting (attached only for regime-dependent
     # architecture; legacy runs leave portfolio_df.attrs without these
     # keys, so save_hypothesis_result conditionally serializes them).
-    if (config.architecture == "regime-dependent"
-            and config.regime_threshold is not None):
+    # Single-regime mode (Track B) records all rebalances/trades as
+    # offensive and reports defensive_pct_* as 0 — the architecture
+    # field structure exists but the switch never fires.
+    if config.single_regime_mode:
+        if not trades_df.empty:
+            regime_trades = {"defensive": 0,
+                             "offensive": int(len(trades_df))}
+        portfolio_df.attrs["regime_stats"] = {
+            "regime_threshold": None,
+            "single_regime_mode": True,
+            "rebalances": dict(regime_rebalances),
+            "trades":     dict(regime_trades),
+            "defensive_pct_rebalances": 0.0,
+            "defensive_pct_trades":     0.0,
+        }
+    elif (config.architecture == "regime-dependent"
+          and config.regime_threshold is not None):
         # Per-trade regime classification: each trade row gets attributed
         # to the regime active on its date, via macro_score lookup.
         if not trades_df.empty:

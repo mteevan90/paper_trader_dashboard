@@ -60,7 +60,7 @@ if str(_SRC_DIR) not in sys.path:
 _pre = argparse.ArgumentParser(add_help=False)
 _pre.add_argument("--cache-snapshot", default=None)
 _pre.add_argument("--architecture", default="legacy",
-                  choices=["legacy", "regime-dependent"])
+                  choices=["legacy", "regime-dependent", "single-regime"])
 _pre_args, _ = _pre.parse_known_args()
 if _pre_args.cache_snapshot:
     _snap_root = os.path.abspath(os.path.join(
@@ -265,7 +265,7 @@ def main() -> None:
                         "tradeoff (e.g., when running multiple varying "
                         "params).")
     p.add_argument("--architecture", default="legacy",
-                   choices=["legacy", "regime-dependent"],
+                   choices=["legacy", "regime-dependent", "single-regime"],
                    help="Optimization architecture. 'legacy' uses single-"
                         "value tunables (default; backward compatible). "
                         "'regime-dependent' uses defensive+offensive "
