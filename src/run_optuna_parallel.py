@@ -329,6 +329,36 @@ def _launcher_main() -> int:
         if key in range_overrides:
             raise SystemExit(f"--override-range twice for {key!r}")
         range_overrides[key] = rng
+
+    # ---- Auto-clamp regime_threshold when activation gate is enabled ----
+    # When PAPER_TRADER_REQUIRE_DEFENSIVE_PCT is set, the V2 Track A
+    # activation gate (in optuna_runner.objective_fn) hard-rejects any
+    # regime-dependent trial whose defensive_pct_rebalances falls below
+    # the threshold. Against the v2 macro signal floor (~0.42), random-
+    # warmup samples of regime_threshold in the default [0.20, 0.60]
+    # range produce ~85% rejection (the 15-position study lost 199/1000
+    # trials this way — see the sentinel investigation report). Pair the
+    # gate with [0.50, 0.60] — the V2 spec's recommended range — to
+    # recover that warmup budget. Explicit --override-range for
+    # regime_threshold takes precedence; legacy and single-regime
+    # architectures don't sample regime_threshold so the clamp is a
+    # no-op for them and the log is suppressed to avoid noise.
+    # (--hold-tunables-fixed regime_threshold collisions are caught
+    # by the existing overlap check below, with a clear error.)
+    require_pct_str = os.environ.get("PAPER_TRADER_REQUIRE_DEFENSIVE_PCT", "0")
+    try:
+        require_pct = float(require_pct_str)
+    except ValueError:
+        require_pct = 0.0
+    if (require_pct > 0
+            and args.architecture == "regime-dependent"
+            and "regime_threshold" not in range_overrides):
+        range_overrides["regime_threshold"] = (0.50, 0.60)
+        print(f"[PARALLEL] Activation gate detected "
+              f"(PAPER_TRADER_REQUIRE_DEFENSIVE_PCT={require_pct_str}); "
+              f"auto-clamping regime_threshold to [0.50, 0.60]. "
+              f"Override with --override-range to disable.")
+
     fixed_values = _translate_holds(args.hold_tunables_fixed, base_config)
     overlap = set(fixed_values) & set(range_overrides)
     if overlap:
