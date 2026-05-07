@@ -416,6 +416,13 @@ _REGIME_DEPENDENT_RANGES: dict[str, tuple[float, float]] = {
     "macro_threshold_low":          (0.10, 0.40),
     "macro_threshold_gap":          (0.0, 0.30),
     "regime_threshold":             (0.20, 0.60),
+    # Continuous-sizing thresholds (V3 study mechanic) — backtest.py
+    # interpolates position count between 5 (signal>=high) and 15
+    # (signal<=low). high > low is enforced by objective_fn (reject
+    # with sentinel + rejection_reason="invalid_threshold_ordering"
+    # before the backtest runs).
+    "high_macro_threshold":         (0.55, 0.70),
+    "low_macro_threshold":          (0.40, 0.55),
 }
 _REGIME_INT_PARAMS: frozenset[str] = frozenset({
     "position_count", "position_count_offensive",
@@ -491,6 +498,13 @@ def build_regime_dependent_search_space(
     mg    = _suggest("macro_threshold_gap",   *_REGIME_DEPENDENT_RANGES["macro_threshold_gap"])
     mh    = ml + mg
     rt    = _suggest("regime_threshold",      *_REGIME_DEPENDENT_RANGES["regime_threshold"])
+    # Continuous-sizing thresholds (V3 study). Sampled independently in
+    # their respective ranges; the constraint high > low is checked in
+    # objective_fn before the backtest runs (configs that violate it
+    # get _FAILURE_SENTINEL with rejection_reason="invalid_threshold
+    # _ordering" so TPE learns to avoid the conflict).
+    cs_hi = _suggest("high_macro_threshold",  *_REGIME_DEPENDENT_RANGES["high_macro_threshold"])
+    cs_lo = _suggest("low_macro_threshold",   *_REGIME_DEPENDENT_RANGES["low_macro_threshold"])
     return {
         "architecture":     _ARCH_REGIME,
         "regime_threshold": rt,
@@ -512,6 +526,9 @@ def build_regime_dependent_search_space(
         "analyst_weight":       aw,
         "macro_threshold_low":  ml,
         "macro_threshold_high": mh,
+        # Continuous-sizing (V3)
+        "high_macro_threshold": cs_hi,
+        "low_macro_threshold":  cs_lo,
     }
 
 
@@ -666,6 +683,34 @@ def objective_fn(trial: optuna.Trial,
         }
         _append_trial_log(jsonl_path, log_lock, record)
         raise optuna.TrialPruned(str(e))
+
+    # ---- V3 continuous-sizing constraint: high > low ----
+    # When both thresholds are set (continuous-sizing mode) and the
+    # ordering is violated, the interpolation range is degenerate. Hard-
+    # reject with the failure sentinel so TPE learns to avoid the
+    # half of the joint sample space where high <= low. Same pattern
+    # as the V2 Track A activation gate (REJECTED_ACTIVATION_PCT) —
+    # state recorded as REJECTED_INVALID_THRESHOLD_ORDERING in the JSONL,
+    # score = -1e6 returned to Optuna so the trial pollutes neither the
+    # TPE prior with a sentinel-COMPLETE nor the prune count.
+    if (config.high_macro_threshold is not None
+            and config.low_macro_threshold is not None
+            and config.high_macro_threshold <= config.low_macro_threshold):
+        record = {
+            "study_name":      study_name,
+            "trial_number":    trial.number,
+            "state":           "REJECTED_INVALID_THRESHOLD_ORDERING",
+            "score":           _FAILURE_SENTINEL,
+            "rejection_reason": (
+                f"high_macro_threshold={config.high_macro_threshold:.4f} "
+                f"<= low_macro_threshold={config.low_macro_threshold:.4f}"),
+            "architecture":    architecture,
+            "config":          config.to_dict(),
+            "started_at":      started_at.isoformat(),
+            "duration_seconds": round(time.perf_counter() - t0, 3),
+        }
+        _append_trial_log(jsonl_path, log_lock, record)
+        return float(_FAILURE_SENTINEL)
 
     # Per spec D6: regime-dependent runs default to the rolling objective.
     # Legacy runs keep the legacy objective default. Either can be
@@ -975,6 +1020,17 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
         pd.DataFrame(columns=["date","ticker","action","shares","price","fee"]
                      ).to_parquet(os.path.join(out_dir, "trades.parquet"))
 
+    # Sizing decisions (one row per rebalance) — emitted by the
+    # rebalance loop into portfolio_df.attrs["sizing_decisions"]. Saved
+    # as a parquet alongside the others so the cloud dashboard / future
+    # analyses can read it without re-running the backtest. Empty when
+    # there were no rebalances (degenerate cases); skip the file in
+    # that case so dashboard readers can use os.path.exists() to detect.
+    sizing_decisions = portfolio_df.attrs.get("sizing_decisions") or []
+    if sizing_decisions:
+        sd_df = pd.DataFrame(sizing_decisions)
+        sd_df.to_parquet(os.path.join(out_dir, "sizing_decisions.parquet"))
+
     # Snapshot the SPY + QQQ close series for the result's date range.
     # The dashboard's Performance tab plots Strategy vs SPY vs QQQ and
     # computes alpha/beta — all from these benchmark series. Saving them
@@ -1087,6 +1143,18 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
             "macro_threshold_low":  config.macro_threshold_low,
             "macro_threshold_high": config.macro_threshold_high,
         }
+        # Continuous-sizing fields surface only when the V3 mechanic is
+        # active for this trial. Older trials don't sample these and the
+        # block stays absent — keeps existing meta.json consumers
+        # bit-identical.
+        if (config.high_macro_threshold is not None
+                and config.low_macro_threshold is not None):
+            meta["continuous_sizing"] = {
+                "high_macro_threshold": config.high_macro_threshold,
+                "low_macro_threshold":  config.low_macro_threshold,
+                "endpoint_high_pos":    5,
+                "endpoint_low_pos":     15,
+            }
         regime_stats = portfolio_df.attrs.get("regime_stats")
         if regime_stats:
             meta["regime_stats"] = regime_stats
@@ -1180,6 +1248,12 @@ def _trial_to_config(trial: optuna.trial.FrozenTrial,
             analyst_weight       = p["analyst_weight"],
             macro_threshold_low  = p["macro_threshold_low"],
             macro_threshold_high = p["macro_threshold_low"] + p["macro_threshold_gap"],
+            # Continuous-sizing thresholds (V3) — only present when the
+            # search space sampled them. Older studies (V1/V2) didn't
+            # sample these params, so fall back to None which leaves
+            # the existing position_count tunable in charge.
+            high_macro_threshold = p.get("high_macro_threshold"),
+            low_macro_threshold  = p.get("low_macro_threshold"),
         )
 
     # Legacy

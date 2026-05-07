@@ -397,6 +397,64 @@ def compute_composite_scores(
 # BACKTEST
 # =============================================================================
 
+# --- Continuous-sizing endpoints (V3 study mechanic) -----------------------
+# Hardcoded per spec: position count interpolates between these two values
+# when both BacktestConfig.high_macro_threshold and low_macro_threshold are
+# set. Future studies can promote these to tunables; this study is testing
+# the mechanic.
+_CONTINUOUS_SIZING_HIGH_POS = 5    # signal >= high_macro_threshold
+_CONTINUOUS_SIZING_LOW_POS  = 15   # signal <= low_macro_threshold
+
+
+def is_continuous_sizing(config: BacktestConfig) -> bool:
+    """True iff continuous-sizing mode is active for this config (i.e.,
+    BOTH high_macro_threshold and low_macro_threshold are set). When False,
+    the rebalance loop falls through to the existing
+    active_tunables["position_count"] path — bit-identical to pre-this-
+    commit behavior for any config that doesn't set the new fields."""
+    return (config.high_macro_threshold is not None
+            and config.low_macro_threshold is not None)
+
+
+def compute_target_position_count(macro_signal: float,
+                                  config: BacktestConfig) -> int:
+    """Map today's macro_signal to a target position count.
+
+    - signal >= high_macro_threshold:  return _CONTINUOUS_SIZING_HIGH_POS (5)
+    - signal <= low_macro_threshold:   return _CONTINUOUS_SIZING_LOW_POS (15)
+    - in between: linear interpolation on the line through
+      (low, LOW_POS) and (high, HIGH_POS), rounded to int.
+
+    Defensive against the degenerate hi <= lo case (returns the high
+    endpoint). The objective_fn rejects such configs with sentinel before
+    the backtest runs, so this branch should never fire in production —
+    but the helper is callable from tests/ad-hoc scripts that bypass
+    objective_fn, hence the guard.
+    """
+    hi = config.high_macro_threshold
+    lo = config.low_macro_threshold
+    if hi is None or lo is None or hi <= lo:
+        return _CONTINUOUS_SIZING_HIGH_POS
+    if macro_signal >= hi:
+        return _CONTINUOUS_SIZING_HIGH_POS
+    if macro_signal <= lo:
+        return _CONTINUOUS_SIZING_LOW_POS
+    frac = (macro_signal - lo) / (hi - lo)   # 0 at lo (15 pos), 1 at hi (5 pos)
+    n = (_CONTINUOUS_SIZING_LOW_POS
+         + frac * (_CONTINUOUS_SIZING_HIGH_POS - _CONTINUOUS_SIZING_LOW_POS))
+    return int(round(n))
+
+
+def _sizing_regime_bucket(target: int) -> str:
+    """Bucket label for sizing_decisions.parquet. Matches the spec's
+    high_conviction_5pos / interpolated_8_to_12 / diversified_15pos
+    naming, with intermediate buckets named to make grep-able analysis
+    obvious."""
+    if target <= 6:  return "high_conviction_5pos"
+    if target >= 13: return "diversified_15pos"
+    return "interpolated_8_to_12"
+
+
 def run_backtest(
     featured_data: dict[str, pd.DataFrame],
     price_data: dict[str, pd.DataFrame],
@@ -543,6 +601,12 @@ def run_backtest(
     # regime-dependent runs and surfaced via portfolio_df.attrs at the end).
     regime_rebalances = {"defensive": 0, "offensive": 0}
     regime_trades     = {"defensive": 0, "offensive": 0}
+
+    # Continuous-sizing decision log (one row per rebalance when active;
+    # empty otherwise). Surfaced via portfolio_df.attrs["sizing_decisions"]
+    # at the end and persisted as sizing_decisions.parquet by the save path.
+    sizing_decisions: list[dict] = []
+    continuous_sizing = is_continuous_sizing(config)
 
     # Trading-day index lookup so min-hold check counts trading days, not calendar days
     date_index = {d: i for i, d in enumerate(test_dates)}
@@ -706,9 +770,21 @@ def run_backtest(
 
             latest_scores = comp_scores
 
+            # Continuous-sizing override: when both thresholds are set,
+            # target N is interpolated from today's macro signal instead
+            # of using the regime-active position_count tunable. Default
+            # path (continuous_sizing=False) preserves all existing
+            # behavior bit-identically.
+            if continuous_sizing:
+                target_n = compute_target_position_count(
+                    macro_score_today, config)
+            else:
+                target_n = active["position_count"]
+            # Snapshot the pre-rebalance state for the decision log
+            before_count = len(positions)
             top_tickers = select_top_tickers(
                 comp_scores, sector_map,
-                top_n=active["position_count"],
+                top_n=target_n,
                 max_per_sector=config.sector_cap,
                 currently_held=set(positions),
             )
@@ -791,6 +867,36 @@ def run_backtest(
                         "shares": shares, "price": buy_price, "fee": fee,
                     })
 
+            # Emit one row to the sizing-decision log per rebalance
+            # (fires on every rebalance, not just continuous-sizing
+            # runs, so analysis can compare across strategies in a
+            # unified format). top_score / min_held_score read AFTER
+            # this rebalance's buys+sells; top_unheld_score reads from
+            # the same comp_scores snapshot but excludes current holdings.
+            held_now = set(positions.keys())
+            held_composites = [
+                comp_scores[t]["composite"] for t in held_now
+                if t in comp_scores
+            ]
+            unheld_composites = [
+                s["composite"] for t, s in comp_scores.items()
+                if t not in held_now
+            ]
+            sizing_decisions.append({
+                "date":                          date,
+                "macro_signal":                  float(macro_score_today),
+                "target_position_count":         int(target_n),
+                "actual_position_count_before":  int(before_count),
+                "actual_position_count_after":   int(len(positions)),
+                "top_score": (max(held_composites)
+                              if held_composites else float("nan")),
+                "min_held_score": (min(held_composites)
+                                   if held_composites else float("nan")),
+                "top_unheld_score": (max(unheld_composites)
+                                     if unheld_composites else float("nan")),
+                "regime": _sizing_regime_bucket(int(target_n)),
+            })
+
         # --- End-of-day valuation ---
         port_value = cash
         for tkr, shares in positions.items():
@@ -855,6 +961,13 @@ def run_backtest(
                 regime_trades["defensive"] / n_total_tr * 100.0
                 if n_total_tr else None),
         }
+
+    # Sizing decision log (one row per rebalance). Always attached, even
+    # in non-continuous-sizing runs, so downstream analysis can compare
+    # across strategies in a single unified format. Empty list → no
+    # save-path action; non-empty → persisted as sizing_decisions.parquet.
+    if sizing_decisions:
+        portfolio_df.attrs["sizing_decisions"] = sizing_decisions
 
     # Rolling-window metrics: opt-in via kwarg. Result attached to
     # portfolio_df.attrs to avoid changing the return-tuple shape (every

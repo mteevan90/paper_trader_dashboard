@@ -102,6 +102,19 @@ class BacktestConfig:
     # 'regime-dependent' so the offensive_* field set is in scope.
     single_regime_mode: bool = False
 
+    # --- Continuous-sizing mode (opt-in, V3 study) ---------------------
+    # When BOTH high_macro_threshold and low_macro_threshold are set,
+    # backtest.compute_target_position_count() interpolates the rebalance
+    # position count between 5 (signal >= high) and 15 (signal <= low)
+    # at every rebalance date based on that day's macro_signal. The
+    # endpoints are hardcoded in backtest.py for this study; future
+    # studies can promote them to tunables. When either field is None
+    # (default), behavior is unchanged — the rebalance loop uses
+    # active["position_count"] as before. Constraint: high > low; the
+    # search space + objective_fn enforce this.
+    high_macro_threshold: float | None = None
+    low_macro_threshold:  float | None = None
+
     def __post_init__(self) -> None:
         # Derive weight_alt from the three free weights and validate the
         # composite sums to 1.0. Frozen dataclasses disallow normal
