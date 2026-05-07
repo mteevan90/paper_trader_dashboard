@@ -754,11 +754,30 @@ def tab_overview(label: str, config: BacktestConfig, result: dict) -> None:
             cov = np.cov(pr, sr)
             beta = cov[0, 1] / cov[1, 1] if cov[1, 1] != 0 else 0
             alpha_ann = (pr.mean() - beta * sr.mean()) * 252
+            # Arithmetic alpha: simple annualized return spread (matches
+            # project documentation's headline +63.7pp for Trial #325).
+            arith_alpha_ann = (pr.mean() - sr.mean()) * 252
             corr = pr.corr(sr)
-            cols2 = st.columns(3)
-            cols2[0].metric("Alpha (ann.) vs SPY", f"{alpha_ann*100:+.2f}pp")
-            cols2[1].metric("Beta vs SPY", f"{beta:.2f}")
-            cols2[2].metric("Correlation vs SPY", f"{corr:.2f}")
+            cols2 = st.columns(4)
+            cols2[0].metric(
+                "Alpha (arithmetic, ann.)",
+                f"{arith_alpha_ann*100:+.2f}pp",
+                help="Strategy annualized return minus SPY annualized "
+                     "return. Does not adjust for beta. This is the "
+                     "headline +63.7pp number cited in project "
+                     "documentation."
+            )
+            cols2[1].metric(
+                "Alpha (CAPM, ann.)",
+                f"{alpha_ann*100:+.2f}pp",
+                help="Jensen's alpha: excess annualized return after "
+                     "removing the beta-amplified SPY contribution. "
+                     "Lower than arithmetic alpha when beta > 1 because "
+                     "some outperformance is attributed to amplified "
+                     "market exposure."
+            )
+            cols2[2].metric("Beta vs SPY", f"{beta:.2f}")
+            cols2[3].metric("Correlation vs SPY", f"{corr:.2f}")
 
     # --- Current macro state (today) ---
     st.subheader("Current macro state")
@@ -1918,6 +1937,17 @@ def tab_diagnostics(label: str, config: BacktestConfig, result: dict) -> None:
         "[0.10, 0.45] produces nearly identical alpha. The overlay is "
         "conservatively implemented but not currently earning its "
         "complexity."
+    )
+    st.markdown(
+        "ATR-based stop placement is currently bounded by atr_floor_pct "
+        "(0.05) and atr_cap_pct (0.15) of entry price. For typical "
+        "large-cap ATR values, the floor clamp dominates: V3 Track 2 "
+        "perturbation showed identical trade counts and alpha across "
+        "atr_multiplier values from 1.0 to 2.25. The multiplier is "
+        "structurally present as a tunable but does not materially "
+        "affect stop-loss placement in the current parameter regime. "
+        "Adjusting the floor/cap clamps would have more impact than "
+        "adjusting the multiplier."
     )
     st.divider()
     obs = _notable_observations(

@@ -137,13 +137,21 @@ def _get_manifest_ts() -> str:
 
 
 @st.cache_data(show_spinner=False)
-def _fetch_to_tmp(remote_key: str, manifest_ts: str) -> str:
+def _fetch_to_tmp(remote_key: str, manifest_ts: str,
+                  _quiet: bool = False) -> str:
     """Download a file from R2 into TMP_CACHE; return the local path.
 
     manifest_ts is part of the cache key so updating the manifest busts
-    every cached fetch. On 404/network error: log a streamlit warning and
-    return a path that doesn't exist (caller's os.path.exists() check
-    falls through to its own missing-file branch)."""
+    every cached fetch. _quiet (underscore prefix excludes it from
+    Streamlit's cache hash) suppresses the on-error log + st.warning
+    when the caller knows a 404 is expected — e.g. scanning meta.json
+    for non-study directories under dashboard_results/ such as
+    v3_track2_perturbation/, which holds aggregation CSVs but no
+    meta.json.
+
+    On 404/network error: log a streamlit warning (unless _quiet=True)
+    and return a path that doesn't exist (caller's os.path.exists()
+    check falls through to its own missing-file branch)."""
     _ = manifest_ts  # used only as cache key
     client = _get_r2_client()
     local = TMP_CACHE / remote_key
@@ -152,31 +160,35 @@ def _fetch_to_tmp(remote_key: str, manifest_ts: str) -> str:
         client.download_file(_bucket(), remote_key, str(local))
         return str(local)
     except Exception as e:
-        # Log to stderr — visible in Streamlit Cloud's app logs even when
-        # st.warning calls inside @st.cache_data don't render reliably.
-        # This is the diagnostic channel when the cloud dashboard goes
-        # silent: tail the app's logs to see exact (key, error_type, msg).
-        msg = f"R2 fetch failed for {remote_key!r}: {type(e).__name__}: {e}"
-        print(f"[data_source] {msg}", file=sys.stderr, flush=True)
-        st.warning(msg)   # best-effort UI surface; not always visible
+        if not _quiet:
+            # Log to stderr — visible in Streamlit Cloud's app logs even
+            # when st.warning calls inside @st.cache_data don't render
+            # reliably. This is the diagnostic channel when the cloud
+            # dashboard goes silent: tail the app's logs to see exact
+            # (key, error_type, msg).
+            msg = f"R2 fetch failed for {remote_key!r}: {type(e).__name__}: {e}"
+            print(f"[data_source] {msg}", file=sys.stderr, flush=True)
+            st.warning(msg)   # best-effort UI surface; not always visible
         # Return a path guaranteed not to exist; caller's
         # os.path.exists() falls through to its missing-file branch.
         return str(TMP_CACHE / "_missing" / remote_key)
 
 
-def path_to(local_relative: str) -> str:
+def path_to(local_relative: str, quiet: bool = False) -> str:
     """Resolve a repo-relative path to an absolute local path.
 
     Local mode: returns the absolute path under REPO_ROOT (whether or not
     the file exists; caller's os.path.exists() handles missing files
     exactly as it does today).
     Cloud mode: maps to the R2 key, fetches into TMP_CACHE (cached for the
-    session, manifest-timestamp keyed), returns the /tmp path."""
+    session, manifest-timestamp keyed), returns the /tmp path. quiet=True
+    suppresses the warning emitted on a fetch miss — pass it when a
+    missing remote file is an expected condition (not an error)."""
     if not cloud_mode():
         return str(REPO_ROOT / local_relative)
     remote_key = r2_key_for(local_relative)
     ts = _get_manifest_ts()
-    return _fetch_to_tmp(remote_key, ts)
+    return _fetch_to_tmp(remote_key, ts, _quiet=quiet)
 
 
 def list_dashboard_result_labels() -> list[str]:
@@ -212,8 +224,13 @@ def list_promoted_dashboard_result_labels() -> list[str]:
     out: list[str] = []
     for label in list_dashboard_result_labels():
         try:
+            # quiet=True: a missing meta.json is expected for non-study
+            # directories (e.g. v3_track2_perturbation/ holds aggregation
+            # CSVs but no meta.json). The 404 from R2 is normal here and
+            # would otherwise emit a warning banner on every render.
             meta_path = path_to(
-                f"models/cache/dashboard_results/{label}/meta.json")
+                f"models/cache/dashboard_results/{label}/meta.json",
+                quiet=True)
             with open(meta_path, "r", encoding="utf-8") as f:
                 meta = json.load(f)
             if meta.get("promoted") is True:
