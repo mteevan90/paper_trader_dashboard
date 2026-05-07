@@ -45,6 +45,7 @@ import optuna
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 
@@ -232,6 +233,23 @@ def load_sector_map() -> dict:
         return {}
     with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_perturbation_summary() -> "pd.DataFrame | None":
+    """Read the V3 Track 2 perturbation summary CSV. Returns None if
+    the file isn't present on this deployment (e.g. cloud snapshot
+    predates Track 2 generation). Auto-routed via data_source so it
+    transparently reads from R2 in cloud mode."""
+    p = data_source.path_to(
+        "models/cache/dashboard_results/v3_track2_perturbation/"
+        "summary_full.csv")
+    if not os.path.exists(p):
+        return None
+    try:
+        return pd.read_csv(p)
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1053,6 +1071,228 @@ def tab_trades(result: dict) -> None:
                                  use_container_width=True, hide_index=True)
 
 
+_ROBUSTNESS_THRESHOLD = 0.40   # rolling_12mo_objective bar for "still robust"
+_ROBUSTNESS_DEAD_BAND = 0.04   # ±r12_obj range that counts as "dead axis"
+
+# Friendly axis labels for the per-axis table + plot titles. Falls back
+# to the raw name with underscores stripped if not in the map.
+_ROBUSTNESS_AXIS_LABELS: dict[str, str] = {
+    "atr_multiplier_offensive":           "ATR multiplier (offensive)",
+    "macro_threshold_low":                "Macro threshold low",
+    "position_count_offensive":           "Position count (offensive)",
+    "rebalance_frequency_days_offensive": "Rebalance freq (days, offensive)",
+    "regime_threshold":                   "Regime threshold",
+    "weight_fundamental_offensive":       "Weight: fundamental (offensive)",
+    "weight_model_offensive":             "Weight: model (offensive)",
+    "weight_technical_offensive":         "Weight: technical (offensive)",
+}
+
+
+def _classify_axis(values: pd.DataFrame) -> tuple[str, str]:
+    """Classify an axis's behavior + auto-generate a one-sentence note.
+
+    values is the per-axis subframe (5 rows) sorted by `value`. Returns
+    (classification, note). Rules per the V3 spec:
+      - All 5 within ±dead_band of reference: "Dead axis"
+      - 4-5 of 5 above threshold: "Robust plateau"
+      - 2-3 of 5 above threshold with reference at peak: "Peak with sensitivity"
+      - 1-2 of 5 above threshold: "Knife edge"
+      - else: "Mixed"
+    """
+    thr = _ROBUSTNESS_THRESHOLD
+    r12 = values["rolling_12mo_objective"]
+    n_above = int((r12 >= thr).sum())
+    ref_row = values[values["is_reference"]]
+    ref_val = float(ref_row["rolling_12mo_objective"].iloc[0]) if not ref_row.empty else float(r12.max())
+    spread = float(r12.max() - r12.min())
+    n_trades_unique = values["n_trades"].nunique()
+    alpha_spread_pp = float(values["alpha_ann"].max() - values["alpha_ann"].min()) * 100
+
+    if spread <= _ROBUSTNESS_DEAD_BAND:
+        cls = "Dead axis"
+        if n_trades_unique == 1:
+            note = (f"Zero change in trade count or alpha across the "
+                    f"tested range — likely indicates this axis isn't "
+                    f"materially exercised in the validation window.")
+        else:
+            note = (f"r12_obj spread only {spread:.3f} across the "
+                    f"tested range — strategy is structurally insensitive "
+                    f"to this axis here.")
+    elif n_above >= 4:
+        cls = "Robust plateau"
+        note = (f"{n_above}/5 perturbations stay above the {thr:.2f} "
+                f"threshold; alpha varies by {alpha_spread_pp:.1f}pp "
+                f"across the range.")
+    elif n_above >= 2 and abs(ref_val - r12.max()) < 1e-6:
+        cls = "Peak with sensitivity"
+        note = (f"Reference value sits at the peak; {5 - n_above}/5 "
+                f"alternative values fall below {thr:.2f}. Alpha drops "
+                f"up to {alpha_spread_pp:.1f}pp at the extremes.")
+    elif n_above <= 2:
+        cls = "Knife edge"
+        note = (f"Only {n_above}/5 perturbations stay above {thr:.2f}; "
+                f"performance is sensitive to this axis (alpha range "
+                f"{alpha_spread_pp:.1f}pp).")
+    else:
+        cls = "Mixed"
+        note = (f"{n_above}/5 perturbations above {thr:.2f}; alpha "
+                f"range {alpha_spread_pp:.1f}pp.")
+    return cls, note
+
+
+def tab_robustness(label: str, config: BacktestConfig, result: dict) -> None:
+    st.header("Robustness")
+    df = load_perturbation_summary()
+    if df is None or df.empty:
+        st.info(
+            "No perturbation data found in this deployment. The "
+            "Robustness tab surfaces V3 Track 2 single-axis "
+            "perturbation results from "
+            "`models/cache/dashboard_results/v3_track2_perturbation/"
+            "summary_full.csv`. Generate via `python "
+            "src/v3_track2_runner.py` (local) or wait for the next "
+            "snapshot sync (cloud)."
+        )
+        return
+
+    df = df.copy()
+    df["axis"] = df["axis"].astype(str)
+
+    # ---- Section A: headline + KPIs ----
+    n_total = int(len(df))
+    n_ref = int(df["is_reference"].sum())
+    n_pert = n_total - n_ref
+    thr = _ROBUSTNESS_THRESHOLD
+    n_pert_robust = int(((df["rolling_12mo_objective"] >= thr)
+                         & ~df["is_reference"]).sum())
+    pct_robust = (n_pert_robust / n_pert * 100) if n_pert else 0.0
+    n_axes = int(df["axis"].nunique())
+
+    st.markdown(
+        f"Trial **{label}** was tested across **{n_pert}** single-axis "
+        f"perturbations spanning **{n_axes}** axes. "
+        f"**{n_pert_robust} of {n_pert}** perturbations ({pct_robust:.0f}%) "
+        f"still produced rolling_12mo_objective ≥ {thr:.2f} — i.e., "
+        f"still substantially outperformed SPY."
+    )
+
+    # Per-axis ranges for KPIs
+    by_axis = df.groupby("axis", sort=False)
+    spreads = by_axis["rolling_12mo_objective"].agg(
+        lambda s: float(s.max() - s.min())).sort_values()
+    tightest_axis = spreads.index[0]
+    most_robust_axis = spreads.index[-1]
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total perturbations", f"{n_pert}")
+    c2.metric(f"Beating r12_obj ≥ {thr:.2f}",
+              f"{n_pert_robust} ({pct_robust:.0f}%)")
+    c3.metric("Tightest axis (smallest r12_obj range)",
+              _ROBUSTNESS_AXIS_LABELS.get(tightest_axis, tightest_axis),
+              f"Δ {spreads.iloc[0]:.3f}")
+    c4.metric("Widest axis (largest r12_obj range)",
+              _ROBUSTNESS_AXIS_LABELS.get(most_robust_axis, most_robust_axis),
+              f"Δ {spreads.iloc[-1]:.3f}")
+
+    # ---- Section B: 4×2 subplot grid ----
+    st.divider()
+    st.subheader("Per-axis surface plots")
+    st.caption(
+        "Each panel shows the 5 tested values for one axis. Blue line is "
+        "rolling_12mo_objective (left axis); orange line is alpha_ann "
+        "(right axis). The reference point (Trial #325's value) is marked "
+        "with a star."
+    )
+    axes_sorted = list(_ROBUSTNESS_AXIS_LABELS.keys())
+    # Keep only axes that actually appear in the data, preserve canonical order
+    axes_sorted = [a for a in axes_sorted if a in by_axis.groups]
+    fig = make_subplots(
+        rows=4, cols=2,
+        subplot_titles=[_ROBUSTNESS_AXIS_LABELS.get(a, a)
+                        for a in axes_sorted],
+        specs=[[{"secondary_y": True}, {"secondary_y": True}]] * 4,
+        vertical_spacing=0.08, horizontal_spacing=0.10,
+    )
+    for i, ax_name in enumerate(axes_sorted):
+        sub = by_axis.get_group(ax_name).sort_values("value")
+        row = i // 2 + 1
+        col = i % 2 + 1
+        ref_sub = sub[sub["is_reference"]]
+        # r12_obj (primary y)
+        fig.add_trace(go.Scatter(
+            x=sub["value"], y=sub["rolling_12mo_objective"],
+            mode="lines+markers", name="r12_obj", legendgroup="r12",
+            showlegend=(i == 0),
+            line=dict(color="#2563eb", width=2),
+            marker=dict(size=8, color="#2563eb"),
+        ), row=row, col=col, secondary_y=False)
+        # alpha_ann (secondary y)
+        fig.add_trace(go.Scatter(
+            x=sub["value"], y=sub["alpha_ann"],
+            mode="lines+markers", name="alpha_ann", legendgroup="alpha",
+            showlegend=(i == 0),
+            line=dict(color="#f59e0b", width=2, dash="dot"),
+            marker=dict(size=7, color="#f59e0b", symbol="diamond"),
+        ), row=row, col=col, secondary_y=True)
+        # Reference markers
+        if not ref_sub.empty:
+            fig.add_trace(go.Scatter(
+                x=ref_sub["value"],
+                y=ref_sub["rolling_12mo_objective"],
+                mode="markers", name="reference (#325)",
+                legendgroup="ref", showlegend=(i == 0),
+                marker=dict(size=14, color="#16a34a", symbol="star"),
+            ), row=row, col=col, secondary_y=False)
+        # Threshold line for r12_obj
+        fig.add_hline(y=thr, line_dash="dash", line_color="#94a3b8",
+                      line_width=1, row=row, col=col, secondary_y=False)
+    fig.update_layout(
+        height=1000, margin=dict(l=10, r=10, t=60, b=10),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1),
+    )
+    for i in range(8):
+        row = i // 2 + 1
+        col = i % 2 + 1
+        fig.update_yaxes(title_text="r12_obj" if col == 1 else "",
+                         row=row, col=col, secondary_y=False)
+        fig.update_yaxes(title_text="alpha" if col == 2 else "",
+                         row=row, col=col, secondary_y=True)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ---- Section C: per-axis classification table ----
+    st.divider()
+    st.subheader("Per-axis interpretation")
+    rows = []
+    for ax_name in axes_sorted:
+        sub = by_axis.get_group(ax_name).sort_values("value")
+        ref_sub = sub[sub["is_reference"]]
+        ref_val = (float(ref_sub["value"].iloc[0])
+                   if not ref_sub.empty else float("nan"))
+        v_lo, v_hi = float(sub["value"].min()), float(sub["value"].max())
+        r_lo = float(sub["rolling_12mo_objective"].min())
+        r_hi = float(sub["rolling_12mo_objective"].max())
+        cls, note = _classify_axis(sub)
+        rows.append({
+            "Axis": _ROBUSTNESS_AXIS_LABELS.get(ax_name, ax_name),
+            "Reference": f"{ref_val:.3f}" if ref_val == ref_val else "—",
+            "Range tested": f"[{v_lo:.3f}, {v_hi:.3f}]",
+            "r12_obj range": f"[{r_lo:.3f}, {r_hi:.3f}]",
+            "Robust?": cls,
+            "Note": note,
+        })
+    table_df = pd.DataFrame(rows)
+    st.dataframe(table_df, use_container_width=True, hide_index=True)
+    st.caption(
+        "Classifications: **Dead axis** — r12_obj spread ≤ "
+        f"{_ROBUSTNESS_DEAD_BAND} (insensitive). "
+        "**Robust plateau** — 4-5/5 above threshold. "
+        "**Peak with sensitivity** — reference at peak, others fall off. "
+        "**Knife edge** — only 1-2/5 above threshold."
+    )
+
+
 def tab_user_guide() -> None:
     st.header("Paper Trader Dashboard User Guide")
     st.markdown(
@@ -1644,13 +1884,11 @@ def tab_diagnostics(label: str, config: BacktestConfig, result: dict) -> None:
         "This is a long-only equity strategy that scores ~486 large-cap "
         "US stocks on a composite of fundamental, technical, "
         "model-predicted, and alternative-data signals. The strategy "
-        "holds 5 positions concentrated in highest-scoring names, "
-        "rebalances every ~17 days, and uses a macro regime signal to "
-        "size positions at 50/75/100% based on market conditions. "
-        "Trailing ATR-based stops protect against drawdowns, with a "
-        "relatively tight stop multiplier (1.46) that prioritizes "
-        "capital preservation in adverse moves. Earnings blackout "
-        "windows prevent premature exits."
+        "holds 5 positions concentrated in highest-scoring names and "
+        "rebalances every ~17 days. Trailing ATR-based stops protect "
+        "against drawdowns, with a relatively tight stop multiplier "
+        "(1.46) that prioritizes capital preservation in adverse moves. "
+        "Earnings blackout windows prevent premature exits."
     )
     st.markdown(
         "Validation testing in 2024-2026 showed strong results: the "
@@ -1663,6 +1901,23 @@ def tab_diagnostics(label: str, config: BacktestConfig, result: dict) -> None:
         "market conditions (0.42 to 2.4 across rolling windows), "
         "indicating it amplifies market exposure when conditions "
         "favor its selections. Maximum drawdown was -22.3%."
+    )
+    st.markdown(
+        "The strategy was discovered through a regime-dependent search "
+        "space, but TPE positioned the regime threshold (0.525) such "
+        "that defensive regime activation does not improve performance "
+        "on the validation period. The strategy effectively runs in "
+        "offensive mode throughout. See the Robustness tab for the "
+        "perturbation evidence that lower thresholds (which would "
+        "activate defensive) reduce alpha by ~35pp annualized."
+    )
+    st.markdown(
+        "The macro overlay (50%/75%/100% sizing tiers) is structurally "
+        "active but does not produce material changes in this "
+        "validation period — perturbing macro_threshold_low across "
+        "[0.10, 0.45] produces nearly identical alpha. The overlay is "
+        "conservatively implemented but not currently earning its "
+        "complexity."
     )
     st.divider()
     obs = _notable_observations(
@@ -1712,7 +1967,7 @@ def main() -> None:
 
     tabs = st.tabs(
         ["Overview", "Diagnostics", "Optuna explorer", "Macro state",
-         "Positions", "Trades log", "User Guide"]
+         "Positions", "Trades log", "Robustness", "User Guide"]
     )
     with tabs[0]:
         tab_overview(label, config, result)
@@ -1727,6 +1982,8 @@ def main() -> None:
     with tabs[5]:
         tab_trades(result)
     with tabs[6]:
+        tab_robustness(label, config, result)
+    with tabs[7]:
         tab_user_guide()
 
 
