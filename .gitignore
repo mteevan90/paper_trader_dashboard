@@ -61,3 +61,6 @@ v3_track2_*.log
 
 # Zip archives (typically scratch / data exports)
 *.zip
+
+# Source-zipping scratch
+make_src_zip.py
