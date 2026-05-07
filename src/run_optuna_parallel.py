@@ -183,8 +183,41 @@ def _translate_holds(holds_csv: str, base_config: dict) -> dict:
 
 
 def _build_search_ranges_log(fixed_values: dict,
-                             range_overrides: dict) -> dict:
-    from optuna_runner import _DEFAULT_RANGES
+                             range_overrides: dict,
+                             architecture: str) -> dict:
+    """Build the search_ranges dict written to meta.json.
+
+    Architecture-aware so the saved log records the *actual* default
+    range each param was sampled from, not the legacy range. The
+    six _offensive variants and regime_threshold are absent from
+    _DEFAULT_RANGES (which is legacy-only); for regime-dependent and
+    single-regime architectures we pull from _REGIME_DEPENDENT_RANGES
+    and synthesize each _offensive entry from its non-offensive twin
+    (same pattern build_regime_dependent_search_space uses).
+
+    Skips param names that aren't sampled by the given architecture
+    (e.g. regime_threshold for legacy, defensive _offensive variants
+    aren't relevant for a single-regime trial — though present in the
+    launcher's _SEARCH_SPACE_PARAMS union — but listing them with
+    their default ranges is fine for the audit log).
+    """
+    from optuna_runner import _DEFAULT_RANGES, _REGIME_DEPENDENT_RANGES
+
+    # Pick the base dict that actually drove sampling, then merge in
+    # architecture-specific names that the base lacks.
+    if architecture == "legacy":
+        base = dict(_DEFAULT_RANGES)
+    else:
+        # regime-dependent + single-regime both sample from
+        # _REGIME_DEPENDENT_RANGES. Synthesize the 6 _offensive entries
+        # from their non-offensive twin (build_regime_dependent_search_
+        # space does this implicitly via the _suggest helper).
+        base = dict(_REGIME_DEPENDENT_RANGES)
+        for tw in ("weight_fundamental", "weight_technical", "weight_model",
+                   "atr_multiplier", "position_count",
+                   "rebalance_frequency_days"):
+            base[f"{tw}_offensive"] = _REGIME_DEPENDENT_RANGES[tw]
+
     out: dict = {}
     for name in sorted(_SEARCH_SPACE_PARAMS):
         if name in fixed_values:
@@ -192,9 +225,14 @@ def _build_search_ranges_log(fixed_values: dict,
         elif name in range_overrides:
             lo, hi = range_overrides[name]
             out[name] = [lo, hi]
-        else:
-            lo, hi = _DEFAULT_RANGES[name]
+        elif name in base:
+            lo, hi = base[name]
             out[name] = [lo, hi]
+        else:
+            # Param exists in the union but not in this architecture's
+            # search space — record explicitly so the meta.json doesn't
+            # silently drop it.
+            out[name] = ["NOT_SAMPLED_BY_ARCHITECTURE", architecture]
     return out
 
 
@@ -424,7 +462,8 @@ def _launcher_main() -> int:
         return 1 if failures else 0
 
     from optuna_runner import save_hypothesis_result   # noqa: E402
-    search_ranges_meta = _build_search_ranges_log(fixed_values, range_overrides)
+    search_ranges_meta = _build_search_ranges_log(
+        fixed_values, range_overrides, args.architecture)
     base_config_ref = str(base_path).replace("\\", "/")
     print(f"\n[PARALLEL] Saving dashboard_results for best trial...")
     save_hypothesis_result(
