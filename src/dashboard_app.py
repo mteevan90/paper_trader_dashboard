@@ -565,23 +565,19 @@ def macro_score_series(macro_df: pd.DataFrame,
 
 def trial_to_config(trial: optuna.trial.FrozenTrial,
                     fixed_values: dict | None = None) -> BacktestConfig:
-    """Reconstruct a BacktestConfig from a completed trial. fixed_values
-    fills in search-space params that weren't sampled — needed for
-    hypothesis-style studies where trial.params only contains the
-    varied tunables (held-fixed ones skip trial.suggest_*). Default
-    None preserves bit-identical behavior for v1 studies."""
-    p = {**(fixed_values or {}), **trial.params}
-    return BacktestConfig(
-        weight_fundamental       = p["weight_fundamental"],
-        weight_technical         = p["weight_technical"],
-        weight_model             = p["weight_model"],
-        macro_threshold_low      = p["macro_threshold_low"],
-        macro_threshold_high     = p["macro_threshold_low"] + p["macro_threshold_gap"],
-        atr_multiplier           = p["atr_multiplier"],
-        analyst_weight           = p["analyst_weight"],
-        rebalance_frequency_days = p["rebalance_frequency_days"],
-        position_count           = p["position_count"],
-    )
+    """Reconstruct a BacktestConfig from a completed trial.
+
+    Delegates to optuna_runner._trial_to_config so the dashboard sees
+    the same architecture-aware reconstruction (legacy / regime-
+    dependent / single-regime) and the same weight-triple normalization
+    the search-space sampler applied. Without this, regime-dependent
+    studies whose raw trial.params held a free-weight triple summing
+    >1.0 (the V3-spec ranges allow this; the sampler clamps via
+    _normalize_weight_triple) would crash BacktestConfig validation
+    when the sidebar picker tried to load them.
+    """
+    from optuna_runner import _trial_to_config as _runner_trial_to_config
+    return _runner_trial_to_config(trial, fixed_values=fixed_values)
 
 
 def get_result_for_config(label: str, config: BacktestConfig) -> dict:
@@ -1122,6 +1118,111 @@ def tab_tuning_history(label: str, config: BacktestConfig, result: dict,
     if completes.empty:
         st.warning("No completed trials in this study.")
         return
+    st.divider()
+
+    # ===== Layer 2 — Score distribution (where the winner ranks) =====
+    st.markdown("**Where this strategy ranks among all configurations tested.**")
+    # Filter out failure-sentinel scores. Optuna records trial state as
+    # COMPLETE whenever objective_fn returns any value (including the
+    # _FAILURE_SENTINEL = -1e6 that the runner uses for unrecoverable
+    # backtest errors). Any legit objective output sits in [-1, 1] for
+    # our scoring; anything below -1e3 is a sentinel and would skew
+    # mean/std/z-score calculations beyond meaning.
+    sane = completes[completes["value"].astype(float) > -1e3]
+    n_sentinel = len(completes) - len(sane)
+    if sane.empty:
+        st.warning("All completed trials are failure sentinels — score "
+                   "distribution is not meaningful.")
+        st.divider()
+        return
+    scores = sane["value"].astype(float).values
+    n_completes = len(scores)
+    score_mean = float(np.mean(scores))
+    score_std  = float(np.std(scores, ddof=1)) if n_completes > 1 else 0.0
+    win_score  = float(sane["value"].max())
+    win_n      = int(sane.loc[sane["value"].idxmax(), "trial_number"])
+    win_z      = ((win_score - score_mean) / score_std
+                  if score_std > 0 else float("nan"))
+    # Percentile rank of the winner (ascending — 99% means "beats 99% of trials")
+    win_pct_rank = float((scores < win_score).sum()) / n_completes * 100.0
+    top_pct = max(100.0 - win_pct_rank, 100.0 / n_completes)  # never claim "top 0%"
+
+    cols = st.columns(4)
+    cols[0].metric(
+        "Total trials completed",
+        f"{n_completes:,}",
+        help=(f"{n_sentinel} additional trials returned the failure "
+              f"sentinel — excluded from this distribution because they "
+              f"would skew mean/std beyond meaning."
+              if n_sentinel else
+              "Trials that returned a real (non-sentinel) score."),
+    )
+    cols[1].metric("Mean trial score", f"{score_mean:.3f}")
+    cols[2].metric("Std dev of trial scores", f"{score_std:.3f}")
+    cols[3].metric(
+        "Winner's z-score",
+        f"{win_z:+.2f}σ" if not pd.isna(win_z) else "—",
+        help=("Standard deviations above the mean. >2 = clear peak; "
+              "1–2 = outperformed but not exceptional; <1 = no "
+              "obvious winner."),
+    )
+
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(
+        x=scores, nbinsx=50,
+        marker=dict(color="#475569", line=dict(color="#1f2937", width=0.5)),
+        name="Trials", showlegend=False,
+    ))
+    # ±2σ shading (lighter), ±1σ shading (darker), both behind histogram
+    if score_std > 0:
+        fig.add_vrect(
+            x0=score_mean - 2*score_std, x1=score_mean + 2*score_std,
+            fillcolor="#94a3b8", opacity=0.10, line_width=0, layer="below",
+            annotation_text="±2σ", annotation_position="top left",
+            annotation=dict(font=dict(size=10, color="#475569")),
+        )
+        fig.add_vrect(
+            x0=score_mean - score_std, x1=score_mean + score_std,
+            fillcolor="#94a3b8", opacity=0.18, line_width=0, layer="below",
+            annotation_text="±1σ", annotation_position="top left",
+            annotation=dict(font=dict(size=10, color="#475569")),
+        )
+        fig.add_vline(x=score_mean, line_dash="dot", line_color="#475569",
+                      line_width=1)
+    # Winner's score — distinct red line with annotation
+    fig.add_vline(
+        x=win_score, line_color="#dc2626", line_width=2.5,
+        annotation_text=f"Winner: Trial #{win_n} (score {win_score:.3f})",
+        annotation_position="top right",
+        annotation=dict(font=dict(size=11, color="#dc2626")),
+    )
+    fig.update_layout(
+        title=f"Trial score distribution — {n_completes:,} configurations tested",
+        xaxis_title="Trial score (12-month outperformance)",
+        yaxis_title="Number of configurations",
+        height=380, margin=dict(l=10, r=10, t=50, b=10),
+        bargap=0.05,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Live-computed interpretation sentence
+    if pd.isna(win_z):
+        interp = ("Trial scores are degenerate (zero variance) — "
+                  "interpretation is not meaningful.")
+    elif win_z >= 2:
+        interp = (f"The winning configuration sits in the **top "
+                  f"{top_pct:.1f}%** of trials and is "
+                  f"**{win_z:.1f}σ above the mean** — a clear peak.")
+    elif win_z >= 1:
+        interp = (f"The winning configuration sits in the **top "
+                  f"{top_pct:.1f}%** of trials, between **1 and 2σ "
+                  f"above the mean** — outperformed but not exceptional.")
+    else:
+        interp = (f"The winning configuration is only **{win_z:.2f}σ "
+                  f"above the mean** (top {top_pct:.1f}% of trials) — "
+                  f"TPE may not have found a clear peak in this "
+                  f"search space.")
+    st.markdown(interp)
     st.divider()
 
     # --- Trial number vs score with running best ---
