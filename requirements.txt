@@ -25,6 +25,7 @@ matplotlib==3.10.7         # legacy dashboard.py charts (imported by dashboard_a
 # --- Modeling stack (transitive via dashboard.py → backtest.py → model.py) ---
 xgboost==3.2.0
 scikit-learn==1.8.0
+scipy==1.17.1              # used directly by rolling_metrics.py (CAPM regression)
 ta==0.11.0
 
 # --- Macro signals (transitive: dashboard_app → dashboard → backtest → macro) ---
@@ -43,3 +44,4 @@ requests==2.33.1
 
 # --- Misc ---
 python-dotenv==1.2.2
+psutil==7.2.2              # diagnostic scripts (parallelism_diagnostic, _validation_driver)
