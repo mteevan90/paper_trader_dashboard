@@ -48,4 +48,16 @@ src/.claude/
 *.docx
 !src/paper_trader_user_guide.docx
 
-models/cache/*.toml.txt
+models/cache/*.toml.txt# V3 study scratch files
+inspect_*.py
+extract_track2*.py
+compare_studies.py
+v3_track1_*.log
+v3_track2_*.log
+
+# Cloud secrets (never commit)
+*secrets*FILLED*
+*secrets*.toml*
+
+# Zip archives (typically scratch / data exports)
+*.zip
