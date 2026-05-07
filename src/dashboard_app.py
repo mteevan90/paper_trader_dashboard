@@ -467,32 +467,84 @@ def round_trip_trades(trades_df: pd.DataFrame, end_date) -> pd.DataFrame:
                 reason = "Hard Stop"
             else:
                 reason = "Rebalance"
+            shares = float(b.get("shares", 0))
+            pnl_d  = (s["price"] - b["price"]) * shares
             rows.append({
-                "ticker":     ticker,
-                "buy_date":   b["date"],
-                "buy_price":  float(b["price"]),
-                "sell_date":  s["date"],
-                "sell_price": float(s["price"]),
-                "return_pct": ret_pct,
-                "hold_days":  hold_days,
-                "reason":     reason,
+                "ticker":      ticker,
+                "buy_date":    b["date"],
+                "buy_price":   float(b["price"]),
+                "sell_date":   s["date"],
+                "sell_price":  float(s["price"]),
+                "shares":      shares,
+                "pnl_dollars": float(pnl_d),
+                "return_pct":  ret_pct,
+                "hold_days":   hold_days,
+                "reason":      reason,
             })
         # Open positions (buys without matching exit)
         for i in range(len(exits), len(buys)):
             b = buys.iloc[i]
             rows.append({
-                "ticker":     ticker,
-                "buy_date":   b["date"],
-                "buy_price":  float(b["price"]),
-                "sell_date":  end_ts,
-                "sell_price": float("nan"),
-                "return_pct": float("nan"),
-                "hold_days":  (end_ts - b["date"]).days,
-                "reason":     "Open",
+                "ticker":      ticker,
+                "buy_date":    b["date"],
+                "buy_price":   float(b["price"]),
+                "sell_date":   end_ts,
+                "sell_price":  float("nan"),
+                "shares":      float(b.get("shares", 0)),
+                "pnl_dollars": float("nan"),
+                "return_pct":  float("nan"),
+                "hold_days":   (end_ts - b["date"]).days,
+                "reason":      "Open",
             })
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame(rows).sort_values("buy_date").reset_index(drop=True)
+
+
+def _monthly_returns(pv: pd.Series, spy_close: pd.Series
+                     ) -> tuple[pd.DataFrame, str]:
+    """Resample portfolio + SPY to month-end and compute monthly pct
+    change. Returns (df with columns ['Strategy', 'SPY'] indexed by
+    month-end, label). The first month is dropped because pct_change
+    on the resample's first observation is NaN. Used by the
+    Performance tab's Layer 2 monthly-bars chart.
+    """
+    if pv is None or pv.empty:
+        return pd.DataFrame(), ""
+    pv_m = pv.resample("ME").last().pct_change().dropna() * 100
+    out = pv_m.to_frame("Strategy")
+    if spy_close is not None and not spy_close.empty:
+        spy_m = spy_close.resample("ME").last().pct_change().dropna() * 100
+        out["SPY"] = spy_m
+    return out, f"{out.index[0]:%b %Y} – {out.index[-1]:%b %Y}"
+
+
+def _holdings_sector_values(holdings: dict, sector_map: dict,
+                            total_portfolio_value: float | None
+                            ) -> pd.DataFrame:
+    """Group current holdings by sector. Each holding's $ value is
+    shares × entry_price (cost basis — same approximation the
+    existing Positions tab uses; live prices not fetched in cloud
+    mode). Returns a DataFrame indexed by sector with columns
+    ['value', 'pct'] sorted by value descending.
+
+    If total_portfolio_value is provided, pct uses that as the
+    denominator (so cash + holdings = 100%). Otherwise pct sums to
+    100% across only the sectors with holdings.
+    """
+    if not holdings:
+        return pd.DataFrame()
+    sec_values: dict[str, float] = {}
+    for tkr, h in holdings.items():
+        sec = sector_map.get(tkr) or "Other"
+        sec_values[sec] = sec_values.get(sec, 0.0) + (
+            float(h["shares"]) * float(h["entry_price"]))
+    df = pd.DataFrame(
+        [{"sector": s, "value": v} for s, v in sec_values.items()])
+    df = df.sort_values("value", ascending=False).reset_index(drop=True)
+    denom = float(total_portfolio_value) if total_portfolio_value else df["value"].sum()
+    df["pct"] = df["value"] / denom * 100.0 if denom else 0.0
+    return df
 
 
 def macro_score_series(macro_df: pd.DataFrame,
@@ -678,37 +730,221 @@ def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None
 # Tabs
 # ---------------------------------------------------------------------------
 
-def tab_overview(label: str, config: BacktestConfig, result: dict) -> None:
-    st.header("Overview")
-    st.caption(f"Showing config: **{label}** "
-               f"(window {config.validate_start} -> {config.validate_end})")
+def _summary_caveat_prefix(label: str, result: dict) -> str:
+    """Shared prefix for exec-summary headlines.
 
-    # First-time-visitor context. Always rendered — st.info is mid-weight,
-    # visible on first visit but unobtrusive once the reader is oriented.
-    st.info(
-        "This is a paper-trading research dashboard. The system runs on a "
-        "491-ticker universe of large-cap US equities with a macro overlay "
-        "and ML-driven composite scoring. All performance shown is paper "
-        "trading, not real money. Use the sidebar to switch between "
-        "**Default config** (the unoptimized baseline) and **Best trial** "
-        "(the locked Optuna-tuned config from training)."
-    )
+    Default config and experimental (non-promoted) configs each get a
+    cue prefix so the reader knows the result isn't the locked baseline.
+    """
+    meta = result.get("meta") or {}
+    if label == "default":
+        return "**Default config** — unoptimized baseline. "
+    if meta.get("promoted") is False:
+        return "**Experimental config** — "
+    return ""
+
+
+def _summary_default_caveat() -> str:
+    return ("This is the unoptimized baseline configuration, not the "
+            "locked V1 strategy. Numbers shown are illustrative.")
+
+
+def _exec_summary_performance(label: str, config: BacktestConfig,
+                              result: dict) -> str:
+    """Data-driven exec summary for the Performance tab.
+
+    Headline / detail / caveat pulled from the loaded result. The
+    adjective in the headline ('strongly outperforms', 'underperforms',
+    etc.) is threshold-templated so it always agrees with the KPI cards
+    rendered immediately below."""
+    portfolio_df = result.get("portfolio_df")
+    if portfolio_df is None or portfolio_df.empty:
+        return "*Performance summary will appear when results are loaded.*"
+    meta = result.get("meta") or {}
+    components = meta.get("components") or {}
+
+    pv = portfolio_df["portfolio_value"]
+    start = portfolio_df.index[0].strftime("%Y-%m-%d")
+    end   = (portfolio_df.index[-1] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    spy_close = cached_benchmark("SPY", start, end)
+
+    total_pct = (pv.iloc[-1] / pv.iloc[0] - 1) * 100.0
+    n_days = max(len(pv), 1)
+    sys_ann = (pv.iloc[-1] / pv.iloc[0]) ** (252 / n_days) - 1
+    spy_pct   = ((spy_close.iloc[-1] / spy_close.iloc[0] - 1) * 100.0
+                 if not spy_close.empty else float("nan"))
+    arith_pp  = float("nan")
+    beta      = float("nan")
+    if not spy_close.empty:
+        spy_ann = (spy_close.iloc[-1] / spy_close.iloc[0]) ** (252 / n_days) - 1
+        # Compound-annualized arithmetic alpha (matches the +63.7pp
+        # number cited in project documentation for Trial #325).
+        arith_pp = (sys_ann - spy_ann) * 100
+        pr = pv.pct_change().dropna()
+        sr = spy_close.pct_change().dropna()
+        common = pr.index.intersection(sr.index)
+        if len(common) > 1 and sr.loc[common].std() > 0:
+            cov = np.cov(pr.loc[common], sr.loc[common])
+            beta = cov[0, 1] / cov[1, 1] if cov[1, 1] != 0 else 0.0
+    max_dd = abs(float((pv / pv.cummax() - 1).min())) * 100
+
+    if   arith_pp >= 30: strength = "strongly outperforms"
+    elif arith_pp >= 10: strength = "outperforms"
+    elif arith_pp >= 0:  strength = "modestly beats"
+    else:                strength = "underperforms"
+
+    if   max_dd >= 25: dd_note = f"a meaningful -{max_dd:.0f}% peak-to-trough drop"
+    elif max_dd >= 15: dd_note = f"a -{max_dd:.0f}% maximum drawdown"
+    else:              dd_note = f"a manageable -{max_dd:.0f}% drawdown"
+
+    beta_phrase = ""
+    if not pd.isna(beta):
+        if beta >= 1.20:
+            beta_phrase = (f" The strategy also moves more than the "
+                           f"market (beta around {beta:.2f}) — so some "
+                           f"outperformance reflects amplified market "
+                           f"exposure rather than pure stock selection.")
+        elif beta < 0.80:
+            beta_phrase = (f" The strategy moves less than the market "
+                           f"(beta around {beta:.2f}), so a slice of "
+                           f"the comfort vs SPY comes from lower "
+                           f"market exposure.")
+
+    headline = (f"This strategy {strength} the S&P 500 over the "
+                f"validation window: "
+                f"{total_pct:+.1f}% total return vs SPY's "
+                f"{spy_pct:+.1f}% (annualized {arith_pp:+.1f}pp).")
+    detail = (f"Performance came with {dd_note} along the way."
+              f"{beta_phrase}")
+
+    if label == "default":
+        caveat = _summary_default_caveat()
+    else:
+        caveat = ("The 2024–2026 validation period was a strong bull "
+                  "market for tech and quality stocks, which align "
+                  "with this strategy's selection criteria. Backtest "
+                  "results don't include real-money frictions "
+                  "(slippage, taxes), and performance in a different "
+                  "market regime could be materially different.")
+
+    return f"{_summary_caveat_prefix(label, result)}{headline}\n\n{detail}\n\n*{caveat}*"
+
+
+def tab_performance(label: str, config: BacktestConfig, result: dict) -> None:
+    st.header("Performance")
+    st.caption(f"Showing config: **{label}** "
+               f"(window {config.validate_start} → {config.validate_end})")
 
     portfolio_df = result["portfolio_df"]
-    trades_df    = result["trades_df"]
+    trades_df    = result.get("trades_df")
+    meta         = result.get("meta", {}) or {}
 
     if portfolio_df.empty:
         st.warning("Empty backtest result.")
         return
 
-    # --- Equity curve: Strategy / SPY / QQQ, normalized to 100 ---
+    # Exec summary (Phase 4 will populate; show placeholder for now)
+    st.info(_exec_summary_performance(label, config, result))
+    st.divider()
+
+    pv = portfolio_df["portfolio_value"]
     start = portfolio_df.index[0].strftime("%Y-%m-%d")
     end = (portfolio_df.index[-1] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-
     spy_close = cached_benchmark("SPY", start, end)
     qqq_close = cached_benchmark("QQQ", start, end)
 
-    pv = portfolio_df["portfolio_value"]
+    # ===== Layer 1 — Quick inference =====
+    total_return_pct = (pv.iloc[-1] / pv.iloc[0] - 1) * 100.0
+    spy_total_pct = float("nan")
+    if not spy_close.empty:
+        spy_total_pct = (spy_close.iloc[-1] / spy_close.iloc[0] - 1) * 100.0
+
+    # CAPM alpha (risk-adjusted excess return) and beta
+    alpha_ann_pp = float("nan")
+    arith_alpha_ann_pp = float("nan")
+    beta = float("nan")
+    if not spy_close.empty:
+        port_ret = pv.pct_change().dropna()
+        spy_ret  = spy_close.pct_change().dropna()
+        common = port_ret.index.intersection(spy_ret.index)
+        pr = port_ret.loc[common]
+        sr = spy_ret.loc[common]
+        if len(pr) > 1 and sr.std() > 0:
+            cov = np.cov(pr, sr)
+            beta = cov[0, 1] / cov[1, 1] if cov[1, 1] != 0 else 0.0
+            alpha_ann_pp = (pr.mean() - beta * sr.mean()) * 252 * 100
+            # Arithmetic alpha = compound-annualized strategy return
+            # minus compound-annualized SPY return — matches the
+            # +63.7pp figure cited in project docs for Trial #325.
+            n_days_p = max(len(pv), 1)
+            sys_ann_r = (pv.iloc[-1] / pv.iloc[0]) ** (252 / n_days_p) - 1
+            spy_ann_r = (spy_close.iloc[-1] / spy_close.iloc[0]) ** (252 / n_days_p) - 1
+            arith_alpha_ann_pp = (sys_ann_r - spy_ann_r) * 100
+
+    # Worst drawdown
+    sys_dd_pct = (pv / pv.cummax() - 1.0) * 100.0
+    worst_dd_pct = float(sys_dd_pct.min())
+
+    # Win rate: prefer rolling 12-month positive-alpha share if available
+    win_rate_label = ""
+    win_rate_value = ""
+    rolling_12mo = ((meta.get("rolling_metrics") or {}).get("rolling_12mo") or {})
+    ad = rolling_12mo.get("alpha_distribution_stats") or {}
+    if "count_positive" in ad and "count_total" in ad and ad["count_total"]:
+        pct_pos = ad["count_positive"] / ad["count_total"] * 100
+        win_rate_label = "12-month windows positive"
+        win_rate_value = (f"{pct_pos:.0f}% "
+                          f"({ad['count_positive']}/{ad['count_total']})")
+    else:
+        # Fallback: closed-trade win rate (returns_pct > 0).
+        rt = round_trip_trades(
+            trades_df, portfolio_df.index[-1]) if trades_df is not None else None
+        if rt is not None and not rt.empty:
+            closed = rt[rt["reason"] != "Open"]
+            if not closed.empty:
+                pct_pos = (closed["return_pct"] > 0).mean() * 100
+                win_rate_label = "Closed-trade win rate"
+                win_rate_value = f"{pct_pos:.0f}%"
+
+    cols = st.columns(4)
+    cols[0].metric(
+        "Total return",
+        f"{total_return_pct:+.1f}%",
+        delta=(f"SPY {spy_total_pct:+.1f}%" if not pd.isna(spy_total_pct) else None),
+        delta_color="off",
+        help=f"Strategy growth over {config.validate_start} to "
+             f"{config.validate_end}. SPY did "
+             f"{spy_total_pct:+.1f}% over the same window."
+        if not pd.isna(spy_total_pct)
+        else f"Strategy growth over {config.validate_start} to "
+             f"{config.validate_end}.",
+    )
+    cols[1].metric(
+        "Risk-adjusted excess return",
+        f"{alpha_ann_pp:+.1f}pp/yr" if not pd.isna(alpha_ann_pp) else "—",
+        help=(f"Annualized return above SPY, adjusted for the strategy "
+              f"moving more than the market (beta = "
+              f"{beta:.2f}). The unadjusted spread is "
+              f"{arith_alpha_ann_pp:+.1f}pp."
+              if not pd.isna(beta) else
+              "Annualized excess return after beta adjustment (Jensen's alpha)."),
+    )
+    cols[2].metric(
+        "Worst drawdown",
+        f"{worst_dd_pct:.1f}%",
+        help="The biggest peak-to-trough drop the strategy experienced "
+             "during the validation window.",
+    )
+    cols[3].metric(
+        win_rate_label or "Win rate",
+        win_rate_value or "—",
+        help=("Of the rolling 12-month windows in validation, this share "
+              "had positive alpha vs SPY."
+              if win_rate_label.startswith("12-month")
+              else "Closed round-trips with positive return."),
+    )
+
+    # Hero chart — Strategy vs SPY vs QQQ normalized to 100
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=pv.index, y=pv / pv.iloc[0] * 100.0,
@@ -726,107 +962,167 @@ def tab_overview(label: str, config: BacktestConfig, result: dict) -> None:
             name="QQQ", mode="lines", line=dict(color="#10b981", width=2),
         ))
     fig.update_layout(
-        title="Portfolio vs SPY vs QQQ (normalized to 100)",
+        title="Strategy vs SPY vs QQQ (start = 100)",
         yaxis_title="Indexed value", xaxis_title="",
         height=420, margin=dict(l=10, r=10, t=50, b=10),
         hovermode="x unified",
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- Key stats (Streamlit metric cards) ---
+    # ===== Layer 2 — Visual breakdown =====
+    st.divider()
+    monthly_df, monthly_label = _monthly_returns(pv, spy_close)
+    if not monthly_df.empty:
+        st.markdown(f"**Performance month by month — strategy returns vs "
+                    f"SPY returns** ({monthly_label}).")
+        bars = go.Figure()
+        bars.add_trace(go.Bar(
+            x=monthly_df.index, y=monthly_df["Strategy"],
+            name="Strategy", marker_color="#2563eb",
+        ))
+        if "SPY" in monthly_df.columns:
+            bars.add_trace(go.Bar(
+                x=monthly_df.index, y=monthly_df["SPY"],
+                name="SPY", marker_color="#f59e0b",
+            ))
+        bars.update_layout(
+            barmode="group",
+            yaxis_title="Monthly return (%)", xaxis_title="",
+            height=380, margin=dict(l=10, r=10, t=30, b=10),
+            hovermode="x unified", legend=dict(orientation="h"),
+        )
+        st.plotly_chart(bars, use_container_width=True)
+
+    # ===== Layer 3 — Detailed view =====
+    st.divider()
+    st.subheader("Detailed metrics")
     fees = float(portfolio_df["total_fees"].iloc[-1])
     metrics = _sleeve_metrics(pv, trades_df, fees)
     cols = st.columns(5)
-    cols[0].metric("Total Return", metrics["Total Return"])
+    cols[0].metric("Total return (raw)", metrics["Total Return"])
     cols[1].metric("Sharpe", metrics["Sharpe Ratio"])
     cols[2].metric("Max DD", metrics["Max Drawdown"])
     cols[3].metric("Trades", metrics["Total Trades"])
-    cols[4].metric("Win Rate", metrics["Win Rate"])
+    cols[4].metric("Win rate (trades)", metrics["Win Rate"])
 
-    # Alpha / beta vs SPY
-    if not spy_close.empty:
-        port_ret = pv.pct_change().dropna()
-        spy_ret = spy_close.pct_change().dropna()
-        common = port_ret.index.intersection(spy_ret.index)
-        pr = port_ret.loc[common]
-        sr = spy_ret.loc[common]
-        if len(pr) > 1 and sr.std() > 0:
-            cov = np.cov(pr, sr)
-            beta = cov[0, 1] / cov[1, 1] if cov[1, 1] != 0 else 0
-            alpha_ann = (pr.mean() - beta * sr.mean()) * 252
-            # Arithmetic alpha: simple annualized return spread (matches
-            # project documentation's headline +63.7pp for Trial #325).
-            arith_alpha_ann = (pr.mean() - sr.mean()) * 252
-            corr = pr.corr(sr)
-            cols2 = st.columns(4)
-            cols2[0].metric(
-                "Alpha (arithmetic, ann.)",
-                f"{arith_alpha_ann*100:+.2f}pp",
-                help="Strategy annualized return minus SPY annualized "
-                     "return. Does not adjust for beta. This is the "
-                     "headline +63.7pp number cited in project "
-                     "documentation."
-            )
-            cols2[1].metric(
-                "Alpha (CAPM, ann.)",
-                f"{alpha_ann*100:+.2f}pp",
-                help="Jensen's alpha: excess annualized return after "
-                     "removing the beta-amplified SPY contribution. "
-                     "Lower than arithmetic alpha when beta > 1 because "
-                     "some outperformance is attributed to amplified "
-                     "market exposure."
-            )
-            cols2[2].metric("Beta vs SPY", f"{beta:.2f}")
-            cols2[3].metric("Correlation vs SPY", f"{corr:.2f}")
+    if not pd.isna(beta):
+        # The 4 alpha cards from commit 37c5b49 — preserved per spec.
+        corr = pr.corr(sr) if not pd.isna(beta) else float("nan")
+        cols2 = st.columns(4)
+        cols2[0].metric(
+            "Excess return vs SPY (annualized)",
+            f"{arith_alpha_ann_pp:+.2f}pp",
+            help="Strategy annualized return minus SPY annualized "
+                 "return. Does not adjust for beta. This is the headline "
+                 "+63.7pp number cited in project documentation.",
+        )
+        cols2[1].metric(
+            "Risk-adjusted excess return (CAPM)",
+            f"{alpha_ann_pp:+.2f}pp",
+            help="Jensen's alpha: excess annualized return after "
+                 "removing the beta-amplified SPY contribution. Lower "
+                 "than arithmetic alpha when beta > 1 because some "
+                 "outperformance is attributed to amplified market "
+                 "exposure.",
+        )
+        cols2[2].metric("Beta vs SPY", f"{beta:.2f}",
+                        help="Sensitivity to SPY moves. >1 means the "
+                             "strategy moves more than the market on "
+                             "average; <1 means less.")
+        cols2[3].metric("Correlation vs SPY", f"{corr:.2f}",
+                        help="Day-to-day return correlation with SPY. "
+                             "1.0 = identical, 0 = unrelated.")
 
-    # --- Current macro state (today) ---
-    st.subheader("Current macro state")
-    macro_df = load_macro_df()
-    if macro_df.empty:
-        st.warning("No macro cache found.")
+
+def _exec_summary_tuning_history(label: str, config: BacktestConfig,
+                                 result: dict,
+                                 study_name: str | None) -> str:
+    if study_name is None:
+        return ("*Pick a study from the sidebar to see tuning history.*")
+    try:
+        df = load_study_trials_df(study_name)
+    except Exception:
+        return "*Tuning history isn't available for this study.*"
+    completes = df[df["state"] == "COMPLETE"]
+    n_total = len(df)
+    n_complete = len(completes)
+    if completes.empty:
+        return (f"*Study **{study_name}** has {n_total} trials but none "
+                f"completed yet.*")
+    best_row = completes.loc[completes["value"].idxmax()]
+    best_n = int(best_row["trial_number"])
+    best_score = float(best_row["value"])
+    headline = (f"The optimizer tested **{n_total} configurations** for "
+                f"this study ({n_complete} completed). The winner was "
+                f"**Trial #{best_n}** with score **{best_score:.4f}**.")
+    cumulative = completes.sort_values("trial_number")["value"].cummax()
+    pct_to_best = ((cumulative >= best_score * 0.95).idxmax()
+                   if not cumulative.empty else None)
+    if pct_to_best is not None and len(cumulative) >= 1:
+        pos = (cumulative.values >= best_score * 0.95).argmax()
+        share = (pos + 1) / len(cumulative) * 100
+        detail = (f"95% of the winning score was reached after about "
+                  f"{share:.0f}% of the trials — the curve plateaus "
+                  f"early, then refinement happens at the margin.")
     else:
-        today_score = compute_macro_score(macro_df, pd.Timestamp.today())
-        if today_score > config.macro_threshold_high:
-            tier = f"100% sizing (score > {config.macro_threshold_high:.3f})"
-            color_emoji = "🟢"
-        elif today_score >= config.macro_threshold_low:
-            tier = f"75% sizing (score in [{config.macro_threshold_low:.3f}, {config.macro_threshold_high:.3f}])"
-            color_emoji = "🟡"
-        else:
-            tier = f"50% sizing (score < {config.macro_threshold_low:.3f})"
-            color_emoji = "🔴"
-        cols3 = st.columns([1, 3])
-        cols3[0].metric("Today's macro composite", f"{today_score:.3f}")
-        cols3[1].markdown(f"**Tier under selected config**: {color_emoji} {tier}")
-
-    # --- Real portfolio placeholder ---
-    st.subheader("Real portfolio")
-    st.info("Real portfolio tracking pending segment 4. This panel will "
-            "show actual broker positions and PnL once that segment lands.")
+        detail = ("Score progression is shown in Layer 2 below.")
+    if label == "default":
+        caveat = _summary_default_caveat()
+    else:
+        caveat = ("Optuna is search, not proof. A different random seed "
+                  "or longer search might find a better config or might "
+                  "find that this peak doesn't generalize to other "
+                  "validation windows.")
+    return f"{_summary_caveat_prefix(label, result)}{headline}\n\n{detail}\n\n*{caveat}*"
 
 
-def tab_optuna(study_name: str | None) -> None:
-    st.header("Optuna explorer")
+def tab_tuning_history(label: str, config: BacktestConfig, result: dict,
+                       study_name: str | None) -> None:
+    st.header("Tuning History — every configuration tested by the optimizer")
     if study_name is None:
         st.info("Pick a study from the sidebar (set Source to "
                 "'Best trial of selected study' or 'Custom trial number') "
                 "to explore trial-level results.")
         return
 
+    st.info(_exec_summary_tuning_history(label, config, result, study_name))
+    st.divider()
+
     df = load_study_trials_df(study_name)
     completes = df[df["state"] == "COMPLETE"]
     pruned    = df[df["state"] == "PRUNED"]
     failed    = df[df["state"] == "FAIL"]
 
-    cols = st.columns(4)
-    cols[0].metric("Trials", len(df))
-    cols[1].metric("Complete", len(completes))
-    cols[2].metric("Pruned", len(pruned))
-    cols[3].metric("Failed", len(failed))
+    # ===== Layer 1 — Quick inference =====
+    meta = result.get("meta") or {}
+    runtime_s = meta.get("runtime_seconds")
+    runtime_label = "—"
+    if runtime_s:
+        if runtime_s >= 3600:
+            runtime_label = f"{runtime_s/3600:.1f} hours"
+        else:
+            runtime_label = f"{runtime_s/60:.0f} min"
+    if not completes.empty:
+        best_n = int(completes.loc[completes["value"].idxmax(), "trial_number"])
+        best_v = float(completes["value"].max())
+        best_str = f"#{best_n} (score {best_v:.4f})"
+    else:
+        best_str = "—"
+
+    cols = st.columns(3)
+    cols[0].metric("Configurations tested", f"{len(df):,} trials",
+                   help=f"{len(completes)} completed, {len(pruned)} "
+                        f"pruned, {len(failed)} failed.")
+    cols[1].metric("Best trial chosen", best_str)
+    cols[2].metric("Time spent tuning (best-trial save)", runtime_label,
+                   help="Wall-clock seconds the saved best-trial "
+                        "backtest took to re-run. Total study runtime "
+                        "is much higher (1000s of trials).")
 
     if completes.empty:
         st.warning("No completed trials in this study.")
         return
+    st.divider()
 
     # --- Trial number vs score with running best ---
     completes_sorted = completes.sort_values("trial_number")
@@ -899,81 +1195,223 @@ def tab_optuna(study_name: str | None) -> None:
         st.caption("No JSONL record for this trial.")
 
 
-def tab_macro(config: BacktestConfig) -> None:
-    st.header("Macro state")
+def _market_tier(score: float, low: float, high: float
+                 ) -> tuple[str, str, str, str]:
+    """Return (label, emoji, color, sizing) for the macro score under
+    the given config's tier thresholds."""
+    if score > high:
+        return ("Bullish", "🟢", "#16a34a", "100%")
+    if score >= low:
+        return ("Mixed",   "🟡", "#ca8a04", "75%")
+    return ("Stressed",   "🔴", "#dc2626", "50%")
+
+
+def _exec_summary_market_context(label: str, config: BacktestConfig,
+                                 result: dict) -> str:
+    macro_df = load_macro_df()
+    if macro_df is None or macro_df.empty:
+        return ("*Market Context summary will appear once macro signals "
+                "are loaded.*")
+    today_score = compute_macro_score(macro_df, pd.Timestamp.today())
+    tier, _emoji, _color, sizing = _market_tier(
+        today_score, config.macro_threshold_low,
+        config.macro_threshold_high)
+    headline = (f"Today's market read is **{tier}** — the strategy is "
+                f"sizing positions at **{sizing}** of target weight.")
+    # Identify which raw components are stressed-side outliers (low z-score)
+    raw = macro_df.dropna()
+    if not raw.empty:
+        latest = raw.iloc[-1]
+        zs = (latest - raw.mean()) / raw.std().replace(0, np.nan)
+        stressed = zs.abs().sort_values(ascending=False).head(2).index.tolist()
+        detail = (f"The market health score reads {today_score:.3f}"
+                  f"(thresholds for this config: low {config.macro_threshold_low:.3f}, "
+                  f"high {config.macro_threshold_high:.3f}). The most "
+                  f"unusual underlying signals right now are "
+                  f"{' and '.join(stressed)}.")
+    else:
+        detail = (f"The market health score reads {today_score:.3f}"
+                  f"(thresholds: {config.macro_threshold_low:.3f} / "
+                  f"{config.macro_threshold_high:.3f}).")
+
+    if label == "default":
+        caveat = ("*This is the **Default config** — its thresholds "
+                  f"({config.macro_threshold_low:.3f} / "
+                  f"{config.macro_threshold_high:.3f}) are different "
+                  "from the locked Trial #325 config, so the same "
+                  "macro signal can give a different traffic-light "
+                  "reading on the two configs. Toggle the sidebar to "
+                  "compare.*")
+    else:
+        caveat = ("The market health score floor in the validation "
+                  "period was 0.42, meaning the 'Stressed' tier never "
+                  "fired during validation. The position-sizing overlay "
+                  "is structurally present but has not been exercised "
+                  "in current data.")
+    return f"{_summary_caveat_prefix(label, result)}{headline}\n\n{detail}\n\n*{caveat}*"
+
+
+def tab_market_context(label: str, config: BacktestConfig, result: dict) -> None:
+    st.header("Market Context")
+    st.caption(f"Showing config: **{label}** "
+               f"(window {config.validate_start} → {config.validate_end})")
+
     macro_df = load_macro_df()
     if macro_df.empty:
         st.warning("No macro cache. Run the macro pipeline first.")
         return
 
-    st.caption(f"Sizing thresholds (selected config): "
-               f"low = {config.macro_threshold_low:.3f}, "
-               f"high = {config.macro_threshold_high:.3f}")
+    st.info(_exec_summary_market_context(label, config, result))
+    st.divider()
 
-    # --- Composite over time with sizing-tier bands ---
+    # ===== Layer 1 — Quick inference (traffic light) =====
+    today_score = compute_macro_score(macro_df, pd.Timestamp.today())
+    tier, emoji, color, sizing = _market_tier(
+        today_score, config.macro_threshold_low,
+        config.macro_threshold_high)
+    cols = st.columns([2, 3])
+    with cols[0]:
+        st.markdown(
+            f"<div style='padding:18px 20px;border-radius:12px;"
+            f"background:{color}22;border-left:6px solid {color};"
+            f"font-size:1.7em;line-height:1.2'>"
+            f"{emoji} <b>{tier}</b><br>"
+            f"<span style='font-size:0.55em;color:#475569'>"
+            f"score {today_score:.3f}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with cols[1]:
+        st.markdown(
+            f"The strategy currently uses **{sizing} position sizing** "
+            f"based on the macro signal. "
+            f"Thresholds for the selected config: low "
+            f"{config.macro_threshold_low:.3f}, high "
+            f"{config.macro_threshold_high:.3f}."
+        )
+
+    # ===== Layer 2 — Composite over time =====
+    st.divider()
+    st.markdown("**Market health score over time.** Higher = healthier; "
+                "lower = more stressed. Shaded bands show the sizing "
+                "tiers under the selected config.")
     scores = macro_score_series(macro_df)
     fig = go.Figure()
     fig.add_hrect(y0=0, y1=config.macro_threshold_low,
                   fillcolor="#fca5a5", opacity=0.18, line_width=0,
-                  annotation_text="50% sizing", annotation_position="top left")
-    fig.add_hrect(y0=config.macro_threshold_low, y1=config.macro_threshold_high,
+                  annotation_text="50% sizing",
+                  annotation_position="top left")
+    fig.add_hrect(y0=config.macro_threshold_low,
+                  y1=config.macro_threshold_high,
                   fillcolor="#fde68a", opacity=0.18, line_width=0,
-                  annotation_text="75% sizing", annotation_position="top left")
+                  annotation_text="75% sizing",
+                  annotation_position="top left")
     fig.add_hrect(y0=config.macro_threshold_high, y1=1,
                   fillcolor="#86efac", opacity=0.18, line_width=0,
-                  annotation_text="100% sizing", annotation_position="top left")
+                  annotation_text="100% sizing",
+                  annotation_position="top left")
     fig.add_trace(go.Scatter(
         x=scores.index, y=scores,
-        mode="lines", name="Macro composite",
+        mode="lines", name="Market health score",
         line=dict(color="#1e293b", width=1.5),
     ))
     fig.update_layout(
-        title="Macro composite over time (with sizing-tier bands)",
-        xaxis_title="", yaxis_title="Composite score",
-        height=420, margin=dict(l=10, r=10, t=50, b=10),
+        xaxis_title="", yaxis_title="Score (0 = stressed, 1 = healthy)",
+        height=420, margin=dict(l=10, r=10, t=20, b=10),
         yaxis=dict(range=[0, 1]),
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- Distribution stats ---
-    st.subheader("Composite distribution (full history)")
-    pcts = scores.quantile([0.10, 0.25, 0.50, 0.75, 0.90])
-    cols = st.columns(7)
-    cols[0].metric("Mean", f"{scores.mean():.3f}")
-    cols[1].metric("Std", f"{scores.std():.3f}")
-    cols[2].metric("p10", f"{pcts.loc[0.10]:.3f}")
-    cols[3].metric("p25", f"{pcts.loc[0.25]:.3f}")
-    cols[4].metric("p50", f"{pcts.loc[0.50]:.3f}")
-    cols[5].metric("p75", f"{pcts.loc[0.75]:.3f}")
-    cols[6].metric("p90", f"{pcts.loc[0.90]:.3f}")
+    # ===== Layer 3 — Underlying components (expander) =====
+    with st.expander("Underlying components (raw FRED + SPY drawdown)",
+                      expanded=False):
+        st.caption("Each panel shows one raw input that feeds into the "
+                   "composite score. Technical labels and FRED series "
+                   "IDs preserved for reference.")
+        pcts = scores.quantile([0.10, 0.25, 0.50, 0.75, 0.90])
+        cols = st.columns(7)
+        cols[0].metric("Mean",      f"{scores.mean():.3f}")
+        cols[1].metric("Std",       f"{scores.std():.3f}")
+        cols[2].metric("p10",       f"{pcts.loc[0.10]:.3f}")
+        cols[3].metric("p25",       f"{pcts.loc[0.25]:.3f}")
+        cols[4].metric("Median",    f"{pcts.loc[0.50]:.3f}")
+        cols[5].metric("p75",       f"{pcts.loc[0.75]:.3f}")
+        cols[6].metric("p90",       f"{pcts.loc[0.90]:.3f}")
+        st.divider()
+        raw_cols = list(macro_df.columns)
+        cols_per_row = 2
+        for row_start in range(0, len(raw_cols), cols_per_row):
+            cols = st.columns(cols_per_row)
+            for j, col in enumerate(raw_cols[row_start: row_start + cols_per_row]):
+                series = macro_df[col].dropna()
+                if series.empty:
+                    continue
+                with cols[j]:
+                    fred_id = FRED_SERIES.get(col, "—")
+                    fig = px.line(series,
+                                  title=f"{col}  ({fred_id})",
+                                  height=240,
+                                  color_discrete_sequence=["#2563eb"])
+                    fig.update_layout(
+                        margin=dict(l=10, r=10, t=40, b=10),
+                        showlegend=False,
+                        yaxis_title="", xaxis_title="",
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
-    # --- Component signals ---
-    st.subheader("Underlying components (raw FRED series)")
-    raw_cols = list(macro_df.columns)
-    cols_per_row = 2
-    for row_start in range(0, len(raw_cols), cols_per_row):
-        cols = st.columns(cols_per_row)
-        for j, col in enumerate(raw_cols[row_start: row_start + cols_per_row]):
-            series = macro_df[col].dropna()
-            if series.empty:
-                continue
-            with cols[j]:
-                fig = px.line(series, title=f"{col}  ({FRED_SERIES.get(col, '?')})",
-                              height=240,
-                              color_discrete_sequence=["#2563eb"])
-                fig.update_layout(
-                    margin=dict(l=10, r=10, t=40, b=10),
-                    showlegend=False, yaxis_title="", xaxis_title="",
-                )
-                st.plotly_chart(fig, use_container_width=True)
+
+def _exec_summary_holdings(label: str, config: BacktestConfig,
+                           result: dict) -> str:
+    holdings = result.get("holdings", {}) or {}
+    if not holdings:
+        return ("*No open positions at the end of the backtest window. "
+                "The strategy held cash through the final trading day.*")
+    sector_map = load_sector_map() or {}
+    sec_df = _holdings_sector_values(holdings, sector_map, None)
+    n_pos = len(holdings)
+    n_sec = len(sec_df) if not sec_df.empty else 0
+    top_sector = sec_df.iloc[0]["sector"] if not sec_df.empty else "—"
+    top_sec_pct = sec_df.iloc[0]["pct"] if not sec_df.empty else 0.0
+    largest_pos = max(holdings.items(),
+                      key=lambda kv: float(kv[1]["shares"]) * float(kv[1]["entry_price"]))
+    largest_t = largest_pos[0]
+    largest_v = float(largest_pos[1]["shares"]) * float(largest_pos[1]["entry_price"])
+    total_v = sum(float(h["shares"]) * float(h["entry_price"])
+                  for h in holdings.values())
+    largest_pct = largest_v / total_v * 100.0 if total_v else 0.0
+
+    if   n_sec <= 2: conc = "highly sector-concentrated"
+    elif n_sec <= 4: conc = "moderately concentrated"
+    else:            conc = "diversified across sectors"
+
+    headline = (f"The portfolio holds **{n_pos} positions** across "
+                f"**{n_sec} sectors** as of the last backtest day — "
+                f"{conc} by design.")
+    detail = (f"The largest position is **{largest_t}** at "
+              f"{largest_pct:.0f}% of cost basis; the largest sector "
+              f"exposure is **{top_sector}** at {top_sec_pct:.0f}%.")
+    if label == "default":
+        caveat = _summary_default_caveat()
+    else:
+        caveat = (f"A {n_pos}-position portfolio carries materially more "
+                  f"single-name risk than a diversified ETF. If any one "
+                  f"of these names blows up, performance suffers "
+                  f"disproportionately.")
+    return f"{_summary_caveat_prefix(label, result)}{headline}\n\n{detail}\n\n*{caveat}*"
 
 
-def tab_positions(config: BacktestConfig, result: dict) -> None:
-    st.header("Positions")
+def tab_holdings(label: str, config: BacktestConfig, result: dict) -> None:
+    st.header("Current Holdings")
+    st.caption(f"Showing config: **{label}** "
+               f"(window {config.validate_start} → {config.validate_end})")
+
     holdings = result.get("holdings", {}) or {}
     portfolio_df = result.get("portfolio_df")
     scores = result.get("scores", {}) or {}
     trades_df = result.get("trades_df")
+
+    st.info(_exec_summary_holdings(label, config, result))
+    st.divider()
 
     if not holdings:
         st.info("No open positions at end of backtest window.")
@@ -981,8 +1419,38 @@ def tab_positions(config: BacktestConfig, result: dict) -> None:
 
     end_date = portfolio_df.index[-1] if portfolio_df is not None and \
         not portfolio_df.empty else None
+    sector_map = load_sector_map() or {}
+    ticker_names = load_ticker_names() or {}
+    total_pv = (float(portfolio_df["portfolio_value"].iloc[-1])
+                if portfolio_df is not None and not portfolio_df.empty
+                else None)
+    sec_df = _holdings_sector_values(holdings, sector_map, total_pv)
 
-    # Days-held lookup from trades
+    # ===== Layer 1 — Quick inference =====
+    n_sectors_universe = len(set(sector_map.values())) or 11
+    cols = st.columns(3)
+    cols[0].metric("Holdings", f"{len(holdings)} positions")
+    cols[1].metric("Total value (latest backtest day)",
+                   f"${total_pv:,.0f}" if total_pv else "—")
+    cols[2].metric("Sectors represented",
+                   f"{len(sec_df)} of {n_sectors_universe}")
+
+    if not sec_df.empty:
+        pie = go.Figure(data=[go.Pie(
+            labels=sec_df["sector"], values=sec_df["value"],
+            hole=0.45, sort=False,
+            textinfo="label+percent",
+        )])
+        pie.update_layout(
+            title="Allocation by sector (cost basis)",
+            height=380, margin=dict(l=10, r=10, t=50, b=10),
+        )
+        st.plotly_chart(pie, use_container_width=True)
+
+    # ===== Layer 2 — Visual breakdown =====
+    st.divider()
+    st.markdown("**Holdings detail.** Sortable table — click any column "
+                "header to sort.")
     entry_dates: dict[str, pd.Timestamp] = {}
     if trades_df is not None and not trades_df.empty:
         td = trades_df.copy()
@@ -991,46 +1459,88 @@ def tab_positions(config: BacktestConfig, result: dict) -> None:
             tk = td[(td["ticker"] == tkr) & (td["action"] == "BUY")]
             if not tk.empty:
                 entry_dates[tkr] = tk["date"].max()
-
     rows = []
     for tkr, h in holdings.items():
-        shares = h["shares"]
-        entry  = h["entry_price"]
-        stop   = h.get("stop_price", entry * 0.85)
-        cur    = entry  # fallback if portfolio_df doesn't carry per-ticker prices
-        # Use last-known price from trades_df if any post-entry trade exists
-        # (close approximation; precise current price would re-pull from the
-        # price cache, which is overkill for this read-only view).
-        cost   = shares * entry
-        value  = shares * cur
-        pl_d   = value - cost
-        pl_p   = (cur / entry - 1) * 100
-        stop_gap = (cur - stop) / cur if cur else 0
-        warn = stop_gap < 0.03
-        days_held = (end_date - entry_dates[tkr]).days \
-            if (end_date is not None and tkr in entry_dates) else None
-        score = scores.get(tkr, {}).get("composite", float("nan"))
+        shares  = float(h["shares"])
+        entry   = float(h["entry_price"])
+        cost    = shares * entry
+        days_h  = ((end_date - entry_dates[tkr]).days
+                   if (end_date is not None and tkr in entry_dates) else None)
+        score   = scores.get(tkr, {}).get("composite", float("nan"))
+        sector  = sector_map.get(tkr) or "Other"
+        company = ticker_names.get(tkr, "")
+        pct = (cost / total_pv * 100.0) if total_pv else float("nan")
         rows.append({
-            "ticker":    tkr,
-            "shares":    shares,
-            "entry":     entry,
-            "stop":      stop,
-            "stop_gap_%": round(stop_gap * 100, 2),
-            "stop_warn": "⚠ near stop" if warn else "",
-            "days_held": days_held,
-            "composite": round(float(score), 3) if pd.notna(score) else None,
+            "Ticker":          tkr,
+            "Company":         company,
+            "Sector":          sector,
+            "$ Value":         round(cost, 2),
+            "% of Portfolio":  round(pct, 2) if pct == pct else None,
+            "Composite Score": round(float(score), 3) if pd.notna(score) else None,
+            "Days Held":       days_h,
         })
-    df = pd.DataFrame(rows).sort_values("composite", ascending=False)
+    df = pd.DataFrame(rows).sort_values("$ Value", ascending=False)
     _render_df_with_ticker_links(df, use_container_width=True, hide_index=True)
 
-    st.caption("Note: `entry`/`stop` are from the saved backtest's "
-               "final_holdings. Real-time current price is intentionally "
-               "not fetched here — this is a read-only summary of the "
-               "backtest snapshot. Live broker prices arrive in segment 4.")
+    st.caption("`$ Value` is cost basis (shares × entry price). Live "
+               "mark-to-market values are not fetched in the read-only "
+               "dashboard.")
+
+    # ===== Layer 3 — Detailed view (expander) =====
+    with st.expander("Per-holding score breakdown", expanded=False):
+        st.markdown(
+            "*Per-holding sub-score breakdown (fundamental / technical / "
+            "model / alt) is not currently emitted by the backtest at "
+            "save time. Composite scores above are the most granular "
+            "detail available; sub-score attribution will be added when "
+            "the attribution layer ships.*"
+        )
 
 
-def tab_trades(result: dict) -> None:
-    st.header("Trades log")
+def _exec_summary_trade_history(label: str, config: BacktestConfig,
+                                result: dict, rt: pd.DataFrame,
+                                window_label: str) -> str:
+    if rt is None or rt.empty:
+        return "*No trades in the selected period.*"
+    closed = rt[rt["reason"] != "Open"]
+    n_trades = len(rt)
+    if closed.empty:
+        return (f"In the selected period ({window_label}) the strategy "
+                f"opened {n_trades} positions, none yet closed.")
+    n_closed = len(closed)
+    win_rate = (closed["return_pct"] > 0).mean() * 100.0
+    # Top winner / loser by ticker (aggregate $ P&L across all that ticker's pairs)
+    closed_with_pnl = closed.dropna(subset=["pnl_dollars"])
+    if not closed_with_pnl.empty:
+        by_ticker = closed_with_pnl.groupby("ticker")["pnl_dollars"].sum().sort_values()
+        worst_t, worst_pnl = by_ticker.index[0], float(by_ticker.iloc[0])
+        best_t,  best_pnl  = by_ticker.index[-1], float(by_ticker.iloc[-1])
+    else:
+        worst_t = best_t = "—"
+        worst_pnl = best_pnl = 0.0
+    activity = "steady" if n_trades >= 30 else "modest"
+    headline = (f"In the selected period ({window_label}) the strategy "
+                f"made **{n_trades} trades** ({n_closed} closed). "
+                f"Biggest winner: **{best_t}** "
+                f"(+${best_pnl:,.0f}). Biggest loser: **{worst_t}** "
+                f"(${worst_pnl:,.0f}).")
+    detail = (f"Win rate on closed trades: **{win_rate:.0f}%**. "
+              f"Activity is {activity} for the window length.")
+    if label == "default":
+        caveat = _summary_default_caveat()
+    else:
+        caveat = ("Realized P&L only — open positions at end of the "
+                  "period are not counted. FIFO matching attributes "
+                  "gains/losses imperfectly when positions are "
+                  "partial-sized.")
+    return f"{_summary_caveat_prefix(label, result)}{headline}\n\n{detail}\n\n*{caveat}*"
+
+
+def tab_trade_history(label: str, config: BacktestConfig, result: dict) -> None:
+    st.header("Trade History")
+    st.caption(f"Showing config: **{label}** "
+               f"(window {config.validate_start} → {config.validate_end})")
+
     trades_df = result.get("trades_df")
     portfolio_df = result.get("portfolio_df")
     if trades_df is None or trades_df.empty:
@@ -1039,71 +1549,159 @@ def tab_trades(result: dict) -> None:
 
     end_date = portfolio_df.index[-1] if portfolio_df is not None and \
         not portfolio_df.empty else pd.Timestamp.today()
-
-    rt = round_trip_trades(trades_df, end_date)
-    if rt.empty:
+    rt_full = round_trip_trades(trades_df, end_date)
+    if rt_full.empty:
         st.info("No round trips to display.")
         return
 
-    # Filters
-    tickers = ["All"] + sorted(rt["ticker"].unique().tolist())
-    reasons = ["All"] + sorted(rt["reason"].unique().tolist())
-    c1, c2, c3 = st.columns([2, 2, 2])
+    # ---- Date filter (above Layer 1) ----
+    full_min = rt_full["buy_date"].min().to_pydatetime().date()
+    full_max = rt_full["sell_date"].max().to_pydatetime().date()
+    date_pick = st.date_input(
+        "Date range (filters every section below)",
+        value=(full_min, full_max),
+        min_value=full_min, max_value=full_max,
+        format="YYYY-MM-DD",
+    )
+    if isinstance(date_pick, tuple) and len(date_pick) == 2:
+        d_start, d_end = pd.Timestamp(date_pick[0]), pd.Timestamp(date_pick[1])
+    else:
+        d_start, d_end = pd.Timestamp(full_min), pd.Timestamp(full_max)
+    # Filter: include trades whose buy_date is inside the window
+    rt = rt_full[(rt_full["buy_date"] >= d_start)
+                 & (rt_full["buy_date"] <= d_end + pd.Timedelta(days=1))].copy()
+    window_label = f"{d_start.date()} → {d_end.date()}"
+
+    st.info(_exec_summary_trade_history(label, config, result, rt, window_label))
+    st.divider()
+
+    if rt.empty:
+        st.warning("No trades in the selected date range.")
+        return
+
+    # ===== Layer 1 — Quick inference (top winners + losers by ticker) =====
+    closed = rt[rt["reason"] != "Open"].dropna(subset=["pnl_dollars"]).copy()
+    by_ticker = (closed.groupby("ticker")["pnl_dollars"].sum().sort_values()
+                 if not closed.empty else pd.Series(dtype=float))
+    top_winners = by_ticker.tail(5).iloc[::-1] if not by_ticker.empty else pd.Series(dtype=float)
+    top_losers  = by_ticker.head(5)            if not by_ticker.empty else pd.Series(dtype=float)
+
+    c1, c2 = st.columns(2)
     with c1:
-        ticker_pick = st.selectbox("Ticker", tickers, index=0)
+        st.markdown("**Top 5 winners** (by total $ P&L)")
+        if not top_winners.empty:
+            f = go.Figure(data=[go.Bar(
+                x=top_winners.values, y=top_winners.index, orientation="h",
+                marker_color="#16a34a",
+                text=[f"${v:,.0f}" for v in top_winners.values],
+                textposition="auto",
+            )])
+            f.update_layout(
+                height=260, margin=dict(l=10, r=10, t=10, b=10),
+                xaxis_title="$ profit", yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(f, use_container_width=True)
+        else:
+            st.caption("No closed winners in this period.")
     with c2:
-        reason_pick = st.selectbox("Exit reason", reasons, index=0)
+        st.markdown("**Top 5 losers** (by total $ P&L)")
+        if not top_losers.empty:
+            f = go.Figure(data=[go.Bar(
+                x=top_losers.values, y=top_losers.index, orientation="h",
+                marker_color="#dc2626",
+                text=[f"${v:,.0f}" for v in top_losers.values],
+                textposition="auto",
+            )])
+            f.update_layout(
+                height=260, margin=dict(l=10, r=10, t=10, b=10),
+                xaxis_title="$ loss", yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(f, use_container_width=True)
+        else:
+            st.caption("No closed losers in this period.")
+
+    # ===== Layer 2 — Visual breakdown =====
+    st.divider()
+    st.markdown("**Activity over time, return distribution, and average hold.**")
+    avg_hold = (closed["hold_days"].mean() if not closed.empty
+                else float("nan"))
+    c1, c2, c3 = st.columns([2, 2, 1])
+    with c1:
+        # Trade count by month (BUY events only — counts entries, not pairs)
+        td = trades_df.copy()
+        td["date"] = pd.to_datetime(td["date"])
+        td_filt = td[(td["date"] >= d_start) & (td["date"] <= d_end)
+                     & (td["action"] == "BUY")]
+        if not td_filt.empty:
+            by_month = td_filt.set_index("date").resample("ME").size()
+            f = go.Figure(data=[go.Bar(
+                x=by_month.index, y=by_month.values,
+                marker_color="#2563eb",
+            )])
+            f.update_layout(
+                title="Trade count by month (entries)",
+                height=260, margin=dict(l=10, r=10, t=40, b=10),
+                yaxis_title="Trades",
+            )
+            st.plotly_chart(f, use_container_width=True)
+    with c2:
+        if not closed.empty:
+            f = go.Figure(data=[go.Histogram(
+                x=closed["return_pct"], nbinsx=20,
+                marker_color="#475569",
+            )])
+            f.update_layout(
+                title="Return distribution (closed trades)",
+                height=260, margin=dict(l=10, r=10, t=40, b=10),
+                xaxis_title="Return (%)", yaxis_title="Count",
+            )
+            st.plotly_chart(f, use_container_width=True)
     with c3:
-        only_winners = st.checkbox("Winners only", value=False)
+        st.markdown("&nbsp;")  # spacer
+        st.metric(
+            "Average hold days",
+            f"{avg_hold:.0f} days" if not pd.isna(avg_hold) else "—",
+            help="Mean number of calendar days between entry and exit "
+                 "for closed round trips in the selected window.",
+        )
 
-    f = rt.copy()
-    if ticker_pick != "All":
-        f = f[f["ticker"] == ticker_pick]
-    if reason_pick != "All":
-        f = f[f["reason"] == reason_pick]
-    if only_winners:
-        f = f[f["return_pct"].fillna(-999) > 0]
-
-    # Summary stats over the filtered set (closed trips only)
-    closed = f[f["reason"] != "Open"]
-    if not closed.empty:
-        cols = st.columns(4)
-        cols[0].metric("Closed", len(closed))
-        cols[1].metric("Avg return / trade",
-                       f"{closed['return_pct'].mean():+.2f}%")
-        cols[2].metric("Avg hold days",
-                       f"{closed['hold_days'].mean():.0f}")
-        win_rate = (closed["return_pct"] > 0).mean() * 100
-        cols[3].metric("Win rate", f"{win_rate:.1f}%")
-
-    # Display
-    show = f.copy()
-    show["buy_date"] = show["buy_date"].dt.strftime("%Y-%m-%d")
+    # ===== Layer 3 — Detailed view (full filtered table) =====
+    st.divider()
+    st.markdown("**Full trade log for selected period.** Most recent first.")
+    show = rt.copy().sort_values("buy_date", ascending=False)
+    show["buy_date"]  = show["buy_date"].dt.strftime("%Y-%m-%d")
     show["sell_date"] = show["sell_date"].dt.strftime("%Y-%m-%d")
     show["buy_price"] = show["buy_price"].round(2)
     show["sell_price"] = show["sell_price"].round(2)
     show["return_pct"] = show["return_pct"].round(2)
+    show["pnl_dollars"] = show["pnl_dollars"].round(2)
     _render_df_with_ticker_links(show, use_container_width=True, hide_index=True)
-
-    st.subheader("Top traded tickers")
-    _render_df_with_ticker_links(_top_traded_stocks(trades_df),
-                                 use_container_width=True, hide_index=True)
 
 
 _ROBUSTNESS_THRESHOLD = 0.40   # rolling_12mo_objective bar for "still robust"
 _ROBUSTNESS_DEAD_BAND = 0.04   # ±r12_obj range that counts as "dead axis"
+_RELIABILITY_ALPHA_BAR = 0.30  # +30pp annualized alpha threshold (Reliability headline)
 
-# Friendly axis labels for the per-axis table + plot titles. Falls back
-# to the raw name with underscores stripped if not in the map.
+# Plain-English axis labels per spec section 5 translation table.
+# Falls back to the raw name if not in the map.
 _ROBUSTNESS_AXIS_LABELS: dict[str, str] = {
-    "atr_multiplier_offensive":           "ATR multiplier (offensive)",
-    "macro_threshold_low":                "Macro threshold low",
-    "position_count_offensive":           "Position count (offensive)",
-    "rebalance_frequency_days_offensive": "Rebalance freq (days, offensive)",
-    "regime_threshold":                   "Regime threshold",
-    "weight_fundamental_offensive":       "Weight: fundamental (offensive)",
-    "weight_model_offensive":             "Weight: model (offensive)",
-    "weight_technical_offensive":         "Weight: technical (offensive)",
+    "atr_multiplier_offensive":           "Stop-loss tightness",
+    "macro_threshold_low":                "Market-stress sizing threshold",
+    "position_count_offensive":           "Number of holdings",
+    "rebalance_frequency_days_offensive": "Rebalance frequency (days)",
+    "regime_threshold":                   "Defensive-mode trigger",
+    "weight_fundamental_offensive":       "Fundamentals weight",
+    "weight_model_offensive":             "ML model weight",
+    "weight_technical_offensive":         "Technical analysis weight",
+}
+
+# New plain-English classification labels per spec section 5.
+_SENSITIVITY_LABELS: dict[str, str] = {
+    "Dead axis":              "No effect",
+    "Robust plateau":         "Stable",
+    "Peak with sensitivity":  "Sensitive",
+    "Knife edge":             "Very sensitive",
+    "Mixed":                  "Mixed sensitivity",
 }
 
 
@@ -1159,13 +1757,86 @@ def _classify_axis(values: pd.DataFrame) -> tuple[str, str]:
     return cls, note
 
 
-def tab_robustness(label: str, config: BacktestConfig, result: dict) -> None:
-    st.header("Robustness")
+def _reliability_axis_buckets(df: pd.DataFrame
+                              ) -> tuple[list[str], list[str], list[str]]:
+    """Classify each axis into 'most stable', 'most sensitive', and
+    'one-sided room to move' buckets for the Reliability Layer 1 KPIs.
+
+    - most_stable: classification 'Dead axis' (no observable effect)
+    - most_sensitive: classification in {'Knife edge', 'Peak with sensitivity'}
+    - one_sided: reference value sits at min or max of tested range AND
+      the score holds up across the rest (>=3/5 above threshold)
+    """
+    most_stable, most_sensitive, one_sided = [], [], []
+    for ax_name, sub in df.groupby("axis", sort=False):
+        sub = sub.sort_values("value")
+        cls, _note = _classify_axis(sub)
+        friendly = _ROBUSTNESS_AXIS_LABELS.get(ax_name, ax_name)
+        if cls == "Dead axis":
+            most_stable.append(friendly)
+        elif cls in ("Knife edge", "Peak with sensitivity"):
+            most_sensitive.append(friendly)
+        ref_sub = sub[sub["is_reference"]]
+        if not ref_sub.empty:
+            ref_v = float(ref_sub["value"].iloc[0])
+            v_lo = float(sub["value"].min())
+            v_hi = float(sub["value"].max())
+            at_extreme = abs(ref_v - v_lo) < 1e-9 or abs(ref_v - v_hi) < 1e-9
+            n_above = int((sub["rolling_12mo_objective"]
+                           >= _ROBUSTNESS_THRESHOLD).sum())
+            if at_extreme and n_above >= 3:
+                one_sided.append(friendly)
+    return most_stable, most_sensitive, one_sided
+
+
+def _exec_summary_reliability(label: str, config: BacktestConfig,
+                              result: dict) -> str:
+    df = load_perturbation_summary()
+    if df is None or df.empty:
+        return ("*Reliability summary will appear once perturbation "
+                "data is generated. See "
+                "`src/v3_track2_runner.py`.*")
+    df = df.copy()
+    df["axis"] = df["axis"].astype(str)
+    n_pert = int((~df["is_reference"]).sum())
+    n_strong = int(((df["alpha_ann"] >= _RELIABILITY_ALPHA_BAR)
+                    & ~df["is_reference"]).sum())
+    n_close  = int(((df["rolling_12mo_objective"] >= _ROBUSTNESS_THRESHOLD)
+                    & ~df["is_reference"]).sum())
+    pct_strong = n_strong / n_pert * 100 if n_pert else 0.0
+    pct_close  = n_close  / n_pert * 100 if n_pert else 0.0
+
+    headline = (f"We tested the strategy with each of its 8 settings "
+                f"tweaked up and down. Across **{n_pert}** tweaked "
+                f"versions: **{n_strong} ({pct_strong:.0f}%)** still "
+                f"substantially beat SPY (+{int(_RELIABILITY_ALPHA_BAR*100)}pp "
+                f"annualized or better); "
+                f"**{n_close} ({pct_close:.0f}%)** performed similarly "
+                f"to the chosen version (12-month outperformance score "
+                f"≥ {_ROBUSTNESS_THRESHOLD:.2f}).")
+    detail = ("The strategy concept is robust. The specific peak result "
+              "is sensitive to a few settings — see the surface plots "
+              "and per-setting table below.")
+    if label == "default":
+        caveat = _summary_default_caveat()
+    else:
+        caveat = (f"Trial #325 sits at a TPE-found peak; some axes show "
+                  f"~30pp alpha drop with small parameter shifts. The "
+                  f"strategy concept is robust; the specific peak "
+                  f"result is sensitive.")
+    return f"{_summary_caveat_prefix(label, result)}{headline}\n\n{detail}\n\n*{caveat}*"
+
+
+def tab_reliability(label: str, config: BacktestConfig, result: dict) -> None:
+    st.header("Reliability")
+    st.caption(f"Showing config: **{label}** "
+               f"(window {config.validate_start} → {config.validate_end})")
+
     df = load_perturbation_summary()
     if df is None or df.empty:
         st.info(
             "No perturbation data found in this deployment. The "
-            "Robustness tab surfaces V3 Track 2 single-axis "
+            "Reliability tab surfaces V3 Track 2 single-axis "
             "perturbation results from "
             "`models/cache/dashboard_results/v3_track2_perturbation/"
             "summary_full.csv`. Generate via `python "
@@ -1177,54 +1848,46 @@ def tab_robustness(label: str, config: BacktestConfig, result: dict) -> None:
     df = df.copy()
     df["axis"] = df["axis"].astype(str)
 
-    # ---- Section A: headline + KPIs ----
-    n_total = int(len(df))
-    n_ref = int(df["is_reference"].sum())
-    n_pert = n_total - n_ref
-    thr = _ROBUSTNESS_THRESHOLD
-    n_pert_robust = int(((df["rolling_12mo_objective"] >= thr)
-                         & ~df["is_reference"]).sum())
-    pct_robust = (n_pert_robust / n_pert * 100) if n_pert else 0.0
-    n_axes = int(df["axis"].nunique())
-
-    st.markdown(
-        f"Trial **{label}** was tested across **{n_pert}** single-axis "
-        f"perturbations spanning **{n_axes}** axes. "
-        f"**{n_pert_robust} of {n_pert}** perturbations ({pct_robust:.0f}%) "
-        f"still produced rolling_12mo_objective ≥ {thr:.2f} — i.e., "
-        f"still substantially outperformed SPY."
-    )
-
-    # Per-axis ranges for KPIs
-    by_axis = df.groupby("axis", sort=False)
-    spreads = by_axis["rolling_12mo_objective"].agg(
-        lambda s: float(s.max() - s.min())).sort_values()
-    tightest_axis = spreads.index[0]
-    most_robust_axis = spreads.index[-1]
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total perturbations", f"{n_pert}")
-    c2.metric(f"Beating r12_obj ≥ {thr:.2f}",
-              f"{n_pert_robust} ({pct_robust:.0f}%)")
-    c3.metric("Tightest axis (smallest r12_obj range)",
-              _ROBUSTNESS_AXIS_LABELS.get(tightest_axis, tightest_axis),
-              f"Δ {spreads.iloc[0]:.3f}")
-    c4.metric("Widest axis (largest r12_obj range)",
-              _ROBUSTNESS_AXIS_LABELS.get(most_robust_axis, most_robust_axis),
-              f"Δ {spreads.iloc[-1]:.3f}")
-
-    # ---- Section B: 4×2 subplot grid ----
+    st.info(_exec_summary_reliability(label, config, result))
     st.divider()
-    st.subheader("Per-axis surface plots")
-    st.caption(
-        "Each panel shows the 5 tested values for one axis. Blue line is "
-        "rolling_12mo_objective (left axis); orange line is alpha_ann "
-        "(right axis). The reference point (Trial #325's value) is marked "
-        "with a star."
+
+    # ===== Layer 1 — Quick inference =====
+    most_stable, most_sensitive, one_sided = _reliability_axis_buckets(df)
+    cols = st.columns(3)
+    cols[0].metric(
+        "Most stable settings (least sensitive)",
+        ", ".join(most_stable) if most_stable else "—",
+        help="Settings whose 5 tested values produce nearly identical "
+             "results — tweaking them within the tested range has no "
+             "observable effect on outperformance.",
     )
-    axes_sorted = list(_ROBUSTNESS_AXIS_LABELS.keys())
-    # Keep only axes that actually appear in the data, preserve canonical order
-    axes_sorted = [a for a in axes_sorted if a in by_axis.groups]
+    cols[1].metric(
+        "Most sensitive settings",
+        ", ".join(most_sensitive) if most_sensitive else "—",
+        help="Settings where moving the value drops outperformance "
+             "noticeably — the chosen peak does not generalize across "
+             "the whole tested range.",
+    )
+    cols[2].metric(
+        "Settings with one-sided room to move",
+        ", ".join(one_sided) if one_sided else "—",
+        help="Settings where the chosen value sits at the edge of the "
+             "tested range AND the score holds up across most of the "
+             "range — could likely be moved further in one direction "
+             "without losing alpha.",
+    )
+
+    # ===== Layer 2 — Per-axis surface grid =====
+    st.divider()
+    st.markdown(
+        "**For each setting, we tested 5 different values.** The green "
+        "star marks the chosen value; lines show how outperformance "
+        "changes when that setting moves."
+    )
+    by_axis = df.groupby("axis", sort=False)
+    thr = _ROBUSTNESS_THRESHOLD
+    axes_sorted = [a for a in _ROBUSTNESS_AXIS_LABELS.keys()
+                   if a in by_axis.groups]
     fig = make_subplots(
         rows=4, cols=2,
         subplot_titles=[_ROBUSTNESS_AXIS_LABELS.get(a, a)
@@ -1237,32 +1900,30 @@ def tab_robustness(label: str, config: BacktestConfig, result: dict) -> None:
         row = i // 2 + 1
         col = i % 2 + 1
         ref_sub = sub[sub["is_reference"]]
-        # r12_obj (primary y)
         fig.add_trace(go.Scatter(
             x=sub["value"], y=sub["rolling_12mo_objective"],
-            mode="lines+markers", name="r12_obj", legendgroup="r12",
+            mode="lines+markers",
+            name="Outperformance score", legendgroup="score",
             showlegend=(i == 0),
             line=dict(color="#2563eb", width=2),
             marker=dict(size=8, color="#2563eb"),
         ), row=row, col=col, secondary_y=False)
-        # alpha_ann (secondary y)
         fig.add_trace(go.Scatter(
             x=sub["value"], y=sub["alpha_ann"],
-            mode="lines+markers", name="alpha_ann", legendgroup="alpha",
+            mode="lines+markers",
+            name="Excess return vs SPY", legendgroup="alpha",
             showlegend=(i == 0),
             line=dict(color="#f59e0b", width=2, dash="dot"),
             marker=dict(size=7, color="#f59e0b", symbol="diamond"),
         ), row=row, col=col, secondary_y=True)
-        # Reference markers
         if not ref_sub.empty:
             fig.add_trace(go.Scatter(
                 x=ref_sub["value"],
                 y=ref_sub["rolling_12mo_objective"],
-                mode="markers", name="reference (#325)",
+                mode="markers", name="chosen value",
                 legendgroup="ref", showlegend=(i == 0),
                 marker=dict(size=14, color="#16a34a", symbol="star"),
             ), row=row, col=col, secondary_y=False)
-        # Threshold line for r12_obj
         fig.add_hline(y=thr, line_dash="dash", line_color="#94a3b8",
                       line_width=1, row=row, col=col, secondary_y=False)
     fig.update_layout(
@@ -1274,15 +1935,17 @@ def tab_robustness(label: str, config: BacktestConfig, result: dict) -> None:
     for i in range(8):
         row = i // 2 + 1
         col = i % 2 + 1
-        fig.update_yaxes(title_text="r12_obj" if col == 1 else "",
-                         row=row, col=col, secondary_y=False)
-        fig.update_yaxes(title_text="alpha" if col == 2 else "",
-                         row=row, col=col, secondary_y=True)
+        fig.update_yaxes(
+            title_text=("12-month outperformance score" if col == 1 else ""),
+            row=row, col=col, secondary_y=False)
+        fig.update_yaxes(
+            title_text=("Excess return vs SPY" if col == 2 else ""),
+            row=row, col=col, secondary_y=True)
     st.plotly_chart(fig, use_container_width=True)
 
-    # ---- Section C: per-axis classification table ----
+    # ===== Layer 3 — Per-axis interpretation table =====
     st.divider()
-    st.subheader("Per-axis interpretation")
+    st.subheader("Per-setting interpretation")
     rows = []
     for ax_name in axes_sorted:
         sub = by_axis.get_group(ax_name).sort_values("value")
@@ -1294,43 +1957,188 @@ def tab_robustness(label: str, config: BacktestConfig, result: dict) -> None:
         r_hi = float(sub["rolling_12mo_objective"].max())
         cls, note = _classify_axis(sub)
         rows.append({
-            "Axis": _ROBUSTNESS_AXIS_LABELS.get(ax_name, ax_name),
-            "Reference": f"{ref_val:.3f}" if ref_val == ref_val else "—",
-            "Range tested": f"[{v_lo:.3f}, {v_hi:.3f}]",
-            "r12_obj range": f"[{r_lo:.3f}, {r_hi:.3f}]",
-            "Robust?": cls,
-            "Note": note,
+            "Setting":          _ROBUSTNESS_AXIS_LABELS.get(ax_name, ax_name),
+            "Chosen value":     f"{ref_val:.3f}" if ref_val == ref_val else "—",
+            "Range tested":     f"[{v_lo:.3f}, {v_hi:.3f}]",
+            "Score range":      f"[{r_lo:.3f}, {r_hi:.3f}]",
+            "Sensitivity":      _SENSITIVITY_LABELS.get(cls, cls),
+            "Note":             note,
         })
     table_df = pd.DataFrame(rows)
-    st.dataframe(table_df, use_container_width=True, hide_index=True)
+    st.dataframe(
+        table_df,
+        use_container_width=True, hide_index=True,
+        column_config={
+            "Note": st.column_config.TextColumn(
+                "Note", width="large", help="Auto-generated from the data"),
+            "Setting":      st.column_config.TextColumn("Setting", width="medium"),
+            "Sensitivity":  st.column_config.TextColumn("Sensitivity", width="small"),
+        },
+    )
     st.caption(
-        "Classifications: **Dead axis** — r12_obj spread ≤ "
-        f"{_ROBUSTNESS_DEAD_BAND} (insensitive). "
-        "**Robust plateau** — 4-5/5 above threshold. "
-        "**Peak with sensitivity** — reference at peak, others fall off. "
-        "**Knife edge** — only 1-2/5 above threshold."
+        "Sensitivity labels: **No effect** — score range "
+        f"≤ {_ROBUSTNESS_DEAD_BAND} (this setting doesn't move the "
+        "result in the tested range). "
+        "**Stable** — 4-5/5 perturbations stay above threshold. "
+        "**Sensitive** — chosen value at peak, others fall off. "
+        "**Very sensitive** — only 1-2/5 above threshold."
     )
 
 
-def tab_user_guide() -> None:
-    st.header("Paper Trader Dashboard User Guide")
-    st.markdown(
-        "A complete walkthrough of what this dashboard shows, what each "
-        "metric means, and what NOT to conclude from any of it. Recommended "
-        "reading for first-time users."
-    )
-    st.markdown(
-        "**What's in the guide:**\n"
-        "- What the system is and how it picks stocks\n"
-        "- Navigation of the dashboard's tabs and sidebar\n"
-        "- Definitions of metrics like Sharpe, alpha, drawdown\n"
-        "- Important caveats — this is **NOT** investment advice"
-    )
+# Curated glossary covering the dashboard's user-visible jargon. Each
+# entry is one sentence — meant for quick lookup, not deep explanation.
+# The longer-form discussion lives in the downloadable user guide.
+_GLOSSARY: dict[str, str] = {
+    "Alpha (arithmetic)":
+        "Annualized strategy return minus annualized SPY return — "
+        "the simple performance spread, not adjusted for how much the "
+        "strategy moves vs the market.",
+    "Alpha (CAPM)":
+        "Annualized excess return after subtracting the SPY contribution "
+        "scaled by beta — i.e., the part of outperformance NOT explained "
+        "by amplified market exposure. Also called Jensen's alpha.",
+    "ATR multiplier":
+        "Tunable that sets how much room a stop-loss gives a stock "
+        "before triggering, measured in multiples of recent volatility "
+        "(Average True Range). In the chart labels: 'Stop-loss tightness'.",
+    "Backtest":
+        "A simulation that replays a strategy over historical price "
+        "data to see how it would have performed.",
+    "Benchmark":
+        "The reference index the strategy is compared against. Here it's "
+        "SPY (the S&P 500) — sometimes also QQQ (the Nasdaq-100).",
+    "Beta":
+        "How much the strategy moves relative to the market. Beta = 1 "
+        "means it moves in lockstep; >1 means more; <1 means less.",
+    "Capture ratio (up / down)":
+        "Of SPY's gains in up months, what % the strategy captures "
+        "(up capture); of SPY's losses in down months, what % the "
+        "strategy participates in (down capture).",
+    "Composite score":
+        "The blended ranking each stock gets from fundamental, technical, "
+        "ML model, and alternative-data sub-scores. Higher = stronger "
+        "candidate to hold.",
+    "Correlation":
+        "Day-to-day return correlation between the strategy and SPY. "
+        "1.0 = move identically; 0 = unrelated; -1 = opposite.",
+    "Defensive-mode trigger":
+        "The macro-signal threshold below which the strategy switches "
+        "from offensive to defensive parameter set. Inside the code: "
+        "regime_threshold.",
+    "Drawdown":
+        "How far below the most recent peak the portfolio is at a given "
+        "moment. Reported as a negative percentage; max drawdown is the "
+        "worst dip ever seen during the period.",
+    "Excess return vs SPY":
+        "Strategy return minus SPY return over the same window. The "
+        "annualized arithmetic version is shown in KPIs as 'Excess "
+        "return vs SPY (annualized)'.",
+    "FIFO (first-in-first-out)":
+        "When a stock is bought multiple times then sold, the first "
+        "buy is matched to the first sell for P&L purposes.",
+    "Fundamentals weight":
+        "Tunable share of the composite score that comes from company "
+        "fundamentals (margins, growth, debt, valuation). Field name: "
+        "weight_fundamental.",
+    "Hold days":
+        "Calendar days between entry and exit on a closed position.",
+    "Macro overlay":
+        "Position sizing tier (50% / 75% / 100%) that scales every "
+        "holding's dollar exposure based on the current market health "
+        "score. Conservative when stressed, full when bullish.",
+    "Market health score":
+        "A composite of macro signals (HY spread, yield curve, VIX, NFCI, "
+        "Sahm, 10y-3m, SPY drawdown) blended into a single 0–1 number. "
+        "Higher = healthier; lower = more stressed. Inside the code: "
+        "the 'macro composite'.",
+    "Market-stress sizing threshold":
+        "Below this market-health score, the strategy drops to 50% "
+        "position sizing. Inside the code: macro_threshold_low.",
+    "ML model weight":
+        "Tunable share of the composite score that comes from the XGBoost "
+        "machine-learning model's prediction. Field name: weight_model.",
+    "Number of holdings":
+        "How many positions the strategy holds at any time (concentration "
+        "tunable). Field name: position_count.",
+    "Outperformance score (12-month)":
+        "Custom optimization objective: roughly the 75th-percentile "
+        "minus 25th-percentile of rolling 12-month CAPM alpha. Higher "
+        "values mean consistent outperformance with limited downside. "
+        "Inside the code: rolling_12mo_objective.",
+    "Pruned trial":
+        "An Optuna trial that was killed early before completing — "
+        "either because the search-space sampling was invalid or the "
+        "early scoring suggested it wouldn't be competitive.",
+    "Rebalance frequency":
+        "How often (in days) the strategy re-checks scores and rotates "
+        "positions. Field name: rebalance_frequency_days.",
+    "Recovery time":
+        "How long it took the portfolio to return to peak value after "
+        "a drawdown of the specified depth (e.g., -10% recovery time).",
+    "Regime-dependent":
+        "The architecture choice where the strategy uses different "
+        "tunable values in defensive vs offensive market regimes, "
+        "switched by a single macro-signal threshold.",
+    "Risk-adjusted excess return":
+        "Same as CAPM alpha — annualized return above SPY after removing "
+        "the part attributable to amplified market exposure.",
+    "Round trip":
+        "A complete buy-then-sell cycle on a single ticker. Closed "
+        "round trips have a realized return; open ones don't.",
+    "Sharpe ratio":
+        "Risk-adjusted return: annualized excess return divided by "
+        "annualized volatility. Higher is better. Above 1.0 is generally "
+        "good; above 2.0 is rare.",
+    "Stop-loss":
+        "A pre-set sell rule that closes a position if it drops to a "
+        "given level, intended to cap downside on a single trade. The "
+        "strategy uses an ATR-based trailing stop, clamped to a 5–15% "
+        "band of entry price.",
+    "Technical analysis weight":
+        "Tunable share of the composite score that comes from price-"
+        "based indicators (momentum, volatility, volume). Field name: "
+        "weight_technical.",
+    "TPE (Tree-structured Parzen Estimator)":
+        "The Bayesian optimization algorithm Optuna uses by default to "
+        "search for good configurations. It learns from past trial "
+        "results to focus on promising regions of parameter space.",
+    "Trial":
+        "A single configuration tested by the optimizer. Each trial runs "
+        "a full backtest with one specific set of tunable values.",
+    "Win rate":
+        "Either (a) the share of closed round-trip trades that ended "
+        "profitable, or (b) the share of rolling 12-month windows in "
+        "which the strategy beat SPY — KPI labels say which.",
+}
 
+
+def tab_glossary() -> None:
+    st.header("Glossary & Help")
+
+    query = st.text_input("Look up a term", value="",
+                          placeholder="alpha, beta, drawdown, …")
+    matches = _GLOSSARY
+    if query:
+        q = query.strip().lower()
+        matches = {k: v for k, v in _GLOSSARY.items()
+                   if q in k.lower() or q in v.lower()}
+        st.caption(f"{len(matches)} of {len(_GLOSSARY)} terms match "
+                   f"'{query}'.")
+    else:
+        st.caption(f"{len(_GLOSSARY)} terms — start typing to filter.")
+
+    if not matches:
+        st.info("No terms match that search. Try a different word, or "
+                "browse the full list by clearing the search box.")
+    else:
+        for term in sorted(matches.keys(), key=str.lower):
+            st.markdown(f"**{term}** — {matches[term]}")
+
+    st.divider()
     guide_path = Path(__file__).parent / "paper_trader_user_guide.docx"
     if guide_path.exists():
         st.download_button(
-            label="Download User Guide (Word doc)",
+            label="Download full User Guide (Word doc)",
             data=guide_path.read_bytes(),
             file_name="paper_trader_user_guide.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1629,10 +2437,168 @@ def _notable_observations(
     return obs
 
 
-def tab_diagnostics(label: str, config: BacktestConfig, result: dict) -> None:
-    st.header("Diagnostics")
+def _exec_summary_risk_behavior(label: str, config: BacktestConfig,
+                                result: dict) -> str:
+    meta = result.get("meta") or {}
+    rm = meta.get("rolling_metrics") or {}
+    portfolio_df = result.get("portfolio_df")
+    if portfolio_df is None or portfolio_df.empty:
+        return "*Risk & Behavior summary will appear when results are loaded.*"
+    capture = rm.get("capture") or {}
+    up = capture.get("up_capture")
+    down = capture.get("down_capture")
+    pv = portfolio_df["portfolio_value"]
+    max_dd = abs(float((pv / pv.cummax() - 1).min())) * 100
+    rec = rm.get("recovery") or {}
+    rec_10 = rec.get("-0.1") or {}
+    ttr = rec_10.get("time_to_recovery_ratio_avg")
+    ttr_phrase = ""
+    if ttr is not None:
+        if ttr <= 0.5:
+            ttr_phrase = " The strategy tends to recover faster than SPY from -10% drops."
+        elif ttr <= 1.2:
+            ttr_phrase = " Recovery times are roughly in line with SPY."
+        else:
+            ttr_phrase = " Recovery from -10% drops takes longer than SPY's."
+
+    if up is not None and down is not None:
+        if up >= 110 and down <= 80:
+            character = "amplifies the upside while damping the downside"
+        elif up >= 110 and down >= 80:
+            character = "amplifies both sides of the market"
+        elif up < 90 and down < 80:
+            character = "moves less than SPY in both directions"
+        else:
+            character = "tracks SPY in mixed fashion across regimes"
+        headline = (f"In up months the strategy {character}: capturing "
+                    f"**{up:.0f}%** of SPY's gains and **{down:.0f}%** "
+                    f"of its losses.")
+    else:
+        headline = ("Capture ratios are not available in this saved "
+                    "result. The detailed diagnostics below still apply.")
+
+    detail = (f"Maximum drawdown was **-{max_dd:.0f}%** along the way."
+              f"{ttr_phrase}")
+    if label == "default":
+        caveat = _summary_default_caveat()
+    else:
+        caveat = (f"A -{max_dd:.0f}% drawdown is real and would be "
+                  f"psychologically difficult for a real investor; "
+                  f"concentration amplifies volatility. The capture "
+                  f"figures above are based on monthly returns, which "
+                  f"smooth daily movement and can hide intra-month "
+                  f"drawdowns.")
+    return f"{_summary_caveat_prefix(label, result)}{headline}\n\n{detail}\n\n*{caveat}*"
+
+
+def tab_risk_behavior(label: str, config: BacktestConfig, result: dict) -> None:
+    st.header("Risk & Behavior")
     st.caption(f"Showing config: **{label}** "
-               f"(window {config.validate_start} -> {config.validate_end})")
+               f"(window {config.validate_start} → {config.validate_end})")
+
+    portfolio_df = result.get("portfolio_df")
+    if portfolio_df is None or portfolio_df.empty:
+        st.warning("Empty backtest result.")
+        return
+
+    st.info(_exec_summary_risk_behavior(label, config, result))
+    st.divider()
+
+    meta = result.get("meta") or {}
+    rm = meta.get("rolling_metrics") or {}
+    capture = rm.get("capture") or {}
+    rec = rm.get("recovery") or {}
+    rolling_12mo = rm.get("rolling_12mo") or {}
+    ad = rolling_12mo.get("alpha_distribution_stats") or {}
+
+    # ===== Layer 1 — Quick inference =====
+    pv = portfolio_df["portfolio_value"]
+    start = pv.index[0].strftime("%Y-%m-%d")
+    end   = (pv.index[-1] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    spy_close = cached_benchmark("SPY", start, end)
+    cols = st.columns(4)
+    up = capture.get("up_capture")
+    down = capture.get("down_capture")
+    rec_10 = rec.get("-0.1") or {}
+    rec_avg_days = rec_10.get("time_to_recovery_avg_days")
+    rec_ratio = rec_10.get("time_to_recovery_ratio_avg")
+    cols[0].metric(
+        "Up capture",
+        f"{up:.0f}% of SPY gains" if up is not None else "—",
+        help="When SPY goes up, this number says how much of the move "
+             "the strategy captures (computed monthly).",
+    )
+    cols[1].metric(
+        "Down capture",
+        f"{down:.0f}% of SPY drops" if down is not None else "—",
+        help="When SPY goes down, this number says how much of the drop "
+             "the strategy participates in (computed monthly).",
+    )
+    if rec_avg_days is not None:
+        rec_label = f"{rec_avg_days:.0f} days"
+    elif rec_ratio is not None:
+        rec_label = f"{rec_ratio:.2f}× SPY"
+    else:
+        rec_label = "—"
+    cols[2].metric(
+        "Recovery from -10% drawdown",
+        rec_label,
+        help="Average time from a -10% drop to recovering peak value. "
+             "Smaller is better.",
+    )
+    if "count_positive" in ad and "count_total" in ad and ad["count_total"]:
+        cols[3].metric(
+            "Months with positive alpha",
+            f"{ad['count_positive']} of {ad['count_total']} "
+            f"({ad['count_positive']/ad['count_total']*100:.0f}%)",
+            help="Of the rolling 12-month windows in validation, this "
+                 "share had positive alpha vs SPY.",
+        )
+    else:
+        cols[3].metric("Months with positive alpha", "—")
+
+    # ===== Layer 2 — Drawdown chart =====
+    st.divider()
+    st.markdown("**Drawdowns: how far below peak the strategy and SPY "
+                "have been over time.**")
+    sys_dd_pct = (pv / pv.cummax() - 1.0) * 100.0
+    spy_dd_pct = pd.Series(dtype=float)
+    if not spy_close.empty:
+        spy_dd_pct = ((spy_close / spy_close.cummax()) - 1.0) * 100.0
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=sys_dd_pct.index, y=sys_dd_pct.values,
+        mode="lines", name="Strategy",
+        line=dict(color="#dc2626", width=2),
+        fill="tozeroy", fillcolor="rgba(220, 38, 38, 0.18)",
+    ))
+    if not spy_dd_pct.empty:
+        fig.add_trace(go.Scatter(
+            x=spy_dd_pct.index, y=spy_dd_pct.values,
+            mode="lines", name="SPY",
+            line=dict(color="#f59e0b", width=2, dash="dot"),
+        ))
+    fig.update_layout(
+        yaxis_title="Drawdown (%)", xaxis_title="",
+        height=380, margin=dict(l=10, r=10, t=10, b=10),
+        hovermode="x unified",
+        legend=dict(orientation="h"),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ===== Layer 3 — Detailed diagnostics (expander) =====
+    st.divider()
+    with st.expander("Detailed diagnostics — rolling metrics, capture "
+                      "ratios, observations", expanded=False):
+        _risk_behavior_detailed_diagnostics(label, config, result)
+
+
+def _risk_behavior_detailed_diagnostics(
+    label: str, config: BacktestConfig, result: dict) -> None:
+    """Original Diagnostics tab content, now living inside the
+    Risk & Behavior tab's Layer 3 expander. Keeps the cumulative-
+    alpha + signal-real + snapshot + sector-allocation + notable-
+    observations sections intact."""
 
     portfolio_df = result["portfolio_df"]
     trades_df    = result.get("trades_df")
@@ -1996,25 +2962,26 @@ def main() -> None:
     result = get_result_for_config(label, config)
 
     tabs = st.tabs(
-        ["Overview", "Diagnostics", "Optuna explorer", "Macro state",
-         "Positions", "Trades log", "Robustness", "User Guide"]
+        ["Performance", "Current Holdings", "Trade History",
+         "Market Context", "Risk & Behavior", "Reliability",
+         "Tuning History", "Glossary & Help"]
     )
     with tabs[0]:
-        tab_overview(label, config, result)
+        tab_performance(label, config, result)
     with tabs[1]:
-        tab_diagnostics(label, config, result)
+        tab_holdings(label, config, result)
     with tabs[2]:
-        tab_optuna(study_name)
+        tab_trade_history(label, config, result)
     with tabs[3]:
-        tab_macro(config)
+        tab_market_context(label, config, result)
     with tabs[4]:
-        tab_positions(config, result)
+        tab_risk_behavior(label, config, result)
     with tabs[5]:
-        tab_trades(result)
+        tab_reliability(label, config, result)
     with tabs[6]:
-        tab_robustness(label, config, result)
+        tab_tuning_history(label, config, result, study_name)
     with tabs[7]:
-        tab_user_guide()
+        tab_glossary()
 
 
 main()
