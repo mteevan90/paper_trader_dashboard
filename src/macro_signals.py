@@ -64,6 +64,16 @@ def _snapshot_miss(cache_name: str, path: str, required: str) -> "RuntimeError":
 MACRO_VERSION   = "v3"
 ANALYST_VERSION = "v1"
 
+
+def _effective_macro_version() -> str:
+    """Return the macro version to use for cache validation and scoring.
+
+    Reads PAPER_TRADER_MACRO_VERSION env var; falls back to MACRO_VERSION
+    constant. Lets snapshots from earlier code states (e.g., pre_v2_20260505)
+    be replayed without bumping the cache or rebuilding the snapshot.
+    """
+    return os.environ.get("PAPER_TRADER_MACRO_VERSION", MACRO_VERSION)
+
 FRED_SERIES = {
     "hy_spread": "BAMLH0A0HYM2",   # ICE BofA US High Yield OAS (daily)
     "yc_slope":  "T10Y2Y",         # 10yr minus 2yr Treasury spread (daily)
@@ -225,7 +235,7 @@ def fetch_macro_signals(start: str, end: str) -> pd.DataFrame:
 
     # Version + schema check via sidecar — invalidate if either drifts.
     meta = _load_macro_meta()
-    version_ok = meta is not None and meta.get("version") == MACRO_VERSION \
+    version_ok = meta is not None and meta.get("version") == _effective_macro_version() \
         and meta.get("fred_series") == dict(FRED_SERIES)
 
     cached: pd.DataFrame | None = None
@@ -242,9 +252,9 @@ def fetch_macro_signals(start: str, end: str) -> pd.DataFrame:
             raise _snapshot_miss(
                 "macro_signals", MACRO_CACHE,
                 f"version match (cache {meta.get('version')!r} != current "
-                f"{MACRO_VERSION!r})")
+                f"{_effective_macro_version()!r})")
         print(f"  [MACRO] Version/schema mismatch (cache "
-              f"{meta.get('version')!r} vs {MACRO_VERSION!r}) - rebuilding")
+              f"{meta.get('version')!r} vs {_effective_macro_version()!r}) - rebuilding")
 
     if cached is not None and not cached.empty:
         # Backfill earlier history if the requested start is before the cache.
@@ -260,7 +270,8 @@ def fetch_macro_signals(start: str, end: str) -> pd.DataFrame:
             if not back.empty:
                 cached = pd.concat([back, cached])
                 cached = cached[~cached.index.duplicated(keep="last")].sort_index()
-                cached = _attach_spy_drawdown(cached)
+                if _effective_macro_version() != "v2":
+                    cached = _attach_spy_drawdown(cached)
                 print(f"  [MACRO] Backfilled {len(back)} rows "
                       f"(from {cached.index.min().date()})")
 
@@ -278,7 +289,8 @@ def fetch_macro_signals(start: str, end: str) -> pd.DataFrame:
             if not fresh.empty:
                 cached = pd.concat([cached, fresh])
                 cached = cached[~cached.index.duplicated(keep="last")].sort_index()
-                cached = _attach_spy_drawdown(cached)
+                if _effective_macro_version() != "v2":
+                    cached = _attach_spy_drawdown(cached)
                 print(f"  [MACRO] Appended {len(fresh)} new rows "
                       f"(through {cached.index.max().date()})")
 
@@ -302,7 +314,8 @@ def fetch_macro_signals(start: str, end: str) -> pd.DataFrame:
     df = _fetch_fred_series(fred, start, end)
     if df.empty:
         return df
-    df = _attach_spy_drawdown(df)
+    if _effective_macro_version() != "v2":
+        df = _attach_spy_drawdown(df)
     try:
         df.to_parquet(MACRO_CACHE)
         _save_macro_meta(df, start, end)
@@ -385,12 +398,14 @@ def compute_macro_score(macro_df: pd.DataFrame, date) -> float:
     yc3m = row.get("yc_3m", np.nan)
     yc3m_score = (0.5 + yc3m / 2) if pd.notna(yc3m) else 0.5
 
-    # 8. SPY 252d drawdown — equity-stress signal. 0% = bullish (1.0),
-    # -20% = max stress (0.0). Linear, clipped. See module-level
-    # comment on _attach_spy_drawdown for the data-source details.
+    if _effective_macro_version() == "v2":
+        components = [hy_level_score, hy_change_score, yc_score, vix_score,
+                      nfci_score, sahm_score, yc3m_score]
+        return _clip01(sum(_clip01(c) for c in components) / 7)
+
+    # v3 path (current default)
     spy_dd = row.get("spy_drawdown", np.nan)
     spy_dd_score = (1.0 + spy_dd / 0.20) if pd.notna(spy_dd) else 0.5
-
     components = [hy_level_score, hy_change_score, yc_score, vix_score,
                   nfci_score, sahm_score, yc3m_score, spy_dd_score]
     return _clip01(sum(_clip01(c) for c in components) / 8)
