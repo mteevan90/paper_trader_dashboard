@@ -383,6 +383,47 @@ def cached_benchmark(ticker: str, start: str, end: str) -> pd.Series:
     return _download_benchmark(ticker, start, end)
 
 
+def _load_saved_benchmark(label: str, ticker: str) -> "pd.Series | None":
+    """Read the saved benchmark close series for this label, if present.
+
+    `_save_one_backtest_result` writes `<label>/SPY_close.parquet` and
+    `<label>/QQQ_close.parquet` so the dashboard doesn't have to call
+    yfinance at view time. That matters in cloud mode where Yahoo soft-
+    throttles Streamlit Cloud's shared IP — SPY in particular intermittently
+    returns empty, breaking the Performance tab's alpha/beta/chart.
+
+    Returns None if the file isn't present (older saves, or v3_track2_*
+    aggregation labels). Callers fall back to cached_benchmark() in that
+    case, preserving backward compatibility for legacy dirs."""
+    if not label:
+        return None
+    p = data_source.path_to(
+        f"models/cache/dashboard_results/{label}/{ticker}_close.parquet",
+        quiet=True)
+    if not os.path.exists(p):
+        return None
+    try:
+        df = pd.read_parquet(p)
+        s = df["Close"] if "Close" in df.columns else df.iloc[:, 0]
+        s.index = pd.to_datetime(s.index)
+        return s
+    except Exception:
+        return None
+
+
+def benchmark_for_label(label: str, ticker: str,
+                        start: str, end: str) -> pd.Series:
+    """Saved-first / yfinance-fallback benchmark loader.
+
+    Prefer the saved per-label parquet (cloud-safe, no network). Fall
+    back to a live yfinance download if the saved file is missing —
+    typical for older labels saved before benchmark-snapshotting landed."""
+    saved = _load_saved_benchmark(label, ticker)
+    if saved is not None and not saved.empty:
+        return saved
+    return cached_benchmark(ticker, start, end)
+
+
 @st.cache_resource(show_spinner="Running live backtest (one-off, cached)...")
 def run_live_backtest(config_dict: dict) -> dict:
     """Live backtest fallback when no saved result exists for the chosen
@@ -762,7 +803,7 @@ def _exec_summary_performance(label: str, config: BacktestConfig,
     pv = portfolio_df["portfolio_value"]
     start = portfolio_df.index[0].strftime("%Y-%m-%d")
     end   = (portfolio_df.index[-1] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    spy_close = cached_benchmark("SPY", start, end)
+    spy_close = benchmark_for_label(label, "SPY", start, end)
 
     total_pct = (pv.iloc[-1] / pv.iloc[0] - 1) * 100.0
     n_days = max(len(pv), 1)
@@ -846,8 +887,8 @@ def tab_performance(label: str, config: BacktestConfig, result: dict) -> None:
     pv = portfolio_df["portfolio_value"]
     start = portfolio_df.index[0].strftime("%Y-%m-%d")
     end = (portfolio_df.index[-1] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    spy_close = cached_benchmark("SPY", start, end)
-    qqq_close = cached_benchmark("QQQ", start, end)
+    spy_close = benchmark_for_label(label, "SPY", start, end)
+    qqq_close = benchmark_for_label(label, "QQQ", start, end)
 
     # ===== Layer 1 — Quick inference =====
     total_return_pct = (pv.iloc[-1] / pv.iloc[0] - 1) * 100.0
@@ -2616,7 +2657,7 @@ def tab_risk_behavior(label: str, config: BacktestConfig, result: dict) -> None:
     pv = portfolio_df["portfolio_value"]
     start = pv.index[0].strftime("%Y-%m-%d")
     end   = (pv.index[-1] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    spy_close = cached_benchmark("SPY", start, end)
+    spy_close = benchmark_for_label(label, "SPY", start, end)
     cols = st.columns(4)
     up = capture.get("up_capture")
     down = capture.get("down_capture")
@@ -2713,7 +2754,7 @@ def _risk_behavior_detailed_diagnostics(
     pv = portfolio_df["portfolio_value"]
     start = pv.index[0].strftime("%Y-%m-%d")
     end = (pv.index[-1] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    spy_close = cached_benchmark("SPY", start, end)
+    spy_close = benchmark_for_label(label, "SPY", start, end)
 
     # ----- Section 1: How are we doing vs SPY? -----
     st.divider()

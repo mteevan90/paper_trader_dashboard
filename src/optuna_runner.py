@@ -975,6 +975,41 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
         pd.DataFrame(columns=["date","ticker","action","shares","price","fee"]
                      ).to_parquet(os.path.join(out_dir, "trades.parquet"))
 
+    # Snapshot the SPY + QQQ close series for the result's date range.
+    # The dashboard's Performance tab plots Strategy vs SPY vs QQQ and
+    # computes alpha/beta — all from these benchmark series. Saving them
+    # here makes the dashboard self-contained: no yfinance call at view
+    # time, which matters in cloud mode where Streamlit Cloud's IP can
+    # be soft-throttled by Yahoo (SPY in particular). market_data is
+    # already loaded for compute_rolling_metrics → reuse it.
+    market_data = shared.get("market_data") or {}
+    if not portfolio_df.empty:
+        bm_start = portfolio_df.index[0]
+        bm_end   = portfolio_df.index[-1]
+        for tkr in ("SPY", "QQQ"):
+            df = market_data.get(tkr)
+            if df is None or df.empty or "Close" not in df.columns:
+                # Live-mode fallback (snapshot mode hard-fails by design).
+                try:
+                    import yfinance as yf
+                    h = yf.download(
+                        tkr,
+                        start=bm_start.strftime("%Y-%m-%d"),
+                        end=(bm_end + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+                        auto_adjust=True, progress=False)
+                    if isinstance(h.columns, pd.MultiIndex):
+                        h.columns = h.columns.droplevel(1)
+                    close = h["Close"]
+                except Exception as e:
+                    print(f"[SAVE]   skipping {tkr}_close save ({e})")
+                    continue
+            else:
+                close = df["Close"]
+            close = close.loc[(close.index >= bm_start)
+                               & (close.index <= bm_end)]
+            close.to_frame("Close").to_parquet(
+                os.path.join(out_dir, f"{tkr}_close.parquet"))
+
     # Per-rebalance composite scores (dict ticker -> {fundamental, technical,
     # model, composite, [analyst_score]}) and final holdings (dict ticker
     # -> {shares, entry_price, stop_price}). JSON since they're small dicts.
