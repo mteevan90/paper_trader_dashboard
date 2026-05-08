@@ -906,12 +906,11 @@ def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None
     cross_study_pool = st.sidebar.checkbox(
         "Compare best-known values across all studies",
         value=False,
-        help="When checked, the purple best-known markers on Tuning "
-             "History and Reliability pool trials from every promoted "
-             "study. Useful for comparing where two strategies' "
-             "best-mean values land on the same axis. Caution: "
-             "different studies may use different parameter ranges, "
-             "so cross-study comparisons can be misleading.",
+        help="When enabled, points pool across all promoted studies. "
+             "Useful for spotting parameter values that worked across "
+             "different strategy designs, but cross-study comparisons "
+             "can be misleading when the studies use different "
+             "position counts or windows.",
     )
     st.session_state["best_known_cross_study"] = cross_study_pool
 
@@ -1563,17 +1562,38 @@ def tab_tuning_history(label: str, config: BacktestConfig, result: dict,
             "value — the comparison is ambiguous."
         )
 
+    # Section intro paragraph — explains the whole grid as a unit so
+    # the family-audience reader has the four shape archetypes (trend /
+    # flat / bell / under-tuned) before scanning the panels.
+    st.markdown(
+        "These charts show how each tunable parameter relates to "
+        "strategy performance across all trials Optuna explored. "
+        "The pattern in each chart tells a different story:\n\n"
+        "- A clear upward or downward trend means the parameter has a "
+        "strong effect; the optimizer chose a value at the right end "
+        "of that trend.\n"
+        "- A flat scatter means the parameter doesn't matter much "
+        "within the range tested.\n"
+        "- A bell-shaped pattern (high in the middle, low at the "
+        "edges) is what a well-tuned parameter should look like — "
+        "there's a sweet spot.\n"
+        "- When the best-known marker (purple) is far from the chosen "
+        "value, the optimizer may have under-tuned that parameter and "
+        "a different value might score higher in expectation."
+    )
+
     cols_per_row = 3
     for row_start in range(0, len(tunables), cols_per_row):
         cols = st.columns(cols_per_row)
         for j, p in enumerate(tunables[row_start: row_start + cols_per_row]):
             with cols[j]:
+                friendly = _TUNING_AXIS_LABELS.get(p, p)
                 # Use sane (sentinel-filtered) — sentinel trials don't
                 # represent meaningful parameter-score relationships and
                 # would otherwise drag every panel's y-axis to -1M.
                 fig = px.scatter(
                     sane, x=p, y="value", trendline=None,
-                    title=p, height=260,
+                    title=friendly, height=260,
                     color_discrete_sequence=["#2563eb"],
                 )
                 fig.update_traces(marker=dict(size=4, opacity=0.6))
@@ -1647,9 +1667,20 @@ def tab_tuning_history(label: str, config: BacktestConfig, result: dict,
 
                 fig.update_layout(
                     margin=dict(l=10, r=10, t=40, b=10),
-                    yaxis_title="Score",
+                    xaxis_title=friendly,
+                    yaxis_title="12-month outperformance score",
                 )
                 st.plotly_chart(fig, use_container_width=True)
+
+                # Caption: generic explanation of dots + markers, plus a
+                # param-specific story-line when the data shape supports
+                # one (otherwise the generic line stands alone — better
+                # than a forced narrative).
+                specific = _tuning_param_specific_caption(p, sane, bk.get(p))
+                if specific:
+                    st.caption(_TUNING_PARAM_CAPTION_GENERIC + " " + specific)
+                else:
+                    st.caption(_TUNING_PARAM_CAPTION_GENERIC)
 
     # --- Top 10 ---
     st.subheader("Top 10 trials")
@@ -2187,6 +2218,105 @@ _ROBUSTNESS_AXIS_LABELS: dict[str, str] = {
     "weight_technical_offensive":         "Technical analysis weight",
 }
 
+# Tuning History uses the legacy field names — these hold the defensive
+# half of the tunable pair under regime-dependent architecture, but ARE
+# the (sole) tunables under legacy architecture. Friendly names omit the
+# "(defensive)" qualifier so legacy-study readers aren't confused.
+_TUNING_AXIS_LABELS: dict[str, str] = {
+    "weight_fundamental":       "Fundamentals weight",
+    "weight_technical":         "Technical analysis weight",
+    "weight_model":             "ML model weight",
+    "macro_threshold_low":      "Market-stress sizing threshold",
+    "macro_threshold_gap":      "Market-stress band width",
+    "atr_multiplier":           "Stop-loss tightness",
+    "analyst_weight":           "Analyst recommendation weight",
+    "rebalance_frequency_days": "Rebalance frequency (days)",
+    "position_count":           "Number of holdings",
+}
+
+# Generic caption shown under EVERY tuning-history scatter — explains
+# what the dots and purple markers mean. Stays stable per chart so the
+# reader builds the mental model once and re-applies it.
+_TUNING_PARAM_CAPTION_GENERIC = (
+    "Each dot is one Optuna trial — its parameter value (x) and the "
+    "12-month outperformance score it achieved (y). The purple markers "
+    "show the best-known value across all trials: filled circle = "
+    "best-mean (the parameter value with the highest average score "
+    "across nearby trials), ring = best-max (the single best-scoring "
+    "trial)."
+)
+
+# Param-specific caption templates for the 4 axes the audience will most
+# want a one-line story about. Picked when the data shape supports the
+# story; gated by _tuning_param_specific_caption() below so a chart that
+# doesn't actually fit the template stays generic-only.
+_TUNING_PARAM_CAPTION_SPECIFIC = {
+    "position_count": (
+        "The strategy mostly performs at one position count; values "
+        "further away tend to drop sharply, suggesting concentration "
+        "is doing real work."
+    ),
+    "rebalance_frequency_days": (
+        "Faster rebalancing (lower X) shows higher variance in scores; "
+        "slower rebalancing tends to cluster more tightly. The chosen "
+        "value sits in the middle range."
+    ),
+    "atr_multiplier": (
+        "Score is relatively flat across the tested range, suggesting "
+        "this parameter is robust to small adjustments."
+    ),
+    "macro_threshold_low": (
+        "The score peak shifts based on where this threshold falls — "
+        "too low and the defensive regime never fires; too high and "
+        "it fires too often. The optimizer found a value in the "
+        "productive band."
+    ),
+}
+
+
+def _tuning_param_specific_caption(param: str, sane_df: pd.DataFrame,
+                                   bki: dict | None) -> str | None:
+    """Return a per-param story caption only when the chart's data shape
+    actually supports it. The four templates in _TUNING_PARAM_CAPTION_SPECIFIC
+    each describe a particular shape (concentration peak / variance funnel /
+    flat / shifting peak); picking one when the chart shows a different
+    pattern would mislead the reader, so we gate on simple shape checks."""
+    tmpl = _TUNING_PARAM_CAPTION_SPECIFIC.get(param)
+    if tmpl is None or sane_df.empty or bki is None:
+        return None
+    sm_xs = bki.get("smooth_xs") or []
+    sm_ys = bki.get("smooth_ys") or []
+    if not sm_xs or not sm_ys:
+        # Discrete axis — fall back on raw spread of mean-by-x as a proxy.
+        try:
+            grouped = sane_df.groupby(param)["value"].mean()
+            sm_y_spread = float(grouped.max() - grouped.min())
+        except Exception:
+            return None
+    else:
+        sm_y_spread = float(max(sm_ys) - min(sm_ys))
+    # "Flat" template only fires when the smoothed range is genuinely small.
+    if param == "atr_multiplier":
+        return tmpl if sm_y_spread < 0.05 else None
+    # "Concentration peak" / "shifting peak" templates need a real spread —
+    # otherwise the chart looks flat and the story is wrong.
+    if param in ("position_count", "macro_threshold_low"):
+        return tmpl if sm_y_spread >= 0.05 else None
+    # "Faster=more variance" depends on the spread of trial scores, not
+    # of the smoothed mean. Approximate by std of trial scores at the
+    # low half of x vs the high half.
+    if param == "rebalance_frequency_days":
+        try:
+            x = sane_df[param].astype(float)
+            v = sane_df["value"].astype(float)
+            lo_mask = x <= x.median()
+            std_lo = float(v[lo_mask].std()) if lo_mask.sum() > 1 else 0.0
+            std_hi = float(v[~lo_mask].std()) if (~lo_mask).sum() > 1 else 0.0
+            return tmpl if std_lo > std_hi * 1.15 else None
+        except Exception:
+            return None
+    return None
+
 # New plain-English classification labels per spec section 5.
 _SENSITIVITY_LABELS: dict[str, str] = {
     "Dead axis":              "No effect",
@@ -2508,11 +2638,19 @@ def tab_reliability(label: str, config: BacktestConfig, result: dict) -> None:
                         "score %{y:.4f}"
                         "<extra></extra>"),
                 ), row=row, col=col, secondary_y=False)
+    # Legend sits in its own band ABOVE the row-1 subplot titles. The
+    # earlier (t=60, y=1.02, xanchor=right) layout placed legend items
+    # in the same horizontal band as the top-row panel titles, so
+    # "Market-stress sizing threshold" (panel 2) collided with the
+    # legend chips. Bumping top margin to 130 reserves space for one
+    # horizontal legend row plus the title row beneath it; centering
+    # the legend (xanchor=center, x=0.5) makes it span the full width
+    # rather than clustering on the right above panel 2.
     fig.update_layout(
-        height=1000, margin=dict(l=10, r=10, t=60, b=10),
+        height=1100, margin=dict(l=10, r=10, t=130, b=10),
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                    xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="bottom", y=1.05,
+                    xanchor="center", x=0.5),
     )
     for i in range(8):
         row = i // 2 + 1
