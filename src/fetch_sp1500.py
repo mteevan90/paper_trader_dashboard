@@ -97,54 +97,84 @@ def _classify_coverage(
     earn_data: dict,
     sector_map: dict,
     min_price_start: str = "2019-01-01",
-) -> tuple[list[str], list[str], list[str], dict[str, list[str]]]:
-    """Return (complete, partial, failed, gap_breakdown).
+) -> tuple[list[str], list[str], list[str], list[str],
+           dict[str, list[str]], dict[str, str]]:
+    """Return (complete, limited_history, partial, failed,
+              gap_breakdown, limited_history_starts).
 
-    - complete: price OK + fundamentals + earnings + sector mapped
-    - partial:  price OK but missing one or more of fundamentals/earnings/sector
-    - failed:   no price data at all (or price ends too early to be usable)
-    - gap_breakdown: {ticker: [list of missing data sources]} for partial set
+    Buckets are mutually exclusive — a ticker lands in exactly one.
+    Priority order (lower number = checked first):
+      1. failed:           df missing/empty (no price data at all)
+      2. partial:          price exists but missing fund/earn/sector
+      3. limited_history:  price+fund+earn+sector all present, but
+                           price starts AFTER min_price_start (late IPO)
+      4. complete:         price reaches back to min_price_start AND all
+                           other data layers present
+
+    The split between failed and limited_history matters: a 2021 IPO
+    like ABNB has 1300+ valid trading days and is fully usable for the
+    2024+ validation window — it just lacks 2018-2020 history for
+    early-training features. Conflating it with truly-failed fetches
+    (e.g. delisted symbols, wrong tickers) hides the real failure rate.
+
+    limited_history_starts maps ticker -> first available date (ISO
+    string), surfaced in the failure list so users can see how late
+    each IPO actually was.
     """
+    import pandas as pd
     complete: list[str] = []
+    limited_history: list[str] = []
     partial: list[str] = []
     failed: list[str] = []
     gaps: dict[str, list[str]] = {}
-    min_start_ts = None
+    limited_history_starts: dict[str, str] = {}
+
+    min_start_ts: pd.Timestamp | None = None
     try:
-        import pandas as pd
         min_start_ts = pd.Timestamp(min_price_start)
     except Exception:
         pass
 
     for tkr in tickers:
         df = price_data.get(tkr)
-        price_ok = df is not None and not df.empty
-        if price_ok and min_start_ts is not None:
-            # Require at least some history before min_price_start so the
-            # backtest's ~252-day feature warmup has data to chew on.
-            price_ok = df.index.min() <= min_start_ts
-        if not price_ok:
+        # 1. Hard failure: no price data at all.
+        if df is None or df.empty:
             failed.append(tkr)
             continue
 
-        missing = []
+        # 2. Partial: price exists but other data is missing. Computed
+        #    BEFORE the limited-history check so a late-IPO ticker that
+        #    is also missing fundamentals lands in partial (the more-
+        #    actionable bucket).
+        missing: list[str] = []
         if tkr not in fund_data or not fund_data[tkr]:
             missing.append("fundamentals")
         if tkr not in earn_data or not earn_data[tkr]:
             missing.append("earnings")
         if tkr not in sector_map:
             missing.append("sector")
-
         if missing:
             partial.append(tkr)
             gaps[tkr] = missing
-        else:
-            complete.append(tkr)
+            continue
 
-    return complete, partial, failed, gaps
+        # 3. Limited history: all other data present, but price starts
+        #    after the cutoff.
+        first_date = df.index.min()
+        if min_start_ts is not None and first_date > min_start_ts:
+            limited_history.append(tkr)
+            limited_history_starts[tkr] = first_date.strftime("%Y-%m-%d")
+            continue
+
+        # 4. Complete.
+        complete.append(tkr)
+
+    return (complete, limited_history, partial, failed,
+            gaps, limited_history_starts)
 
 
-def _write_failures(failed: list[str], gaps: dict[str, list[str]],
+def _write_failures(failed: list[str], limited_history_starts: dict[str, str],
+                    gaps: dict[str, list[str]],
                     extra_failures: dict[str, str]) -> str:
     os.makedirs(DOCS_DIR, exist_ok=True)
     path = os.path.join(DOCS_DIR, "sp1500_fetch_failures.txt")
@@ -154,19 +184,33 @@ def _write_failures(failed: list[str], gaps: dict[str, list[str]],
         f.write(f"# Format: TICKER  REASON\n\n")
         f.write(f"## Hard failures (no price data — likely delisted / "
                 f"wrong symbol)\n")
+        if not failed:
+            f.write("(none)\n")
         for t in sorted(failed):
             reason = extra_failures.get(t, "no price data after fetch")
             f.write(f"{t:<10}  {reason}\n")
+        f.write(f"\n## Limited-history IPOs (valid data, but price "
+                f"starts after the min cutoff — usable for validation "
+                f"+ late training, not for early-training features)\n")
+        if not limited_history_starts:
+            f.write("(none)\n")
+        for t in sorted(limited_history_starts):
+            f.write(f"{t:<10}  first trading day: "
+                    f"{limited_history_starts[t]}\n")
         f.write(f"\n## Partial — price OK but missing one or more "
                 f"non-price datasets\n")
+        if not gaps:
+            f.write("(none)\n")
         for t in sorted(gaps):
             f.write(f"{t:<10}  missing: {', '.join(gaps[t])}\n")
     return path
 
 
 def _write_coverage(
-    universe: list[str], complete: list[str], partial: list[str],
-    failed: list[str], gaps: dict[str, list[str]],
+    universe: list[str], complete: list[str], limited_history: list[str],
+    partial: list[str], failed: list[str],
+    gaps: dict[str, list[str]],
+    limited_history_starts: dict[str, str],
     new_vs_legacy: list[str],
 ) -> str:
     os.makedirs(DOCS_DIR, exist_ok=True)
@@ -181,22 +225,43 @@ def _write_coverage(
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# SP1500 Coverage Report — generated "
                 f"{datetime.now().isoformat(timespec='seconds')}\n\n")
-        f.write(f"Universe size:                       {n}\n")
-        f.write(f"  - Already in legacy 490 universe:  "
+        f.write(f"Universe size:                            {n}\n")
+        f.write(f"  - Already in legacy 490 universe:       "
                 f"{n - len(new_vs_legacy)}\n")
-        f.write(f"  - NEW from S&P 400/600 expansion:  "
+        f.write(f"  - NEW from S&P 400/600 expansion:       "
                 f"{len(new_vs_legacy)}\n\n")
-        f.write(f"Complete data (price+fund+earn+sec): {len(complete)}  "
-                f"({pct(len(complete)):.1f}%)\n")
-        f.write(f"Partial data (price OK, gaps elsewhere): {len(partial)}  "
-                f"({pct(len(partial)):.1f}%)\n")
-        f.write(f"Failed (no price data):              {len(failed)}  "
-                f"({pct(len(failed)):.1f}%)\n\n")
+        f.write(f"Complete data (full window):              "
+                f"{len(complete):>5}  ({pct(len(complete)):.1f}%)\n")
+        f.write(f"Limited history (post-min_start IPOs):    "
+                f"{len(limited_history):>5}  "
+                f"({pct(len(limited_history)):.1f}%)  "
+                f"-- usable for validation, not early training\n")
+        f.write(f"Partial (price OK, missing other data):   "
+                f"{len(partial):>5}  ({pct(len(partial)):.1f}%)\n")
+        f.write(f"Failed (no price data at all):            "
+                f"{len(failed):>5}  ({pct(len(failed)):.1f}%)\n")
+        total = len(complete) + len(limited_history) + len(partial) + len(failed)
+        f.write(f"  Bucket sum (sanity check):              "
+                f"{total:>5}  (matches universe size: {total == n})\n\n")
+
         f.write(f"## Partial-data breakdown\n")
+        if not by_gap:
+            f.write("  (none)\n")
         for k in sorted(by_gap):
             f.write(f"  missing [{k}]: {len(by_gap[k])} tickers\n")
+
+        f.write(f"\n## Limited-history breakdown (first 30; full list "
+                f"in sp1500_fetch_failures.txt)\n")
+        if not limited_history_starts:
+            f.write("  (none)\n")
+        for t in sorted(limited_history_starts)[:30]:
+            f.write(f"  {t:<10}  first trading day: "
+                    f"{limited_history_starts[t]}\n")
+
         f.write(f"\n## First 30 failed tickers (full list in "
                 f"sp1500_fetch_failures.txt)\n")
+        if not failed:
+            f.write("  (none)\n")
         for t in sorted(failed)[:30]:
             f.write(f"  {t}\n")
     return path
@@ -260,7 +325,8 @@ def main() -> int:
 
     # --- Coverage classification + reports ------------------------------
     print("Classifying coverage...")
-    complete, partial, failed, gaps = _classify_coverage(
+    (complete, limited_history, partial, failed,
+     gaps, limited_history_starts) = _classify_coverage(
         universe, price_data, fund_data, earn_data, sector_map)
 
     # Anything in `universe` but not in `price_data` is hard-failed (no
@@ -269,21 +335,25 @@ def main() -> int:
     extra_failures = {t: "no rows from yfinance (delisted / bad symbol?)"
                       for t in universe if t not in price_data}
 
-    failures_path = _write_failures(failed, gaps, extra_failures)
-    coverage_path = _write_coverage(universe, complete, partial, failed,
-                                    gaps, new_vs_legacy)
+    failures_path = _write_failures(failed, limited_history_starts,
+                                    gaps, extra_failures)
+    coverage_path = _write_coverage(universe, complete, limited_history,
+                                    partial, failed, gaps,
+                                    limited_history_starts, new_vs_legacy)
 
     # --- Stdout summary -------------------------------------------------
     n = len(universe)
     print()
     print(f"=== SP1500 Coverage Summary ===")
-    print(f"  Universe:                 {n}")
-    print(f"  NEW vs legacy 490:        {len(new_vs_legacy)}")
-    print(f"  Complete data:            {len(complete):>5}  "
+    print(f"  Universe:                       {n}")
+    print(f"  NEW vs legacy 490:              {len(new_vs_legacy)}")
+    print(f"  Complete (full window):         {len(complete):>5}  "
           f"({100.0*len(complete)/n:.1f}%)")
-    print(f"  Partial (price OK, gaps): {len(partial):>5}  "
+    print(f"  Limited history (late IPOs):    {len(limited_history):>5}  "
+          f"({100.0*len(limited_history)/n:.1f}%)")
+    print(f"  Partial (missing other data):   {len(partial):>5}  "
           f"({100.0*len(partial)/n:.1f}%)")
-    print(f"  Failed (no price):        {len(failed):>5}  "
+    print(f"  Failed (no price data):         {len(failed):>5}  "
           f"({100.0*len(failed)/n:.1f}%)")
     print()
     print(f"Coverage report: {coverage_path}")
