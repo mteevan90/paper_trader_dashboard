@@ -1010,6 +1010,17 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
           f"{len(portfolio_df)} days, {len(trades_df)} trades, "
           f"{len(holdings)} open positions")
 
+    # Sizing decisions (one row per rebalance) — emitted by the
+    # rebalance loop into portfolio_df.attrs["sizing_decisions"]. Pop
+    # BEFORE the portfolio.parquet write: pyarrow JSON-serializes
+    # df.attrs into the file's schema metadata, and the rebalance rows
+    # carry pd.Timestamp values which json.dumps can't handle. Saved as
+    # a sibling parquet so the cloud dashboard / future analyses can
+    # read it without re-running the backtest. Empty when there were no
+    # rebalances; skip the file so dashboard readers can use
+    # os.path.exists() to detect.
+    sizing_decisions = portfolio_df.attrs.pop("sizing_decisions", None) or []
+
     # Full frames as parquet (the dashboard's helper functions need the
     # complete portfolio_df / trades_df, not just summary stats).
     portfolio_df.to_parquet(os.path.join(out_dir, "portfolio.parquet"))
@@ -1020,13 +1031,6 @@ def _save_one_backtest_result(label: str, config: BacktestConfig,
         pd.DataFrame(columns=["date","ticker","action","shares","price","fee"]
                      ).to_parquet(os.path.join(out_dir, "trades.parquet"))
 
-    # Sizing decisions (one row per rebalance) — emitted by the
-    # rebalance loop into portfolio_df.attrs["sizing_decisions"]. Saved
-    # as a parquet alongside the others so the cloud dashboard / future
-    # analyses can read it without re-running the backtest. Empty when
-    # there were no rebalances (degenerate cases); skip the file in
-    # that case so dashboard readers can use os.path.exists() to detect.
-    sizing_decisions = portfolio_df.attrs.get("sizing_decisions") or []
     if sizing_decisions:
         sd_df = pd.DataFrame(sizing_decisions)
         sd_df.to_parquet(os.path.join(out_dir, "sizing_decisions.parquet"))
