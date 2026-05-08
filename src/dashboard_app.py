@@ -2011,31 +2011,46 @@ def tab_holdings(label: str, config: BacktestConfig, result: dict) -> None:
 
 def _exec_summary_trade_history(label: str, config: BacktestConfig,
                                 result: dict, rt: pd.DataFrame,
-                                window_label: str) -> str:
+                                window_label: str,
+                                ticker_label: str | None = None) -> str:
     if rt is None or rt.empty:
         return "*No trades in the selected period.*"
     closed = rt[rt["reason"] != "Open"]
     n_trades = len(rt)
+    filter_clause = f", filtered to [{ticker_label}]" if ticker_label else ""
+    period_phrase = f"In the selected period ({window_label}){filter_clause}"
     if closed.empty:
-        return (f"In the selected period ({window_label}) the strategy "
-                f"opened {n_trades} positions, none yet closed.")
+        if ticker_label:
+            return (f"{period_phrase}: the strategy opened {n_trades} "
+                    f"positions involving these tickers, none yet closed.")
+        return (f"{period_phrase} the strategy opened {n_trades} "
+                f"positions, none yet closed.")
     n_closed = len(closed)
     win_rate = (closed["return_pct"] > 0).mean() * 100.0
-    # Top winner / loser by ticker (aggregate $ P&L across all that ticker's pairs)
+    # Top winner / loser by ticker (aggregate $ P&L across all that ticker's pairs).
+    # Split into positive- and negative-PnL groups so a single-ticker filter
+    # with only winners (or only losers) shows "(none in selection)" rather
+    # than the same ticker on both sides of the headline.
     closed_with_pnl = closed.dropna(subset=["pnl_dollars"])
+    best_str = "(none in selection)"
+    worst_str = "(none in selection)"
     if not closed_with_pnl.empty:
         by_ticker = closed_with_pnl.groupby("ticker")["pnl_dollars"].sum().sort_values()
-        worst_t, worst_pnl = by_ticker.index[0], float(by_ticker.iloc[0])
-        best_t,  best_pnl  = by_ticker.index[-1], float(by_ticker.iloc[-1])
-    else:
-        worst_t = best_t = "—"
-        worst_pnl = best_pnl = 0.0
+        winners = by_ticker[by_ticker > 0]
+        losers = by_ticker[by_ticker < 0]
+        if not winners.empty:
+            best_str = f"**{winners.index[-1]}** (+${float(winners.iloc[-1]):,.0f})"
+        if not losers.empty:
+            worst_str = f"**{losers.index[0]}** (${float(losers.iloc[0]):,.0f})"
     activity = "steady" if n_trades >= 30 else "modest"
-    headline = (f"In the selected period ({window_label}) the strategy "
-                f"made **{n_trades} trades** ({n_closed} closed). "
-                f"Biggest winner: **{best_t}** "
-                f"(+${best_pnl:,.0f}). Biggest loser: **{worst_t}** "
-                f"(${worst_pnl:,.0f}).")
+    if ticker_label:
+        headline = (f"{period_phrase}: the strategy made **{n_trades} "
+                    f"trades** ({n_closed} closed) involving these tickers. "
+                    f"Biggest winner: {best_str}. Biggest loser: {worst_str}.")
+    else:
+        headline = (f"{period_phrase} the strategy made **{n_trades} "
+                    f"trades** ({n_closed} closed). "
+                    f"Biggest winner: {best_str}. Biggest loser: {worst_str}.")
     detail = (f"Win rate on closed trades: **{win_rate:.0f}%**. "
               f"Activity is {activity} for the window length.")
     if label == "default":
@@ -2066,29 +2081,63 @@ def tab_trade_history(label: str, config: BacktestConfig, result: dict) -> None:
         st.info("No round trips to display.")
         return
 
-    # ---- Date filter (above Layer 1) ----
-    full_min = rt_full["buy_date"].min().to_pydatetime().date()
-    full_max = rt_full["sell_date"].max().to_pydatetime().date()
+    trades_dates = pd.to_datetime(trades_df["date"])
+
+    # ---- Ticker filter (above date filter) ----
+    # Ordered by total trade count desc so most-active tickers appear first
+    # in the dropdown.
+    ticker_counts = trades_df["ticker"].value_counts()
+    all_tickers = list(ticker_counts.index)
+    selected_tickers = st.multiselect(
+        "Filter by ticker (leave empty to show all)",
+        options=all_tickers,
+        default=[],
+    )
+    is_filtered = (
+        bool(selected_tickers) and len(selected_tickers) < len(all_tickers)
+    )
+
+    # ---- Date filter ----
+    # Bounds derive from trades_df["date"] so the picker grays out dates
+    # outside the actual data extent (otherwise Streamlit defaults end to
+    # today, which exceeds the validation window for promoted studies).
+    full_min = trades_dates.min().to_pydatetime().date()
+    full_max = trades_dates.max().to_pydatetime().date()
     date_pick = st.date_input(
         "Date range (filters every section below)",
         value=(full_min, full_max),
         min_value=full_min, max_value=full_max,
         format="YYYY-MM-DD",
     )
+    st.caption(f"Trades available: {full_min} to {full_max}")
     if isinstance(date_pick, tuple) and len(date_pick) == 2:
         d_start, d_end = pd.Timestamp(date_pick[0]), pd.Timestamp(date_pick[1])
+    elif isinstance(date_pick, tuple) and len(date_pick) == 1:
+        d_start = d_end = pd.Timestamp(date_pick[0])
     else:
         d_start, d_end = pd.Timestamp(full_min), pd.Timestamp(full_max)
-    # Filter: include trades whose buy_date is inside the window
+
+    # Composition: date first, then ticker. All downstream sections read
+    # from `rt`, which is the doubly-filtered DataFrame.
     rt = rt_full[(rt_full["buy_date"] >= d_start)
                  & (rt_full["buy_date"] <= d_end + pd.Timedelta(days=1))].copy()
+    if is_filtered:
+        rt = rt[rt["ticker"].isin(selected_tickers)]
     window_label = f"{d_start.date()} → {d_end.date()}"
+    ticker_label = ", ".join(selected_tickers) if is_filtered else None
 
-    st.info(_exec_summary_trade_history(label, config, result, rt, window_label))
+    st.info(_exec_summary_trade_history(
+        label, config, result, rt, window_label, ticker_label))
     st.divider()
 
     if rt.empty:
-        st.warning("No trades in the selected date range.")
+        if is_filtered:
+            st.warning(
+                "No trades for selected ticker(s) in this date range. Try "
+                "expanding the date range or removing tickers from the filter."
+            )
+        else:
+            st.warning("No trades in the selected date range.")
         return
 
     # ===== Layer 1 — Quick inference (top winners + losers by ticker) =====
@@ -2144,6 +2193,8 @@ def tab_trade_history(label: str, config: BacktestConfig, result: dict) -> None:
         td["date"] = pd.to_datetime(td["date"])
         td_filt = td[(td["date"] >= d_start) & (td["date"] <= d_end)
                      & (td["action"] == "BUY")]
+        if is_filtered:
+            td_filt = td_filt[td_filt["ticker"].isin(selected_tickers)]
         if not td_filt.empty:
             by_month = td_filt.set_index("date").resample("ME").size()
             f = go.Figure(data=[go.Bar(
