@@ -35,6 +35,7 @@ and have both dashboard.py and dashboard_app.py import from there.
 Cleaner long-term separation of compute from rendering.
 """
 
+import html
 import json
 import os
 from datetime import datetime, timezone
@@ -2117,6 +2118,19 @@ def tab_trade_history(label: str, config: BacktestConfig, result: dict) -> None:
     else:
         d_start, d_end = pd.Timestamp(full_min), pd.Timestamp(full_max)
 
+    # Streamlit's date_input shortcut buttons ("Past Week", "Past Month",
+    # etc.) compute end-date from today's real-world date, ignoring
+    # max_value. Clamp to the data's actual extent so shortcut clicks
+    # don't trigger a red rejection error.
+    sel_start, sel_end = d_start, d_end
+    d_start = max(d_start, pd.Timestamp(full_min))
+    d_end = min(d_end, pd.Timestamp(full_max))
+    if (d_start, d_end) != (sel_start, sel_end):
+        st.caption(
+            f"_Showing trades from {d_start.date()} to {d_end.date()} "
+            f"(clamped to available data range)._"
+        )
+
     # Composition: date first, then ticker. All downstream sections read
     # from `rt`, which is the doubly-filtered DataFrame.
     rt = rt_full[(rt_full["buy_date"] >= d_start)
@@ -2435,30 +2449,53 @@ def _reliability_axis_buckets(df: pd.DataFrame
     """Classify each axis into 'most stable', 'most sensitive', and
     'one-sided room to move' buckets for the Reliability Layer 1 KPIs.
 
-    - most_stable: classification 'Dead axis' (no observable effect)
-    - most_sensitive: classification in {'Knife edge', 'Peak with sensitivity'}
-    - one_sided: reference value sits at min or max of tested range AND
-      the score holds up across the rest (>=3/5 above threshold)
+    Returns three lists of pre-formatted strings, each "<friendly name>
+    (<annotation>)":
+      - most_stable / most_sensitive: annotation is the 12-month score
+        swing across the 5 perturbation values, "(±X.XXX)".
+      - one_sided: annotation is the parameter-value room in the
+        unconstrained direction, "(room: ±X.X <below|above> chosen)".
+
+    Bucket rules (unchanged):
+      - most_stable: classification 'Dead axis' (no observable effect)
+      - most_sensitive: classification in {'Knife edge', 'Peak with sensitivity'}
+      - one_sided: reference value sits at min or max of tested range AND
+        the score holds up across the rest (>=3/5 above threshold)
     """
     most_stable, most_sensitive, one_sided = [], [], []
     for ax_name, sub in df.groupby("axis", sort=False):
         sub = sub.sort_values("value")
         cls, _note = _classify_axis(sub)
         friendly = _ROBUSTNESS_AXIS_LABELS.get(ax_name, ax_name)
+        # Score swing across the axis's 5 perturbation values. abs() guards
+        # against the (impossible-but-cheap) case max < min, plus collapses
+        # any -0.0 from float arithmetic to +0.0 for clean display.
+        r12 = sub["rolling_12mo_objective"]
+        swing = abs(float(r12.max() - r12.min()))
+        swing_str = f"{friendly} (±{swing:.3f})"
         if cls == "Dead axis":
-            most_stable.append(friendly)
+            most_stable.append(swing_str)
         elif cls in ("Knife edge", "Peak with sensitivity"):
-            most_sensitive.append(friendly)
+            most_sensitive.append(swing_str)
         ref_sub = sub[sub["is_reference"]]
         if not ref_sub.empty:
             ref_v = float(ref_sub["value"].iloc[0])
             v_lo = float(sub["value"].min())
             v_hi = float(sub["value"].max())
-            at_extreme = abs(ref_v - v_lo) < 1e-9 or abs(ref_v - v_hi) < 1e-9
+            at_min = abs(ref_v - v_lo) < 1e-9
+            at_max = abs(ref_v - v_hi) < 1e-9
             n_above = int((sub["rolling_12mo_objective"]
                            >= _ROBUSTNESS_THRESHOLD).sum())
-            if at_extreme and n_above >= 3:
-                one_sided.append(friendly)
+            if (at_min or at_max) and n_above >= 3:
+                if at_min:
+                    room = v_hi - ref_v
+                    direction = "above"
+                else:
+                    room = -(ref_v - v_lo)
+                    direction = "below"
+                one_sided.append(
+                    f"{friendly} (room: {room:+g} {direction} chosen)"
+                )
     return most_stable, most_sensitive, one_sided
 
 
@@ -2500,6 +2537,37 @@ def _exec_summary_reliability(label: str, config: BacktestConfig,
     return f"{_summary_caveat_prefix(label, result)}{headline}\n\n{detail}\n\n*{caveat}*"
 
 
+def _render_reliability_kpi_card(label: str, items: list[str],
+                                 help_text: str) -> None:
+    """Bordered markdown card for a Reliability Layer 1 KPI.
+
+    Replaces st.metric, which truncates multi-word axis names at headline
+    font. Each item renders on its own line at body-text size; the help
+    icon (ⓘ) carries the original tooltip via the HTML title attribute.
+    """
+    if items:
+        body = "<br>".join(html.escape(item) for item in items)
+    else:
+        body = "—"
+    title_attr = html.escape(help_text, quote=True)
+    st.markdown(
+        f"<div style='padding:14px 16px;border-radius:8px;"
+        f"border:1px solid #e5e7eb;background:#f9fafb;"
+        f"min-height:140px;height:100%'>"
+        f"<div style='font-weight:600;color:#1f2937;font-size:0.95em;"
+        f"margin-bottom:8px'>"
+        f"{html.escape(label)} "
+        f"<abbr title=\"{title_attr}\" "
+        f"style='cursor:help;color:#6b7280;text-decoration:none;"
+        f"border-bottom:none'>&#9432;</abbr>"
+        f"</div>"
+        f"<div style='color:#374151;font-size:0.92em;line-height:1.55'>"
+        f"{body}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def tab_reliability(label: str, config: BacktestConfig, result: dict) -> None:
     st.header("Reliability")
     st.caption(f"Showing config: **{label}** "
@@ -2526,29 +2594,38 @@ def tab_reliability(label: str, config: BacktestConfig, result: dict) -> None:
 
     # ===== Layer 1 — Quick inference =====
     most_stable, most_sensitive, one_sided = _reliability_axis_buckets(df)
+    st.caption(
+        "Numbers in parentheses show how much the 12-month outperformance "
+        "score moved across each setting's tested range — small numbers "
+        "mean the setting is robust to small changes; large numbers mean "
+        "it's sensitive."
+    )
     cols = st.columns(3)
-    cols[0].metric(
-        "Most stable settings (least sensitive)",
-        ", ".join(most_stable) if most_stable else "—",
-        help="Settings whose 5 tested values produce nearly identical "
-             "results — tweaking them within the tested range has no "
-             "observable effect on outperformance.",
-    )
-    cols[1].metric(
-        "Most sensitive settings",
-        ", ".join(most_sensitive) if most_sensitive else "—",
-        help="Settings where moving the value drops outperformance "
-             "noticeably — the chosen peak does not generalize across "
-             "the whole tested range.",
-    )
-    cols[2].metric(
-        "Settings with one-sided room to move",
-        ", ".join(one_sided) if one_sided else "—",
-        help="Settings where the chosen value sits at the edge of the "
-             "tested range AND the score holds up across most of the "
-             "range — could likely be moved further in one direction "
-             "without losing alpha.",
-    )
+    with cols[0]:
+        _render_reliability_kpi_card(
+            "Most stable settings (least sensitive)",
+            most_stable,
+            "Settings whose 5 tested values produce nearly identical "
+            "results — tweaking them within the tested range has no "
+            "observable effect on outperformance.",
+        )
+    with cols[1]:
+        _render_reliability_kpi_card(
+            "Most sensitive settings",
+            most_sensitive,
+            "Settings where moving the value drops outperformance "
+            "noticeably — the chosen peak does not generalize across "
+            "the whole tested range.",
+        )
+    with cols[2]:
+        _render_reliability_kpi_card(
+            "Settings with one-sided room to move",
+            one_sided,
+            "Settings where the chosen value sits at the edge of the "
+            "tested range AND the score holds up across most of the "
+            "range — could likely be moved further in one direction "
+            "without losing alpha.",
+        )
 
     # ===== Layer 2 — Per-axis surface grid =====
     st.divider()
