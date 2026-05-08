@@ -108,53 +108,124 @@ W_MODEL       = _DEFAULT_CONFIG.weight_model
 # SCORING FUNCTIONS
 # =============================================================================
 
-def fetch_fundamentals(tickers: list[str]) -> dict[str, dict]:
-    """Fetch fundamental data for all tickers via yfinance (once per run).
+def _fetch_one_fundamental(tkr: str) -> dict:
+    """Single-ticker yfinance .info pull, normalized to the 5 metrics
+    score_fundamentals expects. Failures fall back to neutral defaults
+    (matches pre-existing behavior)."""
+    try:
+        info = yf.Ticker(tkr).info
+        return {
+            "revenue_growth": info.get("revenueGrowth") or 0.0,
+            "profit_margin": info.get("profitMargins") or 0.0,
+            "pe_ratio": min(info.get("trailingPE") or 100, 100),
+            "debt_to_equity": info.get("debtToEquity") or 0.0,
+            "roe": info.get("returnOnEquity") or 0.0,
+        }
+    except Exception:
+        return {
+            "revenue_growth": 0.0, "profit_margin": 0.0,
+            "pe_ratio": 100.0, "debt_to_equity": 0.0, "roe": 0.0,
+        }
 
-    Disk-cached at ``FUNDAMENTALS_CACHE`` with a 7-day TTL — fundamentals
-    change quarterly, so a weekly refresh is plenty.
+
+def fetch_fundamentals(tickers: list[str]) -> dict[str, dict]:
+    """Fetch fundamental data for all tickers via yfinance.
+
+    Disk-cached at ``FUNDAMENTALS_CACHE`` with a 7-day TTL.
+
+    Cache semantics:
+      - If the cache is FRESH (age < TTL) and every requested ticker is
+        already in it, return the cache unchanged (no yfinance calls).
+      - If the cache is FRESH but some requested tickers are missing,
+        fetch ONLY those missing tickers, merge into the cache, persist.
+        Existing entries are preserved verbatim.
+      - If the cache is STALE (age >= TTL) or absent, refetch every
+        requested ticker (full refresh — pre-existing behavior).
+
+    The "fresh-but-incomplete" branch fixes a bug where adding new
+    tickers to the universe (e.g. the sp1500 expansion) silently left
+    them without fundamentals coverage indefinitely: the cache was fresh
+    so the early-return fired, never querying yfinance for the new
+    names. See fetch_sp1500.py.
     """
     os.makedirs(CACHE_DIR, exist_ok=True)
     age = _cache_age_days(FUNDAMENTALS_CACHE)
-    if age is not None and age < FUNDAMENTALS_TTL_DAYS:
+    cache_present = age is not None
+    cache_fresh = cache_present and age < FUNDAMENTALS_TTL_DAYS
+
+    cached: dict[str, dict] = {}
+    if cache_present:
         try:
             with open(FUNDAMENTALS_CACHE, "r", encoding="utf-8") as f:
                 cached = json.load(f)
-            print(f"  [CACHE] Fundamentals loaded from disk ({age:.1f} days old)")
-            return cached
         except Exception as e:
             print(f"  [CACHE] Fundamentals cache unreadable ({e}), refetching")
+            cached = {}
+            cache_fresh = False
+
+    requested = list(dict.fromkeys(tickers))   # dedupe, preserve order
+    missing = [t for t in requested if t not in cached]
+
+    # Fast path: fresh cache, every requested ticker already populated.
+    if cache_fresh and not missing:
+        print(f"  [CACHE] Fundamentals loaded from disk "
+              f"({age:.1f} days old, {len(cached)} entries, "
+              f"{len(requested)} requested)")
+        return cached
 
     if SNAPSHOT_MODE:
         raise _snapshot_miss(
             "fundamentals", FUNDAMENTALS_CACHE,
-            f"file present, readable, age < {FUNDAMENTALS_TTL_DAYS} days")
+            f"file present, readable, age < {FUNDAMENTALS_TTL_DAYS} days, "
+            f"and every requested ticker present "
+            f"(missing {len(missing)}, e.g. {missing[:3]})")
 
-    print(f"  Fetching fundamentals for {len(tickers)} tickers...")
-    fund = {}
-    for tkr in tickers:
-        try:
-            info = yf.Ticker(tkr).info
-            fund[tkr] = {
-                "revenue_growth": info.get("revenueGrowth") or 0.0,
-                "profit_margin": info.get("profitMargins") or 0.0,
-                "pe_ratio": min(info.get("trailingPE") or 100, 100),
-                "debt_to_equity": info.get("debtToEquity") or 0.0,
-                "roe": info.get("returnOnEquity") or 0.0,
-            }
-        except Exception:
-            fund[tkr] = {
-                "revenue_growth": 0.0, "profit_margin": 0.0,
-                "pe_ratio": 100.0, "debt_to_equity": 0.0, "roe": 0.0,
-            }
+    if cache_fresh:
+        # Fresh cache + new tickers — fetch ONLY the missing ones, keep
+        # the rest verbatim. This is the bug-fix branch.
+        fund = dict(cached)
+        to_fetch = missing
+        print(f"  [CACHE] Fundamentals fresh ({age:.1f} days old): "
+              f"{len(cached)} cached, fetching {len(to_fetch)} new "
+              f"tickers...")
+    else:
+        # Stale or missing cache — full refresh of the requested set.
+        # Discard the old cache (matches pre-existing behavior).
+        fund = {}
+        to_fetch = requested
+        if cache_present:
+            print(f"  [CACHE] Fundamentals stale ({age:.1f} days old); "
+                  f"refetching {len(to_fetch)} tickers...")
+        else:
+            print(f"  Fetching fundamentals for {len(to_fetch)} tickers "
+                  f"(no cache)...")
+
+    for tkr in to_fetch:
+        fund[tkr] = _fetch_one_fundamental(tkr)
 
     try:
         with open(FUNDAMENTALS_CACHE, "w", encoding="utf-8") as f:
             json.dump(fund, f)
-        print("  [CACHE] Fundamentals fetched fresh")
+        print(f"  [CACHE] Fundamentals written: {len(fund)} total entries "
+              f"({len(to_fetch)} fresh, "
+              f"{len(fund) - len(to_fetch)} pre-existing)")
     except Exception as e:
         print(f"  [CACHE] Failed to write fundamentals cache ({e})")
     return fund
+
+
+def _fetch_one_earnings(tkr: str, start_ts: pd.Timestamp,
+                        end_ts: pd.Timestamp) -> list[pd.Timestamp]:
+    """Single-ticker earnings calendar fetch, filtered to [start, end].
+    Empty list on failure (matches pre-existing behavior)."""
+    try:
+        cal = yf.Ticker(tkr).get_earnings_dates(limit=12)
+        if cal is not None and not cal.empty:
+            idx = pd.to_datetime(cal.index).tz_localize(None).normalize()
+            return sorted(d for d in idx if start_ts <= d <= end_ts)
+    except Exception:
+        pass
+    return []
 
 
 def fetch_earnings_dates(
@@ -169,41 +240,68 @@ def fetch_earnings_dates(
     Disk-cached at ``EARNINGS_CACHE`` with a 1-day TTL. Timestamps are
     serialized to ISO-format strings since JSON can't handle Timestamp
     objects directly, and converted back on load.
+
+    Cache semantics: same shape as fetch_fundamentals — fresh cache +
+    missing tickers triggers a partial fetch that populates only the new
+    names, preserving existing entries. Stale/absent cache triggers a
+    full refresh of the request list. Fixes the same "fresh cache hides
+    new tickers" bug that fetch_fundamentals had.
     """
     os.makedirs(CACHE_DIR, exist_ok=True)
     age = _cache_age_days(EARNINGS_CACHE)
-    if age is not None and age < EARNINGS_TTL_DAYS:
+    cache_present = age is not None
+    cache_fresh = cache_present and age < EARNINGS_TTL_DAYS
+
+    start_ts = pd.Timestamp(start).normalize()
+    end_ts = pd.Timestamp(end).normalize()
+
+    cached: dict[str, list[pd.Timestamp]] = {}
+    if cache_present:
         try:
             with open(EARNINGS_CACHE, "r", encoding="utf-8") as f:
                 raw = json.load(f)
-            earnings = {
-                t: [pd.Timestamp(s) for s in dates]
-                for t, dates in raw.items()
-            }
-            print("  [CACHE] Earnings dates loaded from disk")
-            return earnings
+            cached = {t: [pd.Timestamp(s) for s in dates]
+                      for t, dates in raw.items()}
         except Exception as e:
             print(f"  [CACHE] Earnings cache unreadable ({e}), refetching")
+            cached = {}
+            cache_fresh = False
+
+    requested = list(dict.fromkeys(tickers))   # dedupe, preserve order
+    missing = [t for t in requested if t not in cached]
+
+    # Fast path: fresh cache, every requested ticker already populated.
+    if cache_fresh and not missing:
+        print(f"  [CACHE] Earnings dates loaded from disk "
+              f"({age:.1f} days old, {len(cached)} entries, "
+              f"{len(requested)} requested)")
+        return cached
 
     if SNAPSHOT_MODE:
         raise _snapshot_miss(
             "earnings_dates", EARNINGS_CACHE,
-            f"file present, readable, age < {EARNINGS_TTL_DAYS} day")
+            f"file present, readable, age < {EARNINGS_TTL_DAYS} day, "
+            f"and every requested ticker present "
+            f"(missing {len(missing)}, e.g. {missing[:3]})")
 
-    print(f"  Fetching earnings dates for {len(tickers)} tickers...")
-    start_ts = pd.Timestamp(start).normalize()
-    end_ts = pd.Timestamp(end).normalize()
-    earnings: dict[str, list[pd.Timestamp]] = {}
-    for tkr in tickers:
-        dates: list[pd.Timestamp] = []
-        try:
-            cal = yf.Ticker(tkr).get_earnings_dates(limit=12)
-            if cal is not None and not cal.empty:
-                idx = pd.to_datetime(cal.index).tz_localize(None).normalize()
-                dates = sorted(d for d in idx if start_ts <= d <= end_ts)
-        except Exception:
-            dates = []
-        earnings[tkr] = dates
+    if cache_fresh:
+        earnings = dict(cached)
+        to_fetch = missing
+        print(f"  [CACHE] Earnings fresh ({age:.1f} days old): "
+              f"{len(cached)} cached, fetching {len(to_fetch)} new "
+              f"tickers...")
+    else:
+        earnings = {}
+        to_fetch = requested
+        if cache_present:
+            print(f"  [CACHE] Earnings stale ({age:.1f} days old); "
+                  f"refetching {len(to_fetch)} tickers...")
+        else:
+            print(f"  Fetching earnings dates for {len(to_fetch)} "
+                  f"tickers (no cache)...")
+
+    for tkr in to_fetch:
+        earnings[tkr] = _fetch_one_earnings(tkr, start_ts, end_ts)
 
     try:
         serializable = {
@@ -212,7 +310,9 @@ def fetch_earnings_dates(
         }
         with open(EARNINGS_CACHE, "w", encoding="utf-8") as f:
             json.dump(serializable, f)
-        print("  [CACHE] Earnings dates fetched fresh")
+        print(f"  [CACHE] Earnings written: {len(earnings)} total entries "
+              f"({len(to_fetch)} fresh, "
+              f"{len(earnings) - len(to_fetch)} pre-existing)")
     except Exception as e:
         print(f"  [CACHE] Failed to write earnings cache ({e})")
     return earnings

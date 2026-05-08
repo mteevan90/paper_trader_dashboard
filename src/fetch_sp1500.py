@@ -47,6 +47,48 @@ REPO_ROOT = os.path.abspath(os.path.join(_THIS_DIR, ".."))
 DOCS_DIR  = os.path.join(REPO_ROOT, "docs")
 PRICE_CACHE_DIR = os.path.join(REPO_ROOT, "models", "price_cache")
 
+# yfinance occasionally returns no data for a real, actively-traded
+# ticker due to rate limiting or transient network blips (ABNB, ACI in
+# the smoke test). Retry the missing tickers a couple of times with a
+# short backoff before declaring them hard failures.
+_PRICE_RETRY_BACKOFFS_SECONDS = (5, 10)
+
+
+def _fetch_prices_with_retry(universe: list[str], start: str, end: str,
+                             cache_dir: str) -> dict:
+    """get_stock_data_cached + retry pass for tickers that came back empty.
+
+    Returns the merged dict. Tickers still missing after all retries are
+    surfaced via the caller's coverage classification (they end up in the
+    'failed' bucket as before)."""
+    price_data = get_stock_data_cached(universe, start, end,
+                                       cache_dir=cache_dir)
+    missing = [t for t in universe if t not in price_data]
+    if not missing:
+        return price_data
+
+    for attempt, backoff in enumerate(_PRICE_RETRY_BACKOFFS_SECONDS, 1):
+        max_attempts = len(_PRICE_RETRY_BACKOFFS_SECONDS)
+        print(f"  [RETRY {attempt}/{max_attempts}] {len(missing)} tickers "
+              f"had no data; waiting {backoff}s before retry...")
+        time.sleep(backoff)
+        retry = get_stock_data_cached(missing, start, end,
+                                      cache_dir=cache_dir)
+        if retry:
+            price_data.update(retry)
+            print(f"  [RETRY {attempt}/{max_attempts}] recovered "
+                  f"{len(retry)} of {len(missing)}")
+        missing = [t for t in missing if t not in price_data]
+        if not missing:
+            print(f"  [RETRY] All tickers recovered after attempt {attempt}.")
+            break
+
+    if missing:
+        print(f"  [RETRY] {len(missing)} tickers still missing after "
+              f"{len(_PRICE_RETRY_BACKOFFS_SECONDS)} retries: "
+              f"{missing[:10]}{'...' if len(missing) > 10 else ''}")
+    return price_data
+
 
 def _classify_coverage(
     tickers: list[str],
@@ -191,10 +233,10 @@ def main() -> int:
 
     # --- Prices ---------------------------------------------------------
     t0 = time.time()
-    print(f"[1/4] Price history (yfinance, cached parquets)...")
+    print(f"[1/4] Price history (yfinance, cached parquets, with retries)...")
     os.makedirs(PRICE_CACHE_DIR, exist_ok=True)
-    price_data = get_stock_data_cached(universe, start, end,
-                                       cache_dir=PRICE_CACHE_DIR)
+    price_data = _fetch_prices_with_retry(universe, start, end,
+                                          PRICE_CACHE_DIR)
     print(f"      {len(price_data)}/{len(universe)} tickers loaded "
           f"in {time.time()-t0:.1f}s\n")
 
