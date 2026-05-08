@@ -15,9 +15,9 @@ from backtest import (INITIAL_CASH, TX_COST, run_backtest,
                       W_FUNDAMENTAL, W_TECHNICAL, W_MODEL, clear_data_cache)
 from features import add_features, add_market_features
 import fetch_data
-from fetch_data import (NASDAQ_100_TICKERS, SP500_TICKERS, UNIVERSE_TICKERS,
-                        SECTOR_MAP, build_sector_map, get_stock_data_cached,
-                        clear_cache)
+from fetch_data import (NASDAQ_100_TICKERS, SP500_TICKERS, SP1500_TICKERS,
+                        UNIVERSE_TICKERS, SECTOR_MAP, build_sector_map,
+                        get_stock_data_cached, clear_cache)
 from model import FEATURE_COLS, load_model
 
 
@@ -903,8 +903,12 @@ if __name__ == "__main__":
                         help="data_start split_date data_end (e.g. 2022-01-01 2025-01-01 2025-09-30)")
     parser.add_argument("--notes", default="", help="Strategy notes for this run")
     parser.add_argument("--universe", default="nasdaq100",
-                        choices=["nasdaq100", "sp500", "combined"],
-                        help="Stock universe: nasdaq100, sp500, or combined")
+                        choices=["nasdaq100", "sp500", "combined", "sp1500"],
+                        help="Stock universe: nasdaq100, sp500, combined "
+                             "(NASDAQ 100 + S&P 500, the legacy 490-ticker "
+                             "set), or sp1500 (NASDAQ 100 + S&P 500 + S&P "
+                             "400 + S&P 600). sp1500 implicitly enables the "
+                             "$25M ADV liquidity filter.")
     parser.add_argument("--clear-cache", action="store_true",
                         help="Wipe the local parquet price cache before running.")
     parser.add_argument("--bear-compare", action="store_true",
@@ -934,6 +938,9 @@ if __name__ == "__main__":
     if args.universe == "combined":
         tickers = UNIVERSE_TICKERS
         universe_label = "Nasdaq 100 + S&P 500"
+    elif args.universe == "sp1500":
+        tickers = SP1500_TICKERS
+        universe_label = "S&P 1500 (Nasdaq 100 + S&P 500/400/600)"
     elif args.universe == "sp500":
         tickers = SP500_TICKERS
         universe_label = "S&P 500"

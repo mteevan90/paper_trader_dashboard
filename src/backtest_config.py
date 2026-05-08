@@ -123,6 +123,16 @@ class BacktestConfig:
     # Default empty list reproduces the un-blacklisted run bit-identically.
     universe_blacklist: list[str] = field(default_factory=list)
 
+    # --- Liquidity filter (sp1500 universe expansion) ------------------
+    # When set, the rebalance loop excludes any candidate whose trailing
+    # 30-trading-day average dollar volume (Close * Volume) is below this
+    # threshold on the rebalance date. Default None preserves the legacy
+    # 490-ticker universe behavior bit-identically — #325 and every other
+    # pre-sp1500 study leave this at None and the filter is a no-op.
+    # The sp1500 study sets this to 25_000_000 ($25M ADV) so the model
+    # only ranks candidates that are liquid enough to actually trade.
+    min_avg_daily_volume_usd: float | None = None
+
     def __post_init__(self) -> None:
         # Derive weight_alt from the three free weights and validate the
         # composite sums to 1.0. Frozen dataclasses disallow normal

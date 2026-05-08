@@ -329,6 +329,64 @@ def select_top_tickers(
     return selected
 
 
+# =============================================================================
+# LIQUIDITY FILTER (sp1500 universe expansion)
+# =============================================================================
+
+# 30 trading days ≈ ~6 calendar weeks. Long enough to smooth single-day
+# volume spikes (earnings, index rebalance), short enough to track recent
+# liquidity rather than 6-month-old reality.
+_LIQUIDITY_LOOKBACK_TRADING_DAYS = 30
+
+
+def filter_candidates_by_liquidity(
+    tickers: list[str],
+    price_data: dict[str, pd.DataFrame],
+    date,
+    threshold_usd: float,
+    lookback_days: int = _LIQUIDITY_LOOKBACK_TRADING_DAYS,
+) -> list[str]:
+    """Return the subset of ``tickers`` whose trailing dollar-volume meets
+    the threshold on ``date``.
+
+    Average dollar volume = mean(Close × Volume) over the last
+    ``lookback_days`` trading days ending at (and including) ``date``.
+    Tickers missing from ``price_data`` or with no rows up to ``date`` are
+    dropped silently — the rebalance loop already requires a price row at
+    ``date`` before scoring, so this matches existing behavior.
+
+    Per-day filter (the user can be in the universe but excluded today
+    for low recent volume) — preserves the rest of the strategy's logic
+    bit-identically when ``threshold_usd`` is 0 or no tickers are below it.
+
+    Tested independently — see test_liquidity_filter() in tests/.
+    """
+    if threshold_usd is None or threshold_usd <= 0:
+        return list(tickers)
+
+    keep: list[str] = []
+    date_ts = pd.Timestamp(date)
+    for tkr in tickers:
+        df = price_data.get(tkr)
+        if df is None or df.empty:
+            continue
+        if "Close" not in df.columns or "Volume" not in df.columns:
+            continue
+        # Window ends at/including `date`. Tickers with <lookback rows in
+        # the window get judged on whatever they have — the universe data
+        # fetch backfills to 2018 so this only fires for very new IPOs.
+        window = df.loc[:date_ts].tail(lookback_days)
+        if window.empty:
+            continue
+        dollar_vol = (window["Close"] * window["Volume"]).dropna()
+        if dollar_vol.empty:
+            continue
+        avg_dollar_vol = float(dollar_vol.mean())
+        if avg_dollar_vol >= threshold_usd:
+            keep.append(tkr)
+    return keep
+
+
 def compute_composite_scores(
     tickers: list[str],
     fund_data: dict[str, dict],
@@ -762,6 +820,14 @@ def run_backtest(
 
             available = [t for t in model_scores if t in price_data
                          and date in price_data[t].index]
+            # Liquidity filter (sp1500 universe expansion): drop names
+            # below the trailing-30d ADV threshold on this rebalance date.
+            # No-op when min_avg_daily_volume_usd is None (every pre-sp1500
+            # config), so #325 and existing studies stay bit-identical.
+            if config.min_avg_daily_volume_usd is not None:
+                available = filter_candidates_by_liquidity(
+                    available, price_data, date,
+                    config.min_avg_daily_volume_usd)
             comp_scores = compute_composite_scores(
                 available, fund_data, price_data, featured_data,
                 model_scores, date, config=config, active_tunables=active)

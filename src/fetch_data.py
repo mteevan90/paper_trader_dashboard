@@ -194,8 +194,141 @@ SP500_TICKERS = [
 ]
 
 
-# Combined universe: Nasdaq 100 + S&P 500, deduplicated
+# Combined universe: Nasdaq 100 + S&P 500, deduplicated.
+# Existing studies (#325, all v1/v2/v3 dashboards) trained against this set;
+# preserved verbatim so they stay reproducible against pre_v2_20260505.
 UNIVERSE_TICKERS = sorted(set(NASDAQ_100_TICKERS + SP500_TICKERS))
+
+
+# --- S&P 1500 expansion (S&P 400 MidCap + S&P 600 SmallCap) ----------------
+# Sourced from Wikipedia's constituent tables on 2026-05-08 via
+# src/fetch_constituents.py — re-run that script to refresh. Tickers are
+# yfinance-normalized (BRK.B → BRK-B). Some symbols overlap SP500_TICKERS
+# (recent index moves); SP1500_TICKERS dedupes the union.
+
+SP400_TICKERS = [
+    "AA", "AAL", "AAON", "ACI", "ACM", "ADC", "AEIS", "AFG", "AGCO", "AHR",
+    "AIT", "ALGM", "ALK", "ALLY", "ALV", "AM", "AMG", "AMH", "AMKR", "AN",
+    "ANF", "APG", "APPF", "AR", "ARMK", "ARW", "ARWR", "ASB", "ASH", "ATI",
+    "ATR", "AVAV", "AVNT", "AVT", "AVTR", "AXTA", "AYI", "BAH", "BBWI",
+    "BC", "BCO", "BDC", "BHF", "BILL", "BIO", "BJ", "BKH", "BLD", "BLKB",
+    "BMRN", "BRBR", "BRKR", "BROS", "BRX", "BSY", "BURL", "BWA", "BWXT",
+    "BYD", "CACI", "CAR", "CART", "CAVA", "CBSH", "CBT", "CCK", "CDP",
+    "CELH", "CFR", "CG", "CGNX", "CHDN", "CHE", "CHH", "CHRD", "CHWY",
+    "CLF", "CLH", "CMC", "CNH", "CNM", "CNO", "CNX", "CNXC", "COKE",
+    "COLB", "COLM", "COTY", "CPRI", "CR", "CRBG", "CROX", "CRS", "CRUS",
+    "CSL", "CTRE", "CUBE", "CUZ", "CVLT", "CW", "CXT", "CYTK", "DAR",
+    "DBX", "DCI", "DINO", "DKS", "DLB", "DOCN", "DOCS", "DOCU", "DT",
+    "DTM", "DUOL", "DY", "EEFT", "EGP", "EHC", "ELAN", "ELF", "ELS", "ENS",
+    "ENSG", "ENTG", "EPR", "EQH", "ESAB", "ESNT", "EVR", "EWBC", "EXEL",
+    "EXLS", "EXP", "EXPO", "FAF", "FBIN", "FCFS", "FCN", "FFIN", "FHI",
+    "FHN", "FIVE", "FLEX", "FLG", "FLO", "FLR", "FLS", "FN", "FNB", "FND",
+    "FNF", "FOUR", "FR", "FTI", "G", "GAP", "GATX", "GBCI", "GEF", "GGG",
+    "GHC", "GLPI", "GME", "GMED", "GNTX", "GPK", "GT", "GTLS", "GWRE",
+    "GXO", "H", "HAE", "HALO", "HGV", "HIMS", "HL", "HLI", "HLNE", "HOG",
+    "HOMB", "HQY", "HR", "HRB", "HWC", "HXL", "IBOC", "IDA", "IDCC",
+    "ILMN", "INGR", "IPGP", "IRT", "ITT", "JAZZ", "JEF", "JHG", "JLL",
+    "KBH", "KBR", "KD", "KEX", "KNF", "KNSL", "KNX", "KRC", "KRG", "KTOS",
+    "LAD", "LAMR", "LEA", "LECO", "LFUS", "LIVN", "LNTH", "LOPE", "LPX",
+    "LSCC", "LSTR", "M", "MANH", "MASI", "MAT", "MEDP", "MIDD", "MKSI",
+    "MLI", "MMS", "MOG-A", "MORN", "MP", "MSA", "MSM", "MTDR", "MTG",
+    "MTN", "MTSI", "MTZ", "MUR", "MUSA", "MZTI", "NBIX", "NEU", "NFG",
+    "NJR", "NLY", "NNN", "NOV", "NOVT", "NSA", "NTNX", "NVST", "NVT",
+    "NWE", "NXST", "NXT", "NYT", "OC", "OGE", "OGS", "OHI", "OKTA", "OLED",
+    "OLLI", "OLN", "ONB", "ONTO", "OPCH", "ORA", "ORI", "OSK", "OVV",
+    "OZK", "PAG", "PATH", "PB", "PBF", "PCTY", "PEGA", "PEN", "PFGC",
+    "PII", "PINS", "PK", "PLNT", "PNFP", "POR", "POST", "PPC", "PR", "PRI",
+    "PSN", "PSTG", "PVH", "QLYS", "R", "RBA", "RBC", "REXR", "RGA", "RGEN",
+    "RGLD", "RH", "RLI", "RMBS", "RNR", "ROIV", "RPM", "RRC", "RRX", "RS",
+    "RYAN", "RYN", "SAIA", "SAIC", "SAM", "SARO", "SBRA", "SCI", "SEIC",
+    "SF", "SFM", "SGI", "SHC", "SIGI", "SITM", "SLAB", "SLGN", "SLM",
+    "SMG", "SNX", "SOLS", "SON", "SPXC", "SR", "SSB", "SSD", "ST", "STAG",
+    "STRL", "STWD", "SWX", "SYNA", "TCBI", "TEX", "THC", "THG", "THO",
+    "TKR", "TLN", "TMHC", "TNL", "TOL", "TREX", "TRU", "TTC", "TTEK",
+    "TTMI", "TWLO", "TXNM", "TXRH", "UBSI", "UFPI", "UGI", "ULS", "UMBF",
+    "UNM", "USFD", "UTHR", "VAL", "VC", "VFC", "VICR", "VLY", "VMI", "VNO",
+    "VNOM", "VNT", "VOYA", "VVV", "WAL", "WBS", "WCC", "WEX", "WFRD", "WH",
+    "WHR", "WING", "WLK", "WMG", "WMS", "WPC", "WSO", "WTFC", "WTRG",
+    "WTS", "WWD", "XPO", "XRAY", "YETI", "ZION",
+]
+
+
+SP600_TICKERS = [
+    "AAMI", "AAP", "AAT", "ABCB", "ABG", "ABM", "ABR", "ACA", "ACAD",
+    "ACHC", "ACIW", "ACLS", "ACMR", "ACT", "ADAM", "ADEA", "ADMA", "ADNT",
+    "ADT", "ADUS", "AEO", "AESI", "AGO", "AGX", "AGYS", "AHCO", "AIN",
+    "AIR", "AKR", "ALG", "ALGT", "ALKS", "ALRM", "AMN", "AMPH", "AMR",
+    "AMRX", "AMSF", "AMTM", "AMWD", "ANDE", "ANIP", "AORT", "AOSL", "APAM",
+    "APLE", "APLS", "APOG", "ARCB", "ARI", "ARLO", "AROC", "ARR", "ASGN",
+    "ASO", "ASTE", "ASTH", "ATEN", "ATMU", "AUB", "AVA", "AVNS", "AWI",
+    "AWR", "AX", "AZTA", "AZZ", "BANC", "BANF", "BANR", "BBT", "BCC",
+    "BCPC", "BFH", "BFS", "BGC", "BHE", "BJRI", "BKE", "BKU", "BL", "BLFS",
+    "BMI", "BNL", "BOH", "BOOT", "BOX", "BRC", "BTSG", "BTU", "BXMT",
+    "CABO", "CAKE", "CALM", "CALX", "CALY", "CARG", "CASH", "CATY", "CBRL",
+    "CBU", "CC", "CCOI", "CCS", "CE", "CENT", "CENTA", "CENX", "CERT",
+    "CFFN", "CHCO", "CHEF", "CLB", "CLSK", "CNK", "CNMD", "CNR", "CNS",
+    "CNXN", "COCO", "COHU", "COLL", "CON", "CORT", "CPF", "CPK", "CPRX",
+    "CRC", "CRGY", "CRI", "CRK", "CRSR", "CRVL", "CSGS", "CSR", "CSW",
+    "CTKB", "CTS", "CUBI", "CURB", "CVBF", "CVCO", "CVI", "CVSA", "CWEN",
+    "CWEN-A", "CWK", "CWST", "CWT", "CXM", "CXW", "CZR", "DAN", "DBD",
+    "DCH", "DCOM", "DEA", "DEI", "DFH", "DFIN", "DGII", "DIOD", "DLX",
+    "DNOW", "DORM", "DRH", "DV", "DXC", "DXPE", "EAT", "ECG", "ECPG",
+    "EFC", "EGBN", "EIG", "EMBC", "EMN", "ENOV", "ENPH", "ENR", "ENVA",
+    "EPAC", "EPC", "EPRT", "ESE", "ESI", "ETD", "ETSY", "EVTC", "EXPI",
+    "EXTR", "EYE", "EZPW", "FBK", "FBNC", "FBP", "FBRT", "FCF", "FCPT",
+    "FDP", "FELE", "FFBC", "FHB", "FIBK", "FIZZ", "FMC", "FORM", "FOXF",
+    "FRPT", "FSS", "FTDR", "FTRE", "FUL", "FULT", "FUN", "FWRD", "GBX",
+    "GDYN", "GEO", "GFF", "GIII", "GKOS", "GNL", "GNW", "GO", "GOGO",
+    "GOLF", "GPI", "GRBK", "GSHD", "GTES", "GTM", "GTY", "GVA", "HAFC",
+    "HASI", "HAYW", "HCC", "HCI", "HCSG", "HE", "HFWA", "HIW", "HLIT",
+    "HLX", "HMN", "HNI", "HOPE", "HP", "HRMY", "HSTM", "HTH", "HTLD",
+    "HTO", "HTZ", "HUBG", "HWKN", "HZO", "IAC", "IART", "IBP", "ICHR",
+    "ICUI", "IIIN", "IIPR", "INDB", "INDV", "INSP", "INSW", "INVA", "INVX",
+    "IOSP", "IPAR", "IRDM", "ITGR", "ITRI", "JBGS", "JBLU", "JBSS", "JBTM",
+    "JJSF", "JOE", "JXN", "KAI", "KALU", "KFY", "KGS", "KLIC", "KMPR",
+    "KMT", "KMX", "KN", "KNTK", "KOP", "KRYS", "KSS", "KTB", "KW", "KWR",
+    "LAUR", "LBRT", "LCII", "LEG", "LFST", "LGIH", "LGND", "LIF", "LKFN",
+    "LKQ", "LMAT", "LNC", "LNN", "LPG", "LQDT", "LRN", "LTC", "LTH",
+    "LUMN", "LW", "LXP", "LYFT", "LZ", "LZB", "MAC", "MAN", "MARA", "MATW",
+    "MATX", "MBC", "MBIN", "MC", "MCRI", "MCW", "MCY", "MD", "MDU", "MGEE",
+    "MGY", "MHK", "MHO", "MIR", "MKTX", "MLKN", "MMI", "MMSI", "MNRO",
+    "MOH", "MPT", "MRCY", "MRP", "MRTN", "MSEX", "MSGS", "MTCH", "MTH",
+    "MTRN", "MTUS", "MTX", "MWA", "MXL", "MYRG", "NABL", "NATL", "NAVI",
+    "NBHC", "NBTB", "NE", "NEO", "NEOG", "NGVT", "NHC", "NMIH", "NOG",
+    "NPK", "NPO", "NSIT", "NSP", "NSSC", "NTCT", "NVRI", "NWBI", "NWL",
+    "NWN", "NX", "NXRT", "OFG", "OGN", "OI", "OII", "OMCL", "OPLN", "OSIS",
+    "OSW", "OTTR", "OUT", "OXM", "PAHC", "PARR", "PATK", "PAYC", "PAYO",
+    "PBH", "PBI", "PCRX", "PDFS", "PEB", "PECO", "PENG", "PENN", "PFBC",
+    "PFS", "PGNY", "PHIN", "PI", "PIPR", "PJT", "PLAB", "PLMR", "PLUS",
+    "PLXS", "PMT", "POWI", "POWL", "PRA", "PRAA", "PRDO", "PRG", "PRGO",
+    "PRGS", "PRIM", "PRK", "PRKS", "PRLB", "PRSU", "PRVA", "PSMT", "PTCT",
+    "PTEN", "PTGX", "PZZA", "QDEL", "QNST", "QRVO", "QTWO", "RAL", "RAMP",
+    "RCUS", "RDN", "RDNT", "RES", "REX", "REYN", "REZI", "RHI", "RHP",
+    "RITM", "RNG", "RNST", "ROCK", "ROG", "RRR", "RUN", "RUSHA", "RWT",
+    "RXO", "SABR", "SAFE", "SAFT", "SAH", "SANM", "SBCF", "SBH", "SBSI",
+    "SCHL", "SCL", "SCSC", "SDGR", "SEDG", "SEM", "SEZL", "SFBS", "SFNC",
+    "SHAK", "SHEN", "SHO", "SHOO", "SIG", "SKT", "SKY", "SKYW", "SLG",
+    "SLVM", "SM", "SMP", "SMPL", "SMTC", "SNCY", "SNDR", "SNEX", "SONO",
+    "SPHR", "SPNT", "SPSC", "SRPT", "SSTK", "STAA", "STBA", "STC", "STEL",
+    "STEP", "STRA", "SUPN", "SXI", "SXT", "TALO", "TBBK", "TDC", "TDS",
+    "TDW", "TFIN", "TFX", "TGTX", "THRM", "TILE", "TMDX", "TMP", "TNC",
+    "TNDM", "TPH", "TR", "TRIP", "TRMK", "TRN", "TRNO", "TRST", "TRUP",
+    "TWO", "UA", "UAA", "UCB", "UCTT", "UE", "UFCS", "UFPT", "UHT", "UNF",
+    "UNFI", "UNIT", "UPBD", "UPWK", "URBN", "USPH", "UTL", "UVV", "VAC",
+    "VCEL", "VCTR", "VCYT", "VECO", "VGNT", "VIAV", "VIR", "VIRT", "VITL",
+    "VRE", "VRRM", "VRTS", "VSAT", "VSCO", "VSEC", "VSH", "VSNT", "VSTS",
+    "VTOL", "VYX", "WABC", "WAFD", "WAY", "WD", "WDFC", "WEN", "WERN",
+    "WGO", "WHD", "WINA", "WKC", "WLY", "WOR", "WRLD", "WS", "WSC", "WSFS",
+    "WSR", "WT", "WU", "WWW", "XHR", "XNCR", "XPEL", "YELP", "YOU", "ZD",
+    "ZWS",
+]
+
+
+# S&P 1500 = NASDAQ 100 ∪ S&P 500 ∪ S&P 400 ∪ S&P 600 (deduped). Used by
+# the new sp1500 universe option. Existing 490-ticker scripts keep using
+# UNIVERSE_TICKERS unchanged for reproducibility against pre_v2_20260505.
+SP1500_TICKERS = sorted(set(
+    NASDAQ_100_TICKERS + SP500_TICKERS + SP400_TICKERS + SP600_TICKERS))
 
 
 # --- Cache snapshot system (PAPER_TRADER_DATA_ROOT) ----------------------
