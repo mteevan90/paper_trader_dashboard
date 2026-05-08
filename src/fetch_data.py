@@ -3,12 +3,26 @@ import io
 import json
 import logging
 import os
+import socket
 import sys
 import time
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 
 import yfinance as yf
 import pandas as pd
+
+# Process-wide socket timeout. yfinance doesn't expose a timeout parameter
+# on yf.download / yf.Ticker(...).info / .get_earnings_dates / .history,
+# and an unbounded HTTPS connection can wedge the whole fetch script if
+# Yahoo's backend stalls on a single ticker (observed at sp1500 scale).
+# 10s is generous for a healthy yfinance call (typical: <2s) and short
+# enough that a real hang surfaces as a per-ticker exception, letting
+# fetch_sp1500's retry/sanity paths take over. Setting the SOCKET default
+# rather than wrapping each call: yfinance speaks HTTPS through urllib3,
+# which honors socket.setdefaulttimeout as the fallback. Existing explicit
+# timeouts (e.g. finnhub_insider_signals.py REQUEST_TIMEOUT) still take
+# precedence — this is a fallback for the cases that didn't have one.
+socket.setdefaulttimeout(10.0)
 
 try:
     import pyarrow  # noqa: F401  (required engine for parquet I/O)

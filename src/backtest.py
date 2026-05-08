@@ -1,5 +1,6 @@
 import json
 import os
+import socket
 import sys
 import time
 from datetime import datetime, timedelta
@@ -10,6 +11,13 @@ try:
     sys.stdout.reconfigure(encoding="utf-8")
 except (AttributeError, OSError):
     pass
+
+# Process-wide socket timeout — same rationale as fetch_data.py. Set here
+# in addition to fetch_data.py so the timeout is in effect regardless of
+# which module hits its top-level imports first; idempotent on the second
+# call. yfinance calls in this module (fetch_fundamentals,
+# fetch_earnings_dates) need the same protection.
+socket.setdefaulttimeout(10.0)
 
 import matplotlib.pyplot as plt
 import numpy as np
