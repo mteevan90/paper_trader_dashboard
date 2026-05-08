@@ -22,6 +22,9 @@ models/cache/*
 !models/cache/*.md
 !models/cache/*.txt
 !models/cache/*.toml         # streamlit_cloud_secrets_template.toml is template-only
+!models/cache/dashboard_results/
+models/cache/dashboard_results/*
+!models/cache/dashboard_results/325_blacklist_summary.csv
 
 # Stale checkout artifacts under price_cache, model output, etc.
 *.parquet

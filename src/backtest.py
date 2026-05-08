@@ -364,6 +364,15 @@ def compute_composite_scores(
     # surfaced via .info yet). Without this, score_fundamentals raises
     # KeyError on the dict comprehension over missing tickers.
     available = [t for t in tickers if t in model_scores and t in fund_data]
+    # Universe blacklist (research-time): drop named tickers from the
+    # candidate pool BEFORE scoring so they cannot appear in the top-N
+    # selection. Default empty list = no-op (bit-identical to pre-blacklist
+    # behavior). Held positions in a blacklisted name (irrelevant for
+    # fresh runs) fall out at the next rebalance because they're not in
+    # the new top-N. See BacktestConfig.universe_blacklist.
+    if config.universe_blacklist:
+        bl = set(config.universe_blacklist)
+        available = [t for t in available if t not in bl]
     f_scores = score_fundamentals(fund_data, available)
     t_scores = score_technical(price_data, featured_data, date, available)
     # Alt bucket: equal-weight mean of registered alt signals (currently

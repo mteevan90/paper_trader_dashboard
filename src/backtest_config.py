@@ -16,7 +16,7 @@ count low and the failure mode obvious. Revisit if Optuna results suggest
 the alt slot is genuinely useful.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 
 # Tolerance for the weights-sum-to-1.0 validation. 1e-9 is comfortably
@@ -114,6 +114,14 @@ class BacktestConfig:
     # search space + objective_fn enforce this.
     high_macro_threshold: float | None = None
     low_macro_threshold:  float | None = None
+
+    # --- Universe blacklist (research-time, not Optuna-tuned) ----------
+    # Tickers in this list are excluded from the candidate pool BEFORE
+    # composite scoring, so they can never appear in the top-N selection.
+    # Used to ablate single-name dependencies (e.g. "is the alpha NVDA-
+    # dependent?") by re-running a fixed config with one name dropped.
+    # Default empty list reproduces the un-blacklisted run bit-identically.
+    universe_blacklist: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         # Derive weight_alt from the three free weights and validate the
