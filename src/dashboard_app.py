@@ -236,6 +236,141 @@ def load_sector_map() -> dict:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def compute_best_known(
+    study_name: str,
+    param_cols: tuple[str, ...],
+    cross_study: bool = False,
+) -> dict:
+    """Per-parameter best-known summary across the Optuna corpus.
+
+    For each requested param column, returns the value with the
+    highest kernel-smoothed mean trial score (`best_mean_x`/`best_mean_y`),
+    the single best trial's value (`best_max_x`/`best_max_y`), the
+    smoothed curve points for an optional overlay, and a flag for
+    discrete-parameter handling.
+
+    Naming: "best-known" = highest-mean across the corpus, NOT the
+    optimizer's chosen value. The user's spec (Section 6.2) is firm:
+    don't call this "best" or "global optimum" — it's a marginal
+    estimate over what was sampled, which is itself centered near
+    the chosen value.
+
+    Sentinel filter (value > -1e3) applied per spec Section 6.1 — without
+    it, REJECTED_ACTIVATION_PCT trials at -1e6 dominate every kernel.
+
+    Discrete parameters (position_count, rebalance_frequency_days)
+    use a groupby-mean instead of the kernel smoother — Optuna samples
+    integer values, the kernel curve would look stair-stepped, and
+    the right answer is "the integer with the best mean score."
+
+    Continuous parameters use a Gaussian-kernel local-mean smoother
+    (NOT scipy.stats.gaussian_kde — that estimates p(x), the sample
+    density, which would peak where Optuna sampled most. We want
+    E[y|x], the conditional expected score given the parameter value).
+    Bandwidth via Silverman's rule of thumb; degenerate fallback
+    when std is zero. Skips smoothing entirely if <20 sane trials —
+    the curve isn't informative below that.
+
+    Cross-study (cross_study=True) pools sane trials across all
+    promoted studies before computing. Per spec Section 7.4 with two
+    promoted studies (regime_dependent_v1, 15_position_study_v1),
+    the simple-toggle approach is fine; if more studies appear later
+    a per-study checkbox UI is the right escalation.
+    """
+    if cross_study:
+        promoted = data_source.list_promoted_dashboard_result_labels()
+        # promoted labels look like best_<study>_<n>; recover the study name
+        studies = sorted({lbl[len("best_"):lbl.rfind("_")]
+                           for lbl in promoted
+                           if lbl.startswith("best_")
+                           and lbl.rfind("_") > len("best_")})
+    else:
+        studies = [study_name]
+
+    pieces = []
+    for s in studies:
+        try:
+            d = load_study_trials_df(s)
+        except Exception:
+            continue
+        if d is None or d.empty:
+            continue
+        # Sentinel filter — spec Section 6.1.
+        d = d[d["state"] == "COMPLETE"]
+        d = d[d["value"].astype(float) > -1e3]
+        if not d.empty:
+            pieces.append(d)
+    if not pieces:
+        return {}
+    pooled = pd.concat(pieces, ignore_index=True)
+
+    out: dict = {}
+    for p in param_cols:
+        if p not in pooled.columns:
+            continue
+        sub = pooled[[p, "value"]].dropna()
+        if sub.empty:
+            continue
+        x = sub[p].astype(float).values
+        y = sub["value"].astype(float).values
+        n = len(x)
+        # Best-max (single best trial)
+        bmax_idx = int(np.argmax(y))
+        best_max_x = float(x[bmax_idx])
+        best_max_y = float(y[bmax_idx])
+        # Discrete heuristic: integer-valued + low cardinality
+        is_discrete = (
+            np.allclose(x, np.round(x))
+            and len(np.unique(x)) <= 16
+        )
+        smooth_xs = None
+        smooth_ys = None
+        bandwidth = float("nan")
+        if is_discrete:
+            grouped = sub.groupby(p)["value"].mean()
+            best_v = grouped.idxmax()
+            best_mean_x = float(best_v)
+            best_mean_y = float(grouped.max())
+            if n >= 20:
+                smooth_xs = [float(v) for v in sorted(grouped.index)]
+                smooth_ys = [float(grouped[v]) for v in smooth_xs]
+            bandwidth = 0.5  # discrete coincidence = same integer bucket
+        elif n < 20:
+            # Too few trials for a meaningful smoother — fall back to
+            # best-max as the only marker; skip best-mean entirely.
+            best_mean_x = float("nan")
+            best_mean_y = float("nan")
+        else:
+            xs = np.linspace(float(x.min()), float(x.max()), 200)
+            h = 1.06 * float(x.std()) * (n ** (-0.2))
+            if h <= 0:
+                h = max((float(x.max()) - float(x.min())) / 20.0, 1e-6)
+            ys = np.empty_like(xs)
+            for j, xj in enumerate(xs):
+                w = np.exp(-0.5 * ((x - xj) / h) ** 2)
+                wsum = float(w.sum())
+                ys[j] = float((w * y).sum() / wsum) if wsum > 0 else np.nan
+            argmax = int(np.nanargmax(ys))
+            best_mean_x = float(xs[argmax])
+            best_mean_y = float(ys[argmax])
+            smooth_xs = xs.tolist()
+            smooth_ys = ys.tolist()
+            bandwidth = float(h)
+        out[p] = {
+            "best_mean_x": best_mean_x,
+            "best_mean_y": best_mean_y,
+            "best_max_x":  best_max_x,
+            "best_max_y":  best_max_y,
+            "smooth_xs":   smooth_xs,
+            "smooth_ys":   smooth_ys,
+            "n":           int(n),
+            "is_discrete": bool(is_discrete),
+            "bandwidth":   bandwidth,
+        }
+    return out
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_perturbation_summary() -> "pd.DataFrame | None":
     """Read the V3 Track 2 perturbation summary CSV. Returns None if
     the file isn't present on this deployment (e.g. cloud snapshot
@@ -760,6 +895,26 @@ def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None
                            f"{t.value:.4f}" if t.value is not None
                            else "Trial has no value")
 
+    # Cross-study pooling toggle for the best-known-value markers
+    # (Tuning History per-parameter scatters + Reliability per-panel
+    # overlays). When unchecked, best-known is computed within the
+    # currently-selected study only. When checked, pools sane trials
+    # across all promoted studies. Per viz spec Section 7.4 with the
+    # current 2-promoted-study set, a single global toggle is fine;
+    # if a 3rd promoted study appears, this UI shape needs revisiting.
+    st.sidebar.divider()
+    cross_study_pool = st.sidebar.checkbox(
+        "Compare best-known values across all studies",
+        value=False,
+        help="When checked, the purple best-known markers on Tuning "
+             "History and Reliability pool trials from every promoted "
+             "study. Useful for comparing where two strategies' "
+             "best-mean values land on the same axis. Caution: "
+             "different studies may use different parameter ranges, "
+             "so cross-study comparisons can be misleading.",
+    )
+    st.session_state["best_known_cross_study"] = cross_study_pool
+
     return label, cfg, study_name, trial_number
 
 
@@ -980,6 +1135,43 @@ def tab_performance(label: str, config: BacktestConfig, result: dict) -> None:
               if win_rate_label.startswith("12-month")
               else "Closed round-trips with positive return."),
     )
+    # 12-month rolling-alpha sparkline below the windows-positive KPI.
+    # Surfaces the time-series shape of outperformance: for studies where
+    # alpha hovers near zero (the 15-position study at 35% positive
+    # windows), the area chart crossing below zero makes the under-
+    # performance visceral — the reader sees how often the strategy
+    # spent time underwater vs SPY. Reads from meta directly; no
+    # recomputation. Column name in capm_windows is `alpha` (verified
+    # against rolling_metrics.compute_rolling_alpha L127), NOT alpha_ann.
+    capm_windows = (rolling_12mo.get("capm_windows") or [])
+    if capm_windows:
+        sw = pd.DataFrame(capm_windows)
+        if "window_end" in sw.columns and "alpha" in sw.columns:
+            sw = sw.copy()
+            sw["window_end"] = pd.to_datetime(sw["window_end"])
+            spark = go.Figure()
+            spark.add_trace(go.Scatter(
+                x=sw["window_end"],
+                y=sw["alpha"],
+                mode="lines",
+                line=dict(color="#2563eb", width=1.5),
+                fill="tozeroy",
+                fillcolor="rgba(37, 99, 235, 0.18)",
+                hovertemplate=(
+                    "12mo ending %{x|%b %Y}<br>"
+                    "alpha %{y:+.2%}<extra></extra>"),
+            ))
+            spark.add_hline(y=0, line_color="#94a3b8",
+                            line_width=1, line_dash="dot")
+            spark.update_layout(
+                height=80, margin=dict(l=4, r=4, t=4, b=4),
+                xaxis=dict(visible=False), yaxis=dict(visible=False),
+                showlegend=False, plot_bgcolor="rgba(0,0,0,0)",
+            )
+            cols[3].plotly_chart(spark, use_container_width=True)
+            cols[3].caption(
+                "12-month rolling alpha vs SPY. Below the dotted line = "
+                "trailing year underperformed.")
 
     # Hero chart — Strategy vs SPY vs QQQ normalized to 100
     fig = go.Figure()
@@ -1267,7 +1459,21 @@ def tab_tuning_history(label: str, config: BacktestConfig, result: dict,
     st.divider()
 
     # --- Trial number vs score with running best ---
-    completes_sorted = completes.sort_values("trial_number")
+    # Use the same sentinel-filtered frame as the histogram. Without
+    # this, -1e6 sentinel scores from REJECTED_ACTIVATION_PCT and
+    # REJECTED_INVALID_THRESHOLD_ORDERING trials drag the y-axis to
+    # -1M and crush all real scores into a thin band at the top —
+    # the bug Section 3.1 of the viz spec calls out for studies with
+    # any rejection-gate activity (e.g. the 15-position study with
+    # 199 sentinels out of 1000 trials).
+    if n_sentinel > 0:
+        st.caption(
+            f"Excludes {n_sentinel} trials that returned the failure "
+            f"sentinel (rejected by the activation gate or other "
+            f"hard-reject paths). The running-best line is computed "
+            f"from real trials only — a sentinel can't be a running best."
+        )
+    completes_sorted = sane.sort_values("trial_number")
     running_max = completes_sorted["value"].cummax()
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -1290,22 +1496,155 @@ def tab_tuning_history(label: str, config: BacktestConfig, result: dict,
 
     # --- Param vs score scatter for each tunable ---
     st.subheader("Parameter sensitivity")
+    # Tunables list — the "shared" set Tuning History always renders.
+    # Note these are the legacy field names which in regime-dependent
+    # mode hold the DEFENSIVE half of the tunable pair; the offensive
+    # variants are surfaced separately on the Reliability tab. For
+    # legacy-architecture studies (Phase 0 etc.), these ARE the tunables.
     tunables = [c for c in ("weight_fundamental", "weight_technical",
                             "weight_model", "macro_threshold_low",
                             "macro_threshold_gap", "atr_multiplier",
                             "analyst_weight", "rebalance_frequency_days",
-                            "position_count") if c in completes.columns]
+                            "position_count") if c in sane.columns]
+    # Section 3.2 — best-known-value markers from the Optuna corpus.
+    # cross_study honors the sidebar toggle; cache invalidates on the
+    # study_name + tuple(tunables) + cross_study args (per Streamlit's
+    # default argument hashing).
+    cross_study = bool(st.session_state.get("best_known_cross_study", False))
+    bk = compute_best_known(study_name, tuple(tunables), cross_study=cross_study)
+
+    # Layer-1 summary line above the scatter row — quick "is the chosen
+    # value also the best-known?" read across all 8 axes. Skipped in
+    # cross-study mode because "chosen" is per-study (each pooled
+    # study has its own chosen value, so the comparison is ambiguous).
+    if not cross_study and bk and not sane.empty:
+        # Recover the chosen-trial's params from the trial DataFrame
+        # (each tunable column carries that trial's sampled value).
+        best_row = sane.loc[sane["value"].idxmax()]
+        chosen_params = {p: best_row[p] for p in tunables
+                         if p in best_row.index and pd.notna(best_row[p])}
+        materially_diff = []
+        DIFF_REL_PCT = 0.10  # 10% relative spread for continuous axes
+        for p in tunables:
+            if p not in bk or p not in chosen_params:
+                continue
+            chosen_x = float(chosen_params[p])
+            best_x   = bk[p]["best_mean_x"]
+            if pd.isna(best_x):
+                continue
+            if bk[p]["is_discrete"]:
+                if int(round(best_x)) != int(round(chosen_x)):
+                    materially_diff.append(p)
+            else:
+                if abs(chosen_x) > 1e-9:
+                    rel = abs(best_x - chosen_x) / abs(chosen_x)
+                    if rel >= DIFF_REL_PCT:
+                        materially_diff.append(p)
+        if materially_diff:
+            names = ", ".join(materially_diff)
+            st.markdown(
+                f"Of **{len(tunables)} tunables**, "
+                f"**{len(materially_diff)}** have a best-known value "
+                f"materially different from the chosen value "
+                f"(>= {int(DIFF_REL_PCT*100)}% relative spread, or any "
+                f"difference for discrete axes): **{names}** — "
+                f"these may be under-tuned."
+            )
+        else:
+            st.markdown(
+                f"All {len(tunables)} tunables have their best-known "
+                f"value at or near the chosen value."
+            )
+    elif cross_study:
+        st.caption(
+            "Cross-study mode: best-known markers pool sane trials "
+            "across every promoted study. The 'chosen-value' summary "
+            "line is omitted because each study has its own chosen "
+            "value — the comparison is ambiguous."
+        )
+
     cols_per_row = 3
     for row_start in range(0, len(tunables), cols_per_row):
         cols = st.columns(cols_per_row)
         for j, p in enumerate(tunables[row_start: row_start + cols_per_row]):
             with cols[j]:
+                # Use sane (sentinel-filtered) — sentinel trials don't
+                # represent meaningful parameter-score relationships and
+                # would otherwise drag every panel's y-axis to -1M.
                 fig = px.scatter(
-                    completes, x=p, y="value", trendline=None,
+                    sane, x=p, y="value", trendline=None,
                     title=p, height=260,
                     color_discrete_sequence=["#2563eb"],
                 )
                 fig.update_traces(marker=dict(size=4, opacity=0.6))
+
+                # Smoothed-curve overlay + best-mean / best-max markers
+                # from the Optuna corpus. Purple (#a855f7) chosen so it
+                # doesn't clash with the existing #2563eb blue trial
+                # points or the #16a34a green chosen-value marker on
+                # the Reliability tab. Per spec Section 7.5: skip
+                # best-max if it coincides with best-mean within
+                # bandwidth h (avoids drawing two markers on top of
+                # each other — looks like a rendering bug).
+                bki = bk.get(p)
+                if bki is not None:
+                    sxs, sys_ = bki.get("smooth_xs"), bki.get("smooth_ys")
+                    if sxs and sys_:
+                        fig.add_trace(go.Scatter(
+                            x=sxs, y=sys_,
+                            mode="lines", name="Smoothed mean",
+                            line=dict(color="#a855f7", width=1.5),
+                            hovertemplate=(
+                                "param %{x}<br>"
+                                "smoothed mean score %{y:.4f}"
+                                "<extra></extra>"),
+                            showlegend=False,
+                        ))
+                    if not pd.isna(bki["best_mean_x"]):
+                        fig.add_trace(go.Scatter(
+                            x=[bki["best_mean_x"]],
+                            y=[bki["best_mean_y"]],
+                            mode="markers", name="best-mean",
+                            marker=dict(size=11, color="#a855f7",
+                                        symbol="circle"),
+                            hovertemplate=(
+                                f"<b>Best-mean across "
+                                f"{bki['n']} trials</b><br>"
+                                f"param %{{x:.4f}}<br>"
+                                f"mean score %{{y:.4f}}"
+                                f"<extra></extra>"),
+                            showlegend=False,
+                        ))
+                    # Best-max as a hollow ring; skip if it coincides
+                    # with best-mean within bandwidth (continuous) or
+                    # at the same integer (discrete).
+                    coincide = False
+                    if not pd.isna(bki["best_mean_x"]):
+                        h = bki.get("bandwidth", float("nan"))
+                        if bki["is_discrete"]:
+                            coincide = (
+                                int(round(bki["best_max_x"]))
+                                == int(round(bki["best_mean_x"])))
+                        elif not pd.isna(h) and h > 0:
+                            coincide = (abs(bki["best_max_x"]
+                                            - bki["best_mean_x"]) < h)
+                    if not coincide:
+                        fig.add_trace(go.Scatter(
+                            x=[bki["best_max_x"]],
+                            y=[bki["best_max_y"]],
+                            mode="markers", name="best-max",
+                            marker=dict(
+                                size=11, color="#a855f7",
+                                symbol="circle-open",
+                                line=dict(color="#a855f7", width=2)),
+                            hovertemplate=(
+                                "<b>Single best trial</b><br>"
+                                "param %{x:.4f}<br>"
+                                "score %{y:.4f}"
+                                "<extra></extra>"),
+                            showlegend=False,
+                        ))
+
                 fig.update_layout(
                     margin=dict(l=10, r=10, t=40, b=10),
                     yaxis_title="Score",
@@ -1786,6 +2125,17 @@ def tab_trade_history(label: str, config: BacktestConfig, result: dict) -> None:
                 yaxis_title="Trades",
             )
             st.plotly_chart(f, use_container_width=True)
+            # Reframe the spikes — per Section 3.5 of the viz spec, the
+            # bar chart looks like noise without context. The caption
+            # tells readers the spikes ARE rebalances.
+            rebal_n = (config.rebalance_frequency_days_offensive
+                       or config.rebalance_frequency_days)
+            st.caption(
+                f"Spikes correspond to rebalance days, which fall every "
+                f"~{rebal_n} trading days under the current config. "
+                f"Between rebalances, only stop-loss exits register as "
+                f"trades."
+            )
     with c2:
         if not closed.empty:
             f = go.Figure(data=[go.Histogram(
@@ -2021,15 +2371,40 @@ def tab_reliability(label: str, config: BacktestConfig, result: dict) -> None:
 
     # ===== Layer 2 — Per-axis surface grid =====
     st.divider()
+    # Section 3.3.1 — reframe the panel caption. The previous text
+    # invited the reader to ask "is the chosen value the peak?", which
+    # is the wrong question (it almost always is, for grid-centering +
+    # OAT-structural reasons documented in the viz spec Section 2).
+    # The new caption frames robustness via the SPY-beat band instead.
     st.markdown(
-        "**For each setting, we tested 5 different values.** The green "
-        "star marks the chosen value; lines show how outperformance "
-        "changes when that setting moves."
+        "**For each setting, we tested 4 alternative values around our "
+        "choice.** The shaded green band is the threshold for 'still "
+        "substantially beats SPY' (12-month outperformance score "
+        f"≥ {_ROBUSTNESS_THRESHOLD:.2f}). Settings whose line stays "
+        "inside the band across all values are robust to that choice; "
+        "settings whose line drops outside the band are sensitive."
     )
     by_axis = df.groupby("axis", sort=False)
     thr = _ROBUSTNESS_THRESHOLD
     axes_sorted = [a for a in _ROBUSTNESS_AXIS_LABELS.keys()
                    if a in by_axis.groups]
+    # Best-known-value markers from the Optuna corpus — Section 3.3.3 +
+    # 3.2 of the viz spec. Plotted at TRUE x-position even when between
+    # two perturbation grid points (Option 2 in the brainstorm). The
+    # under-tuning signal: if the Optuna best is between two perturbation
+    # values, the perturbation grid didn't sample where trials suggest
+    # the real best lies.
+    cross_study = bool(st.session_state.get("best_known_cross_study", False))
+    rel_study_name = ""
+    if isinstance(label, str) and label.startswith("best_"):
+        # Recover the underlying study name from the dashboard label.
+        # Format: best_<study_name>_<trial_n> — strip both ends.
+        rel_study_name = label[len("best_"):]
+        idx = rel_study_name.rfind("_")
+        if idx > 0:
+            rel_study_name = rel_study_name[:idx]
+    bk_panels = compute_best_known(rel_study_name, tuple(axes_sorted),
+                                    cross_study=cross_study) if rel_study_name else {}
     fig = make_subplots(
         rows=4, cols=2,
         subplot_titles=[_ROBUSTNESS_AXIS_LABELS.get(a, a)
@@ -2042,6 +2417,18 @@ def tab_reliability(label: str, config: BacktestConfig, result: dict) -> None:
         row = i // 2 + 1
         col = i % 2 + 1
         ref_sub = sub[sub["is_reference"]]
+        # Section 3.3.2 — replace the dashed primary-axis line with a
+        # shaded band (Option b in the viz spec). The band reads as
+        # "this is the safe zone" and is the visual anchor for the
+        # refrazmed question. y1=2.0 gives plenty of headroom for any
+        # rolling_12mo_objective value to land below it; visible y-range
+        # auto-clips to the actual data extent.
+        fig.add_hrect(
+            y0=thr, y1=2.0,
+            fillcolor="#16a34a", opacity=0.10, line_width=0,
+            layer="below",
+            row=row, col=col, secondary_y=False,
+        )
         fig.add_trace(go.Scatter(
             x=sub["value"], y=sub["rolling_12mo_objective"],
             mode="lines+markers",
@@ -2059,15 +2446,68 @@ def tab_reliability(label: str, config: BacktestConfig, result: dict) -> None:
             marker=dict(size=7, color="#f59e0b", symbol="diamond"),
         ), row=row, col=col, secondary_y=True)
         if not ref_sub.empty:
+            # Section 3.3.3 — demote the chosen-value marker. Previously
+            # a size-14 green STAR which dominated the panel; reduced
+            # to size-10 filled CIRCLE so it reads as information, not
+            # a trophy. The viz spec correctly notes the chosen value is
+            # structurally biased to look like a peak under OAT centering.
             fig.add_trace(go.Scatter(
                 x=ref_sub["value"],
                 y=ref_sub["rolling_12mo_objective"],
                 mode="markers", name="chosen value",
                 legendgroup="ref", showlegend=(i == 0),
-                marker=dict(size=14, color="#16a34a", symbol="star"),
+                marker=dict(size=10, color="#16a34a", symbol="circle"),
             ), row=row, col=col, secondary_y=False)
-        fig.add_hline(y=thr, line_dash="dash", line_color="#94a3b8",
-                      line_width=1, row=row, col=col, secondary_y=False)
+
+        # Section 3.2 — best-known-value markers from the Optuna corpus,
+        # plotted at TRUE x-position on the primary axis. y-coordinate
+        # is the kernel-smoothed mean score (best-mean) or the actual
+        # trial score (best-max). Purple #a855f7 — distinct from the
+        # green chosen-value marker and the blue/orange data lines.
+        bki = bk_panels.get(ax_name)
+        if bki is not None:
+            if not pd.isna(bki["best_mean_x"]):
+                fig.add_trace(go.Scatter(
+                    x=[bki["best_mean_x"]],
+                    y=[bki["best_mean_y"]],
+                    mode="markers", name="best-known (mean)",
+                    legendgroup="bestmean", showlegend=(i == 0),
+                    marker=dict(size=11, color="#a855f7", symbol="circle"),
+                    hovertemplate=(
+                        f"<b>Best-mean across {bki['n']} trials</b><br>"
+                        f"param %{{x:.4f}}<br>"
+                        f"smoothed mean score %{{y:.4f}}"
+                        f"<extra></extra>"),
+                ), row=row, col=col, secondary_y=False)
+            # Best-max — skip if it coincides with best-mean within
+            # bandwidth (avoids drawing two markers on top of each other,
+            # per Section 7.5). Bandwidth comes from compute_best_known
+            # so the test reuses the same Silverman value used to build
+            # the smoother.
+            coincide = False
+            if not pd.isna(bki["best_mean_x"]):
+                h = bki.get("bandwidth", float("nan"))
+                if bki["is_discrete"]:
+                    coincide = (int(round(bki["best_max_x"]))
+                                == int(round(bki["best_mean_x"])))
+                elif not pd.isna(h) and h > 0:
+                    coincide = abs(bki["best_max_x"]
+                                   - bki["best_mean_x"]) < h
+            if not coincide:
+                fig.add_trace(go.Scatter(
+                    x=[bki["best_max_x"]],
+                    y=[bki["best_max_y"]],
+                    mode="markers", name="best-known (single)",
+                    legendgroup="bestmax", showlegend=(i == 0),
+                    marker=dict(size=11, color="#a855f7",
+                                symbol="circle-open",
+                                line=dict(color="#a855f7", width=2)),
+                    hovertemplate=(
+                        "<b>Single best trial</b><br>"
+                        "param %{x:.4f}<br>"
+                        "score %{y:.4f}"
+                        "<extra></extra>"),
+                ), row=row, col=col, secondary_y=False)
     fig.update_layout(
         height=1000, margin=dict(l=10, r=10, t=60, b=10),
         hovermode="x unified",
