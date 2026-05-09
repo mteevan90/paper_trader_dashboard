@@ -47,9 +47,11 @@ src/.claude/
 # Windows installer package
 *.msix
 
-# Documentation (kept local, not in repo)
+# Documentation: scratch/working docx files stay local; anything under
+# docs/ is intentional project documentation and IS tracked.
 *.docx
 !src/paper_trader_user_guide.docx
+!docs/*.docx
 
 models/cache/*.toml.txt# V3 study scratch files
 inspect_*.py
