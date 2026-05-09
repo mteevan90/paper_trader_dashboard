@@ -78,16 +78,22 @@ Adding `options` is mechanically the same shape as adding `crypto` was. The Phas
 ### Initial universe (Section 1, smoke-test scope)
 
 - **Indexes (3)**: SPX (cash-settled, AM-settled monthlies), SPY (PM-settled), QQQ (PM-settled)
-- **Curated equities (~5–7 to start)**: highly liquid, weekly options available, cleanly trade through earnings or have predictable IV crush patterns. Initial candidates: AAPL, MSFT, NVDA, AMZN, META, GOOGL, TSLA. Final list locked at Section 1.
+- **Curated equities (5, locked at Section 1)**: AAPL, MSFT, NVDA, JPM, XOM. Mix of tech mega-cap and non-tech to avoid pre-baking the NVDA/META concentration trap into the smoke study itself.
 
-### Expanded universe (after Section 8)
+### Long-term universe (v1.1+)
 
-After v1 study lands, expand to ~20 equity names. Selection criteria for the equity subset (stricter than Mike's 491-ticker equity universe — these are *options-grade liquidity* filters):
+The Section 1 smoke universe is a hand-curated stub. The long-term universe is:
 
-- Minimum **average daily option volume** across the chain (specific floor TBD at Section 1; conservative starting point ~10k contracts/day across all expiries)
-- Minimum **weekly options availability** for active-management thesis
-- Bid-ask **spread floor** at the strike levels we'll trade (the 0.30-delta band, conservative starting point: spread < 5% of mark for monthlies)
-- Coverage across sectors (avoid all-tech-mega-cap concentration, repeat the NVDA/META lesson)
+- The 3 index options (SPX, SPY, QQQ), unconditionally.
+- All tickers in Mike's equity universe (currently 491 — S&P 500 + Nasdaq 100; expandable to S&P 1500 if/when the SP1500 fetch unblocks) that pass an **options-grade liquidity filter** at the rebalance date.
+
+The liquidity filter combines:
+
+- Minimum **30-day average daily option volume** across the chain (specific threshold tuned at Section 8 against the smoke study; conservative starting point ~10k contracts/day across all expiries).
+- Minimum **weekly options availability** for active-management thesis.
+- Bid-ask **spread floor** at the 0.30-delta band (conservative starting point: spread < 5% of mark for monthlies).
+
+This shifts the universe construction problem from "hand-curate ~20 names" to "filter Mike's equity universe by options-grade liquidity per-date." The Section 1 API is designed to scale to that without rework: `get_universe_at_date_v2(at_date, top_n)` and `is_underlying_active_v2(ticker, at_date)` are the seams where the filter logic lands when v1.1+ implements them. The on-disk shape (`UNIVERSE_PARQUET_SCHEMA`) reserves nullable columns (`options_adv_30d`, `chain_spread_pct_30d`) for the filter inputs.
 
 ### What the universe explicitly excludes
 
@@ -174,7 +180,7 @@ Mirrors the crypto Phase 2 sectioning. Each section is a self-contained PR that 
 
 | # | Section | Status | Notes |
 | --- | --- | --- | --- |
-| 1 | Universe + contract spec | NOT STARTED | `UnderlyingMeta` and `ContractSpec` dataclasses, OCC symbol parse/generate utility, parquet schema, static initial universe (3 indexes + 5–7 curated equities). Mirror crypto Section 1 shape. |
+| 1 | Universe + contract spec | NOT STARTED | `UnderlyingMeta` and `ContractSpec` dataclasses, OCC symbol parse/generate utility, parquet schema, static initial universe (3 indexes + 5 curated equities). v2 API stubs reserve the seam for v1.1+ filter-based expansion against Mike's equity universe. Mirror crypto Section 1 shape. |
 | 2 | Tradier OHLCV + chain fetcher | NOT STARTED | Sandbox API key, OAuth flow, rate limit handling, `truststore.inject_into_ssl()` at module init. Historical chains by OCC symbol. Sanity gate at <50% non-empty refuses cache write. Caches to `models/cache/options/tradier/`. truststore lands in main with this section — will require shared-file approval from Mike. |
 | 3 | Black-Scholes Greeks module | NOT STARTED | Closed-form delta/gamma/theta/vega/rho. Pure-function module, no external state. Validate against Tradier/ORATS Greeks (sanity check, not source of truth). Tests cover ATM/OTM/ITM and near-expiration edge cases. |
 | 4 | Position + lifecycle model | NOT STARTED | The new architectural element. `Position` dataclass with `strategy_class`, `legs[]`, `entry_date`, `exit_rules`, `pnl()`, `is_expired()`, `should_exit_now(market)` methods. Multi-leg atomic operations from day one. Active-management exit rules (profit target, time stop, stop-loss-on-pnl) as first-class. |
