@@ -1,0 +1,28 @@
+# CODEOWNERS — see docs/Crypto_Extension_Decisions.md (Git workflow > CODEOWNERS).
+# GitHub uses the most-specific match. Files under owner-specific paths
+# require that owner's review; shared files require BOTH owners'
+# approvals. Per the memo, the hard-block on shared files exists because
+# Claude Code can edit files — soft convention isn't enough at scale.
+#
+# Chris's GitHub username is a placeholder until Mike fills it in.
+
+# Equity-side ownership
+/src/equities/             @mteevan90
+/src/dashboard_app.py      @mteevan90
+/src/data_source.py        @mteevan90
+/src/snapshot_for_cloud.py @mteevan90
+/src/backtest.py           @mteevan90
+/src/backtest_config.py    @mteevan90
+/src/optuna_runner.py      @mteevan90
+/src/macro_signals.py      @mteevan90
+/models/snapshots/equities/ @mteevan90
+
+# Crypto-side ownership
+/src/crypto/               @<chris-username>
+/models/snapshots/crypto/  @<chris-username>
+
+# Shared files (require BOTH approvals)
+/.github/CODEOWNERS        @mteevan90 @<chris-username>
+/README.md                 @mteevan90 @<chris-username>
+/requirements.txt          @mteevan90 @<chris-username>
+/docs/                     @mteevan90 @<chris-username>

@@ -783,6 +783,24 @@ def get_result_for_config(label: str, config: BacktestConfig) -> dict:
 # Sidebar config selector
 # ---------------------------------------------------------------------------
 
+def sidebar_asset_picker() -> str:
+    """Render the asset-class radio at the very top of the sidebar.
+
+    Returns "Stocks" or "Crypto". Persisted across reruns via the
+    Streamlit widget key. Phase 1 ships with Stocks rendering the full
+    equity dashboard bit-identically; selecting Crypto shows a
+    placeholder (Phase 2 — Chris — will land the crypto rendering).
+    """
+    return st.sidebar.radio(
+        "Asset class",
+        options=["Stocks", "Crypto"],
+        index=0,
+        help="Switch between asset class dashboards. "
+             "Crypto is in development.",
+        key="asset_class_selector",
+    )
+
+
 def sidebar_config_picker() -> tuple[str, BacktestConfig, str | None, int | None]:
     st.sidebar.title("⚙️ Config")
     studies = list_studies()
@@ -3786,9 +3804,19 @@ def main() -> None:
         from dashboard_auth import gate
         gate()       # st.stop()s if not authenticated; renders sidebar logout
 
+    # Asset-class selector goes BEFORE everything else in the sidebar so
+    # it's the first control the user sees. Phase 2 (crypto) will swap
+    # the body of the Crypto branch for a real renderer.
+    asset_class_label = sidebar_asset_picker()
+
     st.title("📈 Paper Trader Dashboard")
     if CLOUD_MODE:
         st.caption("☁️ Cloud read-only build — data sourced from snapshot bucket.")
+
+    if asset_class_label == "Crypto":
+        st.info("Crypto dashboard is in development. Switch to **Stocks** "
+                "to view current data.")
+        return
 
     # Header strip with model/macro provenance for orientation
     meta = load_model_meta()
