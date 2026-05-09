@@ -224,6 +224,12 @@ Items to think about when there's time:
 
 ---
 
+## Options Phase 1 (shared-edge)
+
+Options Phase 1 (shared-edge) merged on `<merge date>`. Phase 2 sections 1–9 specced in `Options_Extension_Decisions.md`.
+
+---
+
 ## How to use this doc
 
 - When something on this list becomes a current priority, move it out (to a session, ticket, or active work) and delete from here.

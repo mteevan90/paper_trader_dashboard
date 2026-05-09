@@ -84,7 +84,7 @@ R2_LAYOUT_SUFFIX: dict[str, str] = {
 R2_LAYOUT = R2_LAYOUT_SUFFIX
 
 DEFAULT_ASSET_CLASS = "equities"
-SUPPORTED_ASSET_CLASSES = ("equities", "crypto")
+SUPPORTED_ASSET_CLASSES = ("equities", "crypto", "options")
 
 MANIFEST_KEY = "snapshot_manifest.json"
 DASHBOARD_RESULTS_PREFIX_LOCAL  = "models/cache/dashboard_results/"
