@@ -11,20 +11,31 @@
     invalidates every cached fetch automatically.
 
 ============================================================================
-CANONICAL R2 BUCKET LAYOUT
+CANONICAL R2 BUCKET LAYOUT (asset-class aware as of crypto-extension Phase 1)
 ============================================================================
 Both this file (reader) and src/snapshot_for_cloud.py (writer) MUST use the
 exact same mapping below. Path drift between writer and reader is a silent-
 failure bug class; this is the single source of truth.
 
+R2 keys are now PREFIXED by asset_class. For asset_class="equities":
+
     repo-relative path                          R2 bucket key
     ----------------------------------------  ----------------------------------
-    models/cache/optuna_studies.db            optuna/optuna_studies.db
-    models/cache/optuna_trials.jsonl          optuna/optuna_trials.jsonl
-    models/cache/macro_signals.parquet        macro/macro_signals.parquet
-    models/xgb_model.meta.json                model/xgb_model.meta.json
-    models/cache/dashboard_results/<L>/<F>    dashboard_results/<L>/<F>
-                                              snapshot_manifest.json   (root)
+    models/cache/optuna_studies.db            equities/optuna/optuna_studies.db
+    models/cache/optuna_trials.jsonl          equities/optuna/optuna_trials.jsonl
+    models/cache/macro_signals.parquet        equities/macro/macro_signals.parquet
+    models/xgb_model.meta.json                equities/model/xgb_model.meta.json
+    models/cache/dashboard_results/<L>/<F>    equities/dashboard_results/<L>/<F>
+                                              snapshot_manifest.json   (root, shared)
+
+For asset_class="crypto" (Phase 2 — Chris's work), the same suffixes
+appear under a `crypto/` prefix instead. The manifest at the bucket
+root is shared across asset classes (a single deployment reads it once).
+
+LOCAL paths: equities keep the flat `models/cache/...` layout (preserves
+every existing callsite bit-identically). Other asset classes get a
+namespaced subdir, e.g. `models/cache/crypto/optuna_studies.db`. See
+docs/Crypto_Extension_Decisions.md for the full rationale.
 ============================================================================
 """
 
@@ -54,18 +65,33 @@ TMP_CACHE = Path(tempfile.gettempdir()) / "paper_trader_snapshot_cache"
 
 
 # ----- Bucket layout (single source of truth) -------------------------------
-R2_LAYOUT: dict[str, str] = {
-    "models/cache/optuna_studies.db":     "optuna/optuna_studies.db",
-    "models/cache/optuna_trials.jsonl":   "optuna/optuna_trials.jsonl",
-    "models/cache/macro_signals.parquet": "macro/macro_signals.parquet",
-    "models/xgb_model.meta.json":         "model/xgb_model.meta.json",
+# The keys here are the SUFFIX after the asset_class prefix. r2_key_for()
+# composes the final R2 key as f"{asset_class}/{suffix}". For example,
+# "models/cache/optuna_studies.db" with asset_class="equities" maps to
+# "equities/optuna/optuna_studies.db" in the bucket.
+R2_LAYOUT_SUFFIX: dict[str, str] = {
+    "models/cache/optuna_studies.db":       "optuna/optuna_studies.db",
+    "models/cache/optuna_trials.jsonl":     "optuna/optuna_trials.jsonl",
+    "models/cache/macro_signals.parquet":   "macro/macro_signals.parquet",
+    "models/xgb_model.meta.json":           "model/xgb_model.meta.json",
     "models/cache/feature_importance.json": "model/feature_importance.json",
-    "models/cache/sector_map.json":       "model/sector_map.json",
-    "models/cache/ticker_names.json":     "model/ticker_names.json",
+    "models/cache/sector_map.json":         "model/sector_map.json",
+    "models/cache/ticker_names.json":       "model/ticker_names.json",
 }
+# Back-compat alias for any external readers that imported R2_LAYOUT
+# directly. Same suffix mapping. snapshot_for_cloud.py is the only known
+# in-repo consumer; it goes through r2_key_for() now, not this dict.
+R2_LAYOUT = R2_LAYOUT_SUFFIX
+
+DEFAULT_ASSET_CLASS = "equities"
+SUPPORTED_ASSET_CLASSES = ("equities", "crypto")
+
 MANIFEST_KEY = "snapshot_manifest.json"
 DASHBOARD_RESULTS_PREFIX_LOCAL  = "models/cache/dashboard_results/"
-DASHBOARD_RESULTS_PREFIX_REMOTE = "dashboard_results/"
+DASHBOARD_RESULTS_PREFIX_REMOTE_SUFFIX = "dashboard_results/"
+# Back-compat alias for any consumer that still imports the legacy name.
+# Equity-class-prefixed remote paths are now produced via r2_key_for().
+DASHBOARD_RESULTS_PREFIX_REMOTE = DASHBOARD_RESULTS_PREFIX_REMOTE_SUFFIX
 
 
 def cloud_mode() -> bool:
@@ -74,18 +100,32 @@ def cloud_mode() -> bool:
     return os.getenv("DASHBOARD_CLOUD_MODE", "").lower() in ("1", "true", "yes")
 
 
-def r2_key_for(local_relative: str) -> str:
-    """Translate a repo-relative path to its R2 bucket key.
+def _validate_asset_class(asset_class: str) -> None:
+    if asset_class not in SUPPORTED_ASSET_CLASSES:
+        raise ValueError(
+            f"Unsupported asset_class={asset_class!r}; "
+            f"valid choices: {SUPPORTED_ASSET_CLASSES}")
 
-    Static mappings (in R2_LAYOUT) plus a dynamic rule for
+
+def r2_key_for(local_relative: str,
+               asset_class: str = DEFAULT_ASSET_CLASS) -> str:
+    """Translate a repo-relative path to its asset-class-prefixed R2 bucket key.
+
+    Static mappings (in R2_LAYOUT_SUFFIX) plus a dynamic rule for
     dashboard_results/<label>/<file> entries that vary by saved config.
+    The final key is always ``f"{asset_class}/{suffix}"`` so the bucket
+    stays cleanly partitioned per asset class. The shared
+    ``snapshot_manifest.json`` at the bucket root is the only key that
+    is NOT asset-class-prefixed.
     """
+    _validate_asset_class(asset_class)
     p = local_relative.replace("\\", "/")
-    if p in R2_LAYOUT:
-        return R2_LAYOUT[p]
+    if p in R2_LAYOUT_SUFFIX:
+        return f"{asset_class}/{R2_LAYOUT_SUFFIX[p]}"
     if p.startswith(DASHBOARD_RESULTS_PREFIX_LOCAL):
-        return p.replace(DASHBOARD_RESULTS_PREFIX_LOCAL,
-                         DASHBOARD_RESULTS_PREFIX_REMOTE, 1)
+        suffix = p.replace(DASHBOARD_RESULTS_PREFIX_LOCAL,
+                           DASHBOARD_RESULTS_PREFIX_REMOTE_SUFFIX, 1)
+        return f"{asset_class}/{suffix}"
     raise ValueError(f"No R2 mapping for {local_relative!r}")
 
 
@@ -174,55 +214,97 @@ def _fetch_to_tmp(remote_key: str, manifest_ts: str,
         return str(TMP_CACHE / "_missing" / remote_key)
 
 
-def path_to(local_relative: str, quiet: bool = False) -> str:
-    """Resolve a repo-relative path to an absolute local path.
+def _local_path_for_asset(local_relative: str, asset_class: str) -> str:
+    """Compute the on-disk path for a repo-relative resource at a given
+    asset_class. For "equities" the legacy flat layout is preserved
+    (no path mutation), so every existing callsite that passes default
+    arguments hits the exact same file as before. For other asset
+    classes (crypto, etc.) the path is namespaced under the cache
+    subtree, e.g. "models/cache/optuna_studies.db" with
+    asset_class="crypto" resolves to "models/cache/crypto/optuna_studies.db".
+    """
+    p = local_relative.replace("\\", "/")
+    if asset_class == "equities":
+        return str(REPO_ROOT / p)
+    # Insert <asset_class>/ inside models/cache/ for non-equity classes.
+    if p.startswith("models/cache/"):
+        rest = p[len("models/cache/"):]
+        return str(REPO_ROOT / "models" / "cache" / asset_class / rest)
+    # Outside models/cache/: leave alone (e.g. models/xgb_model.meta.json
+    # has no asset-aware override yet — callers asking for a non-equity
+    # variant of a top-level model file should pass the namespaced
+    # local_relative explicitly).
+    return str(REPO_ROOT / p)
 
-    Local mode: returns the absolute path under REPO_ROOT (whether or not
-    the file exists; caller's os.path.exists() handles missing files
-    exactly as it does today).
-    Cloud mode: maps to the R2 key, fetches into TMP_CACHE (cached for the
-    session, manifest-timestamp keyed), returns the /tmp path. quiet=True
-    suppresses the warning emitted on a fetch miss — pass it when a
-    missing remote file is an expected condition (not an error)."""
+
+def path_to(local_relative: str,
+            asset_class: str = DEFAULT_ASSET_CLASS,
+            quiet: bool = False) -> str:
+    """Resolve a repo-relative path to an absolute local path,
+    asset-class aware.
+
+    Local mode: returns the absolute path under REPO_ROOT. For
+    asset_class="equities" the legacy flat path is preserved
+    (bit-identical to pre-Phase-1 behavior). For other asset classes
+    the path is namespaced under models/cache/<asset_class>/.
+    Cloud mode: maps to the asset-class-prefixed R2 key, fetches into
+    TMP_CACHE (cached for the session, manifest-timestamp keyed),
+    returns the /tmp path. quiet=True suppresses the warning emitted
+    on a fetch miss — pass it when a missing remote file is an
+    expected condition (not an error)."""
+    _validate_asset_class(asset_class)
     if not cloud_mode():
-        return str(REPO_ROOT / local_relative)
-    remote_key = r2_key_for(local_relative)
+        return _local_path_for_asset(local_relative, asset_class)
+    remote_key = r2_key_for(local_relative, asset_class=asset_class)
     ts = _get_manifest_ts()
     return _fetch_to_tmp(remote_key, ts, _quiet=quiet)
 
 
-def list_dashboard_result_labels() -> list[str]:
-    """Return the set of dashboard_result label names available.
+def list_dashboard_result_labels(
+        asset_class: str = DEFAULT_ASSET_CLASS) -> list[str]:
+    """Return the set of dashboard_result label names available for the
+    given asset_class.
 
-    Local: scans the local dashboard_results/ directory.
-    Cloud: lists keys under the R2 dashboard_results/ prefix and extracts
-    the unique <label> path components."""
+    Local: scans the local dashboard_results/ directory. For "equities"
+    that's the legacy `models/cache/dashboard_results/`; for other
+    asset classes it's `models/cache/<asset_class>/dashboard_results/`.
+    Cloud: lists keys under the asset-class-prefixed dashboard_results/
+    bucket prefix and extracts the unique <label> path components."""
+    _validate_asset_class(asset_class)
     if not cloud_mode():
-        d = REPO_ROOT / "models" / "cache" / "dashboard_results"
+        # Resolve via _local_path_for_asset so the equity legacy layout
+        # stays flat and crypto picks up the namespaced subdir.
+        d_str = _local_path_for_asset(
+            "models/cache/dashboard_results", asset_class)
+        d = Path(d_str)
         if not d.exists():
             return []
         return sorted([p.name for p in d.iterdir() if p.is_dir()])
     client = _get_r2_client()
     paginator = client.get_paginator("list_objects_v2")
+    prefix = f"{asset_class}/{DASHBOARD_RESULTS_PREFIX_REMOTE_SUFFIX}"
     labels: set[str] = set()
-    for page in paginator.paginate(Bucket=_bucket(),
-                                   Prefix=DASHBOARD_RESULTS_PREFIX_REMOTE):
+    for page in paginator.paginate(Bucket=_bucket(), Prefix=prefix):
         for obj in page.get("Contents", []) or []:
             parts = obj["Key"].split("/")
-            # key shape: dashboard_results/<label>/<file>
-            if len(parts) >= 3 and parts[0] == "dashboard_results":
-                labels.add(parts[1])
+            # key shape: <asset_class>/dashboard_results/<label>/<file>
+            if (len(parts) >= 4
+                    and parts[0] == asset_class
+                    and parts[1] == "dashboard_results"):
+                labels.add(parts[2])
     return sorted(labels)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def list_promoted_dashboard_result_labels() -> list[str]:
+def list_promoted_dashboard_result_labels(
+        asset_class: str = DEFAULT_ASSET_CLASS) -> list[str]:
     """Subset of list_dashboard_result_labels() restricted to labels
     whose meta.json has promoted=true. Used by the cloud dashboard's
     Best Trial picker to hide experimental studies. Missing/malformed
     meta.json or missing "promoted" field is treated as not promoted."""
+    _validate_asset_class(asset_class)
     out: list[str] = []
-    for label in list_dashboard_result_labels():
+    for label in list_dashboard_result_labels(asset_class=asset_class):
         try:
             # quiet=True: a missing meta.json is expected for non-study
             # directories (e.g. v3_track2_perturbation/ holds aggregation
@@ -230,7 +312,7 @@ def list_promoted_dashboard_result_labels() -> list[str]:
             # would otherwise emit a warning banner on every render.
             meta_path = path_to(
                 f"models/cache/dashboard_results/{label}/meta.json",
-                quiet=True)
+                asset_class=asset_class, quiet=True)
             with open(meta_path, "r", encoding="utf-8") as f:
                 meta = json.load(f)
             if meta.get("promoted") is True:

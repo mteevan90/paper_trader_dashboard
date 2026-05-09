@@ -44,10 +44,27 @@ _pre = argparse.ArgumentParser(add_help=False)
 _pre.add_argument("--cache-snapshot", required=True)
 _pre_args, _ = _pre.parse_known_args()
 
-_snap_root = os.path.abspath(os.path.join(
-    str(_SRC_DIR), "..", "models", "snapshots", _pre_args.cache_snapshot))
-if not os.path.isdir(_snap_root):
-    sys.exit(f"[RESCORE] Snapshot not found: {_snap_root}")
+# Snapshot resolution post crypto-extension Phase 1: snapshots now live
+# under models/snapshots/<asset_class>/<name>/ (this script is equity-side
+# so it looks under equities/). Legacy un-namespaced path is checked as a
+# fallback so any older snapshot that hasn't been migrated yet still
+# resolves with a clear deprecation warning.
+def _resolve_snap_root(name: str) -> str:
+    base = os.path.join(str(_SRC_DIR), "..", "models", "snapshots")
+    namespaced = os.path.abspath(os.path.join(base, "equities", name))
+    if os.path.isdir(namespaced):
+        return namespaced
+    legacy = os.path.abspath(os.path.join(base, name))
+    if os.path.isdir(legacy):
+        print(f"[RESCORE] WARNING: snapshot {name!r} still at legacy path "
+              f"{legacy}; consider moving to "
+              f"models/snapshots/equities/{name}/")
+        return legacy
+    sys.exit(f"[RESCORE] Snapshot not found at "
+             f"{namespaced} (or legacy {legacy}).")
+
+
+_snap_root = _resolve_snap_root(_pre_args.cache_snapshot)
 os.environ["PAPER_TRADER_DATA_ROOT"] = _snap_root
 print(f"[RESCORE] Using cache snapshot: "
       f"{_pre_args.cache_snapshot} ({_snap_root})")
