@@ -21,6 +21,7 @@ pandas==3.0.2
 numpy==2.4.4
 pyarrow==23.0.1
 matplotlib==3.10.7         # legacy dashboard.py charts (imported by dashboard_app)
+truststore==0.10.4         # OS trust store for HTTPS (handles AV TLS inspection — Norton, corporate proxies). Used by src/options/ entry-point scripts; same approach pip uses internally.
 
 # --- Modeling stack (transitive via dashboard.py → backtest.py → model.py) ---
 xgboost==3.2.0

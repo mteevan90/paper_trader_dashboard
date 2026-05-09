@@ -234,6 +234,11 @@ Options Phase 1 (shared-edge) merged on `<merge date>`. Phase 2 sections 1–9 s
 
 Options Section 3 (Black-Scholes-Merton Greeks module) merged on `<merge date>`. Pure-function module with `price`, `delta`, `gamma`, `theta_per_day`, `vega_per_pct`, `rho_per_bp`, `implied_vol`, `compute_all`, plus a `time_to_expiration` ACT/365 helper. Section 1's `UnderlyingMeta` amended in this PR to carry a `dividend_yield` field for the BSM `q` input.
 
+## Options Section 2 (Tradier OHLCV + chain fetcher)
+
+Options Section 2 (Tradier OHLCV + chain fetcher) merged on `<merge date>`. truststore landed in main with this section.
+ea534c8 (Options Section 2: Tradier OHLCV + chain fetcher)
+
 ---
 
 ## How to use this doc
