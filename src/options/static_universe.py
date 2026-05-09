@@ -10,6 +10,12 @@ output writes to ``UNIVERSE_PARQUET_SCHEMA``.
 Listing dates marked ``# TODO verify`` are best-known approximations and
 should be confirmed against an authoritative source (Tradier reference
 data or OCC historical listing records) before any production use.
+
+``dividend_yield`` values are TTM yields sourced from stockanalysis.com
+on 2026-05-08. SPX is 0.0 (cash-settled index, no distributions). ETFs
+(SPY, QQQ) carry their distribution yield. Single-name yields shift
+with price; refresh on the same cadence as the universe rebalance once
+the v1.1+ liquidity fetcher lands.
 """
 
 from datetime import date
@@ -31,6 +37,7 @@ STATIC_UNIVERSE: tuple[UnderlyingMeta, ...] = (
         sectors=("index",),
         has_weeklies=True,
         dividend_paying=False,
+        dividend_yield=0.0,  # cash-settled index — no distributions
         data_provider_id="SPX",
     ),
     UnderlyingMeta(
@@ -50,6 +57,7 @@ STATIC_UNIVERSE: tuple[UnderlyingMeta, ...] = (
         sectors=("index", "etf"),
         has_weeklies=True,
         dividend_paying=True,
+        dividend_yield=0.0100,  # TTM as of 2026-05-08 (stockanalysis.com)
         data_provider_id="SPY",
     ),
     UnderlyingMeta(
@@ -66,6 +74,7 @@ STATIC_UNIVERSE: tuple[UnderlyingMeta, ...] = (
         sectors=("index", "etf", "tech-heavy"),
         has_weeklies=True,
         dividend_paying=True,
+        dividend_yield=0.0040,  # TTM as of 2026-05-08 (stockanalysis.com)
         data_provider_id="QQQ",
     ),
     # ----- Equities (5, alphabetical) -----
@@ -81,6 +90,7 @@ STATIC_UNIVERSE: tuple[UnderlyingMeta, ...] = (
         sectors=("technology", "consumer-electronics"),
         has_weeklies=True,
         dividend_paying=True,
+        dividend_yield=0.0035,  # TTM as of 2026-05-08 (stockanalysis.com)
         data_provider_id="AAPL",
     ),
     UnderlyingMeta(
@@ -95,6 +105,7 @@ STATIC_UNIVERSE: tuple[UnderlyingMeta, ...] = (
         sectors=("financials", "banks"),
         has_weeklies=True,
         dividend_paying=True,
+        dividend_yield=0.0194,  # TTM as of 2026-05-08 (Yahoo Finance)
         data_provider_id="JPM",
     ),
     UnderlyingMeta(
@@ -109,6 +120,7 @@ STATIC_UNIVERSE: tuple[UnderlyingMeta, ...] = (
         sectors=("technology", "software"),
         has_weeklies=True,
         dividend_paying=True,
+        dividend_yield=0.0088,  # TTM as of 2026-05-08 (stockanalysis.com)
         data_provider_id="MSFT",
     ),
     UnderlyingMeta(
@@ -123,6 +135,7 @@ STATIC_UNIVERSE: tuple[UnderlyingMeta, ...] = (
         sectors=("technology", "semiconductors"),
         has_weeklies=True,
         dividend_paying=True,
+        dividend_yield=0.0002,  # TTM as of 2026-05-08 (stockanalysis.com); token amount
         data_provider_id="NVDA",
     ),
     UnderlyingMeta(
@@ -137,6 +150,7 @@ STATIC_UNIVERSE: tuple[UnderlyingMeta, ...] = (
         sectors=("energy", "oil-gas"),
         has_weeklies=True,
         dividend_paying=True,
+        dividend_yield=0.0285,  # TTM as of 2026-05-08 (stockanalysis.com)
         data_provider_id="XOM",
     ),
 )

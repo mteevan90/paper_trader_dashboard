@@ -33,6 +33,12 @@ class UnderlyingMeta:
     sectors: tuple[str, ...]
     has_weeklies: bool
     dividend_paying: bool
+    # TTM dividend yield as a decimal fraction (0.0285 for 2.85%). For
+    # cash-settled indexes (SPX) this is 0.0; for ETFs the distribution
+    # yield; for single names the trailing-twelve-month yield. Section 3
+    # Greeks consume this as ``q`` in BSM; refresh from a market-data
+    # provider on a cadence that matches the rest of the universe.
+    dividend_yield: float
     data_provider_id: str
 
     def __post_init__(self) -> None:
@@ -48,6 +54,9 @@ class UnderlyingMeta:
             raise ValueError(
                 f"settlement_type must be one of {_VALID_SETTLEMENT_TYPES}; "
                 f"got {self.settlement_type!r}")
+        if self.dividend_yield < 0:
+            raise ValueError(
+                f"dividend_yield must be >= 0; got {self.dividend_yield!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +95,7 @@ UNIVERSE_PARQUET_SCHEMA = pa.schema(
         pa.field("listing_date", pa.date32(), nullable=False),
         pa.field("delisting_date", pa.date32(), nullable=True),
         pa.field("data_provider_id", pa.string(), nullable=False),
+        pa.field("dividend_yield", pa.float64(), nullable=True),
         pa.field("options_adv_30d", pa.float64(), nullable=True),
         pa.field("chain_spread_pct_30d", pa.float64(), nullable=True),
     ]
