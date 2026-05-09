@@ -67,3 +67,14 @@ v3_track2_*.log
 
 # Source-zipping scratch
 make_src_zip.py
+# Add to .gitignore if not already present
+*.log
+spot_check.py
+check_*.py
+track_*.py
+study_progress.py
+progress_*.py
+best_continuous.py
+touch_snapshot.py
+rescue_save_continuous.py
+_spec_extracted.txt

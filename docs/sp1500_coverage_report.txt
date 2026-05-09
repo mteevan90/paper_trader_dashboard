@@ -1,0 +1,22 @@
+# SP1500 Coverage Report — generated 2026-05-08T14:56:33
+
+Universe size:                            1473
+  - Already in legacy 490 universe:       491
+  - NEW from S&P 400/600 expansion:       982
+
+Complete data (full window):                 34  (2.3%)
+Limited history (post-min_start IPOs):        3  (0.2%)  -- usable for validation, not early training
+Partial (price OK, missing other data):    1436  (97.5%)
+Failed (no price data at all):                0  (0.0%)
+  Bucket sum (sanity check):               1473  (matches universe size: True)
+
+## Partial-data breakdown
+  missing [earnings]: 1436 tickers
+
+## Limited-history breakdown (first 30; full list in sp1500_fetch_failures.txt)
+  ABNB        first trading day: 2020-12-10
+  ACI         first trading day: 2020-06-26
+  SDGR        first trading day: 2020-02-06
+
+## First 30 failed tickers (full list in sp1500_fetch_failures.txt)
+  (none)
