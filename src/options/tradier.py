@@ -1,9 +1,21 @@
 """Tradier-backed OHLCV and option-chain fetcher (Phase 2 Section 2).
 
+Live execution and current chain snapshot only — historical OHLCV is
+fetched via :mod:`src.options.polygon` since Section 2.5 (May 2026).
+Tradier's ``/markets/history`` endpoint returns null for expired option
+contracts at all plan tiers, so the historical path was rerouted to
+Polygon. This module remains the live data path for paper-trade
+snapshots, current chain reads, and v2+ live order routing. See
+Appendix I in ``docs/Options_Extension_Decisions.md`` for the
+discovery and discipline notes.
+
 Public functions:
     fetch_history          -- daily OHLCV for an OCC symbol or an
                               underlying ticker, sanity-gated and
-                              cached (1-day TTL).
+                              cached (1-day TTL). Retained for the
+                              underlying-history path (works for live
+                              equities); historical per-OCC fetches
+                              now go through polygon.fetch_history.
     fetch_expirations      -- current expiration dates for an underlying.
     fetch_chain_snapshot   -- current chain for an underlying +
                               expiration, optionally with bundled

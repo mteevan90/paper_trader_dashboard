@@ -10,8 +10,8 @@ Usage:
     python scripts/run_options_v1_study.py --non-interactive
     python scripts/run_options_v1_study.py \\
         --run-id my_run \\
-        --start-date 2023-01-03 --end-date 2025-12-31 \\
-        --train-val-split-date 2024-12-31
+        --start-date 2023-01-02 --end-date 2026-05-08 \\
+        --train-val-split-date 2025-01-02
 """
 
 from __future__ import annotations
@@ -56,17 +56,19 @@ def main() -> None:
     parser.add_argument(
         "--start-date",
         type=date.fromisoformat,
-        default=date(2023, 1, 3),
+        # Polygon Options Developer tier's enforced historical floor —
+        # see Appendix I and §10 in Options_Extension_Decisions.md.
+        default=date(2023, 1, 2),
     )
     parser.add_argument(
         "--end-date",
         type=date.fromisoformat,
-        default=date(2025, 12, 31),
+        default=date(2026, 5, 8),
     )
     parser.add_argument(
         "--train-val-split-date",
         type=date.fromisoformat,
-        default=date(2024, 12, 31),
+        default=date(2025, 1, 2),
     )
     parser.add_argument("--starting-capital", type=float, default=100_000.0)
     parser.add_argument("--n-trials-primary", type=int, default=100)
