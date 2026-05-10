@@ -26,6 +26,7 @@ from datetime import date
 from typing import Callable, Optional
 
 import pandas as pd
+import requests
 
 from src.options.greeks import delta as bsm_delta
 from src.options.greeks import implied_vol as bsm_implied_vol
@@ -41,10 +42,22 @@ __all__ = [
     "select_strike",
     "DEFAULT_WIDTH_PCT",
     "DEFAULT_DELTA_TOLERANCE",
+    "TRANSIENT_FETCH_EXCEPTIONS",
 ]
 
 
 logger = logging.getLogger(__name__)
+
+# Exception types we treat as expected per-OCC noise during chain
+# reconstruction (a candidate strike that didn't trade, a transient
+# network blip). Anything outside this tuple — RuntimeError,
+# KeyError, configuration mistakes, etc. — re-raises so a
+# misconfigured study fails fast instead of stalling silently.
+TRANSIENT_FETCH_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    requests.HTTPError,
+    requests.Timeout,
+    requests.ConnectionError,
+)
 
 
 DEFAULT_WIDTH_PCT: float = 0.20
@@ -127,6 +140,11 @@ def reconstruct_chain(
     spacing = get_strike_spacing(underlying, spot)
     strikes = _strike_grid(spot, spacing, width_pct)
 
+    # Track which transient-exception types we've already INFO-logged
+    # for this call so an analyst sees the first occurrence of each
+    # condition without a per-strike spam wall (~80 candidates/day).
+    seen_transient_types: set[str] = set()
+
     results: list[tuple[ContractSpec, float]] = []
     for strike in strikes:
         for option_type in ("C", "P"):
@@ -139,12 +157,29 @@ def reconstruct_chain(
             occ = generate_occ_symbol(spec)
             try:
                 df = fetcher(occ, sim_date, sim_date, limiter=limiter)
-            except Exception as exc:
-                logger.debug(
-                    "chain_reconstruction: fetcher raised on %s: %s",
-                    occ, exc,
-                )
+            except TRANSIENT_FETCH_EXCEPTIONS as exc:
+                # Expected per-OCC noise: candidate didn't trade, or a
+                # transient network blip. Log first occurrence of each
+                # exception type at INFO; the rest at DEBUG so production
+                # logs surface a signal without spamming.
+                exc_type = type(exc).__name__
+                if exc_type not in seen_transient_types:
+                    seen_transient_types.add(exc_type)
+                    logger.info(
+                        "chain_reconstruction: %s on %s for %s "
+                        "(suppressing further %s logs at DEBUG)",
+                        exc_type, occ, underlying, exc_type,
+                    )
+                else:
+                    logger.debug(
+                        "chain_reconstruction: %s on %s: %s",
+                        exc_type, occ, exc,
+                    )
                 continue
+            # Anything else (RuntimeError from missing token,
+            # KeyError, ValueError, etc.) is a configuration or
+            # programming bug — re-raise so the study fails fast
+            # instead of stalling silently like the 8-hour v1 run.
             if df is None or df.empty:
                 continue
             close = _close_on_date(df, sim_date)

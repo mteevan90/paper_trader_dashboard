@@ -37,7 +37,17 @@ use_system_trust_store()
 
 from dotenv import load_dotenv  # noqa: E402
 
-load_dotenv()
+# Explicit path so .env loads regardless of the script's invocation CWD.
+# load_dotenv() with no args walks up from CWD and silently no-ops if
+# .env isn't found — that hid an 8-hour production stall once.
+_DOTENV_PATH = REPO_ROOT / ".env"
+if not _DOTENV_PATH.exists():
+    print(
+        f"WARNING: {_DOTENV_PATH} not found; "
+        "TRADIER_SANDBOX_TOKEN may not be set",
+        file=sys.stderr,
+    )
+load_dotenv(_DOTENV_PATH)
 
 from src.options.backtest_config import DEFAULT_UNIVERSE  # noqa: E402
 from src.options.optuna_runner import run_optuna_study  # noqa: E402
