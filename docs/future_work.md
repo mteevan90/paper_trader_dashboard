@@ -230,6 +230,10 @@ Options Phase 1 (shared-edge) merged on `<merge date>`. Phase 2 sections 1–9 s
 
 ---
 
+## Options Section 4 (Position + lifecycle model)
+
+Options Section 4 (Position + lifecycle model) merged on `<merge date>`.
+
 ## Options Section 3 (Black-Scholes Greeks module)
 
 Options Section 3 (Black-Scholes-Merton Greeks module) merged on `<merge date>`. Pure-function module with `price`, `delta`, `gamma`, `theta_per_day`, `vega_per_pct`, `rho_per_bp`, `implied_vol`, `compute_all`, plus a `time_to_expiration` ACT/365 helper. Section 1's `UnderlyingMeta` amended in this PR to carry a `dividend_yield` field for the BSM `q` input.

@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Document version | v1.0 — May 9, 2026 |
+| Document version | v1.4 — May 9, 2026 |
 | Author | Chris Teevan |
 | Repo path | `docs/Options_Extension_Decisions.md` |
-| Status | Design phase complete. Phase 1 (shared-edge refactor) ready to ship. Sections 1–9 specced. |
+| Status | Phase 1 + Sections 1, 2, 3 merged. Section 4 (Position + lifecycle model) specced and ready to ship. Sections 5–9 specced. |
 | Predecessors | `docs/Crypto_Extension_Decisions.md` (sibling pattern), `docs/Comprehensive_User_Guide.docx` (Mike's authoritative reference) |
 
 This is the canonical record of architectural decisions for the options module. When sections complete, when decisions get refined, or when v1.1 work begins, this file is the source of truth — same role the crypto decisions doc plays for crypto.
@@ -62,11 +62,11 @@ Adding `options` is mechanically the same shape as adding `crypto` was. The Phas
 | Data source | Tradier (brokerage-attached) | Free with account, backtest + paper-trade in a single integration, Greeks via ORATS bundled in chain response. Escalate to Polygon ($79/mo) or ThetaData if backtest depth becomes binding. |
 | Greeks model | Black-Scholes (closed-form) | Closed-form, fast, well-understood. Adequate for short-dated equity/index options actively managed. Vol surface modeling (Heston, SVI) deferred to v1.1+. We compute our own Greeks for validation, but treat Tradier/ORATS Greeks as a sanity check. |
 | Backtest engine | Hybrid — new options-native engine, reuse Optuna runner + config-dataclass shape | Position lifecycle differs fundamentally from equity day-walk (expirations, multi-leg atomic positions, intra-position exits). Optuna runner and BacktestConfig dataclass shape are reusable. |
-| Underlying universe | SPX, SPY, QQQ + curated equity subset (~5–10 names initial, expand to ~20 after Section 8) | Indexes for clean data and high liquidity. Equity subset for diversification. Liquidity floor much harder than equity baseline (options-grade liquidity, not just stock liquidity). |
+| Underlying universe | SPX, SPY, QQQ + curated equity subset (5 names locked at Section 1; v1.1+ replaces with liquidity-filtered Mike's equity universe) | Indexes for clean data and high liquidity. Equity subset for diversification. Liquidity floor much harder than equity baseline (options-grade liquidity, not just stock liquidity). |
 | Primary benchmark | SPY total return | Strategy-relevant baseline. The dashboard reports vs SPY total return for comparability with Mike's equity studies. |
 | Secondary benchmark | CBOE BuyWrite Index (BXM) | Strategy-class-specific honesty check for covered call studies. Surfaces whether the active-management edge is real or just a beta repackaging. |
 | Python version | 3.11.9 | Match Mike's documented convention. |
-| TLS handling | `truststore` package, injected at script start | Carries the crypto lesson forward. Norton 360 TLS inspection breaks certifi-based requests. truststore reads from Windows trust store. Land this in main with Section 2. |
+| TLS handling | `truststore` package, injected at script entry point | Carries the crypto lesson forward. Norton 360 TLS inspection breaks certifi-based requests. truststore reads from Windows trust store. Landed in main with Section 2; entry-point scripts call `src/options/_ssl.py:use_system_trust_store()` before any HTTPS-touching imports. |
 | Sentiment / macro signals | Not in v1 architecture | Crypto needs sentiment because it's reflexive. Options have natural macro hooks (VIX, term structure, skew) — but these are options-derived signals, so wiring them into option strategies is recursive. Defer to v1.1. |
 | v1 publish bar | Light: single Optuna run, train/val window split, SPY + BXM benchmarks, one promoted study | Mirror crypto v1 publish bar. Walk-forward, multi-regime studies, vol-of-vol modeling are v1.1+. |
 | Snapshot for v1 study | `pre_options_v1_<date>` under `models/snapshots/options/` | Locks the data inputs at promotion. Reproducibility guarantee carries from equities. |
@@ -166,18 +166,17 @@ These are carried forward into the build. Anything new discovered during section
 - **Strikes are discrete.** Can't write "exactly 30-delta CSP" — choose the nearest available strike. Engine needs a `strike_selector(target_delta, chain)` function. Document the rounding choice in study output.
 - **Multi-leg positions are atomic.** A vertical spread is one position with two legs, not two independent positions. The position model encodes this from day one (Section 4) so v1.1 doesn't require a refactor.
 - **Options data is dense.** A single underlying has ~1000 contracts at a time (multiple expirations × strike grid × calls/puts). Storage and query patterns differ from equities. Section 2 addresses this with parquet partitioning by `underlying / expiration_date`.
-- **Norton 360 TLS still applies.** Tradier API uses HTTPS. `truststore.inject_into_ssl()` at script start. Land truststore with Section 2.
+- **Norton 360 TLS still applies.** Tradier API uses HTTPS. `truststore.inject_into_ssl()` at script entry point via `src/options/_ssl.py`. Landed in main with Section 2.
 - **OCC symbol format.** Standard 21-character format (`AAPL220617C00270000`). Parsing/generation utility at Section 1.
 - **Dividend handling affects pricing.** Equity dividends affect option pricing (forward-price adjustment). Tradier provides dividend data; we use it directly rather than recomputing.
 - **Holiday and early-close calendars.** Settlement on holiday-shifted expiries needs care. Use NYSE calendar (`pandas_market_calendars`).
 - **Tradier sandbox is 15-min delayed without funded account.** For backtest this doesn't matter (we use historical). For paper-trade development it means a small staleness in the sandbox feed — acceptable for v1, document it.
-<<<<<<< HEAD
-- **BSM treats American-style options as European.** Early-exercise premium is ignored in v1. The premium is small for non-dividend-paying single names but non-trivial for dividend-paying names near ex-div. Adequate for short-dated actively-managed positions (the v1 thesis). v1.1+ adds Barone-Adesi-Whaley approximation if Section 8 surfaces a meaningful gap. SPX is European-style and unaffected; SPY/QQQ are American-style ETFs but their distribution mechanics don't trigger the same early-exercise math as single-name ex-div windows.
-=======
 - **Tradier exposes per-contract history, not historical chain enumeration.** `/markets/history` accepts an OCC symbol or an underlying ticker and returns daily OHLCV. There is no endpoint for "what strikes existed for SYMBOL on DATE." Section 2 ships per-contract history, current-chain snapshot, and expirations only. Section 6 reconstructs the chain at backtest time by enumerating candidate OCC symbols and accepting that many will return empty histories. If candidate-enumeration overhead becomes binding, escalate to Polygon or ThetaData per §3 row 5.
 - **Tradier rate limits surface in response headers.** `X-Ratelimit-Used`, `X-Ratelimit-Allowed`, `X-Ratelimit-Available`, and `X-Ratelimit-Expiry` are returned per request. The fetcher honors these in addition to a conservative fallback cap. Sandbox limits are tighter than production for market-data endpoints — the fallback respects sandbox.
 - **Tradier API returns XML by default.** Set `Accept: application/json` on every request. Forgetting this is a silent-failure class where parsing chokes on what looks like JSON but is an XML envelope.
->>>>>>> ea534c8 (Options Section 2: Tradier OHLCV + chain fetcher)
+- **BSM treats American-style options as European.** Early-exercise premium is ignored in v1. The premium is small for non-dividend-paying single names but non-trivial for dividend-paying names near ex-div. Adequate for short-dated actively-managed positions (the v1 thesis). v1.1+ adds Barone-Adesi-Whaley approximation if Section 8 surfaces a meaningful gap. SPX is European-style and unaffected; SPY/QQQ are American-style ETFs but their distribution mechanics don't trigger the same early-exercise math as single-name ex-div windows.
+- **Expiration settlement differs by underlying type.** SPX is European-style and cash-settles to intrinsic at expiration. SPY/QQQ/equity options are American-style and share-settle when ITM at expiration: short call ITM → short shares delivered (-100 per contract); short put ITM → long shares delivered (+100 per contract); long call/put ITM → cash credit equal to intrinsic. Section 4's Position model sets `state=ASSIGNED` for share-settled cases and surfaces the resulting equity exposure for Section 6 engine to handle. Long-leg ITM on share-settled options is treated as cash-settled in v1 — automatic exercise logic for retail accounts is broker-dependent and not modeled.
+- **Cash legs in v1 are treated as zero-yield.** CSP collateral cash is held in the position but does not earn the risk-free rate. Cash drag is a real cost to the strategy in high-rate environments (4–5% in 2026). v1.1+ adds risk-free yield accrual to cash legs; impact on study results documented in concentration analysis.
 
 ---
 
@@ -187,17 +186,12 @@ Mirrors the crypto Phase 2 sectioning. Each section is a self-contained PR that 
 
 | # | Section | Status | Notes |
 | --- | --- | --- | --- |
-| 1 | Universe + contract spec | NOT STARTED | `UnderlyingMeta` and `ContractSpec` dataclasses, OCC symbol parse/generate utility, parquet schema, static initial universe (3 indexes + 5 curated equities). v2 API stubs reserve the seam for v1.1+ filter-based expansion against Mike's equity universe. Mirror crypto Section 1 shape. |
-HEAD
-| 2 | Tradier OHLCV + chain fetcher | NOT STARTED | Sandbox API key, OAuth flow, rate limit handling, `truststore.inject_into_ssl()` at module init. Historical chains by OCC symbol. Sanity gate at <50% non-empty refuses cache write. Caches to `models/cache/options/tradier/`. truststore lands in main with this section — will require shared-file approval from Mike. |
-| 3 | Black-Scholes Greeks module | NOT STARTED | Closed-form Black-Scholes-Merton (continuous dividend yield `q`). Pure-function module exposing `price`, `delta`, `gamma`, `theta_per_day`, `vega_per_pct`, `rho_per_bp`, `implied_vol`, plus `compute_all` returning a frozen `GreeksResult` dataclass. Trader-convention units throughout, encoded in field names so consumers don't have to remember (theta scaled to per-calendar-day, vega per 1 IV point, rho per 1 bp). Day count ACT/365 hardcoded in a `time_to_expiration` helper (basis flexibility deferred to v1.1+ if a study needs ACT/360). Caller passes `q` (SPX: 0; SPY/QQQ: distribution yield; single names: ticker-specific) — Section 1's `UnderlyingMeta` is amended with a `dividend_yield` field in the same PR so callers have a canonical lookup. American-style treated as European — early-exercise premium ignored; documented in §8. `implied_vol` solver via Brent's method ships in Section 3 because Section 6 needs it for backtest IV reconstruction (Tradier per-contract history returns OHLCV without IV). Edge cases handled explicitly: `T<0`/`S<=0`/`K<=0`/`vol<0` raise; `T==0` or `vol==0` returns intrinsic + zero Greeks except delta = ±1/0 ITM indicator. Pure-math validation only: Hull reference values (`pytest.approx(abs=0.005, rel=0.001)` to absorb textbook rounding) + put-call parity + finite-difference Greeks (~1e-4 tolerance). ORATS comparison is a manual one-time post-merge sanity check via `scripts/fetch_options_chain.py`, not a permanent test. |
-
-| 2 | Tradier OHLCV + chain fetcher | NOT STARTED | Sandbox + production tokens via env vars (`TRADIER_SANDBOX_TOKEN`, `TRADIER_PRODUCTION_TOKEN`); bearer-token auth (no OAuth). Header-driven rate-limit handling (`X-Ratelimit-*`) with conservative fallback. `truststore.inject_into_ssl()` invoked by entry-point scripts via `src/options/_ssl.py` helper, mirroring crypto's pattern. Per-contract OHLCV by OCC symbol (or underlying ticker) + current-chain snapshot + expirations endpoint; historical chain enumeration is **not** offered by Tradier and is reconstructed at backtest time in Section 6 by candidate-OCC enumeration. 1-day TTL on history cache; chain snapshots immutable per `<run_date>` file. Sanity gate at <50% non-empty refuses history cache write. Caches to `models/cache/options/tradier/`. truststore lands in main with this section — shared-file approval from Mike required. |
-| 3 | Black-Scholes Greeks module | NOT STARTED | Closed-form delta/gamma/theta/vega/rho. Pure-function module, no external state. Validate against Tradier/ORATS Greeks (sanity check, not source of truth). Tests cover ATM/OTM/ITM and near-expiration edge cases. |
->>>>>>> ea534c8 (Options Section 2: Tradier OHLCV + chain fetcher)
-| 4 | Position + lifecycle model | NOT STARTED | The new architectural element. `Position` dataclass with `strategy_class`, `legs[]`, `entry_date`, `exit_rules`, `pnl()`, `is_expired()`, `should_exit_now(market)` methods. Multi-leg atomic operations from day one. Active-management exit rules (profit target, time stop, stop-loss-on-pnl) as first-class. |
+| 1 | Universe + contract spec | MERGED (PR #4) | `UnderlyingMeta` (12 fields, frozen+slots; `dividend_yield` added in Section 3) and `ContractSpec` (4 fields) dataclasses, OCC symbol parse/generate utility (strict 21-char round-trip), `UNIVERSE_PARQUET_SCHEMA`, static 8-underlying universe (SPX, SPY, QQQ + AAPL, JPM, MSFT, NVDA, XOM), v1 public API + v2 stubs reserving the seam for v1.1+ filter-based expansion against Mike's equity universe. Mirrors crypto Section 1 shape. |
+| 2 | Tradier OHLCV + chain fetcher | MERGED (PR #5) | Sandbox + production tokens via env vars (`TRADIER_SANDBOX_TOKEN`, `TRADIER_PRODUCTION_TOKEN`); bearer-token auth (no OAuth). Header-driven rate-limit handling (`X-Ratelimit-*`) with conservative fallback. `truststore.inject_into_ssl()` invoked by entry-point scripts via `src/options/_ssl.py` helper, mirroring crypto's pattern. Per-contract OHLCV by OCC symbol (or underlying ticker) + current-chain snapshot + expirations endpoint; historical chain enumeration is **not** offered by Tradier and is reconstructed at backtest time in Section 6 by candidate-OCC enumeration. 1-day TTL on history cache; chain snapshots immutable per `<run_date>` file. Sanity gate at <50% non-empty refuses history cache write. Caches to `models/cache/options/tradier/`. truststore landed in main with this section. Live smoke against Tradier sandbox: SPY history 20/30 days (66.7% coverage, gate pass), SPY chain 508 contracts, real cache write succeeded — truststore correctly bypasses Norton 360 TLS inspection. |
+| 3 | Black-Scholes Greeks module | MERGED (PR #6) | Closed-form Black-Scholes-Merton (continuous dividend yield `q`). Pure-function module exposing `price`, `delta`, `gamma`, `theta_per_day`, `vega_per_pct`, `rho_per_bp`, `implied_vol`, plus `compute_all` returning a frozen `GreeksResult` dataclass. Trader-convention units throughout, encoded in field names so consumers don't have to remember (theta scaled to per-calendar-day, vega per 1 IV point, rho per 1 bp). Day count ACT/365 hardcoded in a `time_to_expiration` helper (basis flexibility deferred to v1.1+ if a study needs ACT/360). Caller passes `q` (SPX: 0; SPY/QQQ: distribution yield; single names: ticker-specific) — Section 1's `UnderlyingMeta` was amended with a `dividend_yield` field in the same PR so callers have a canonical lookup. American-style treated as European — early-exercise premium ignored; documented in §8. `implied_vol` solver via Brent's method ships in Section 3 because Section 6 needs it for backtest IV reconstruction (Tradier per-contract history returns OHLCV without IV). The "below intrinsic" check uses the proper European lower bound (`max(K·e^(-rT) - S·e^(-qT), 0)` for puts, call analogue for calls), not the American intrinsic — caught mid-flight; deep-ITM puts with r > q would have spuriously raised under the simpler check. Edge cases handled explicitly: `T<0`/`S<=0`/`K<=0`/`vol<0` raise; `T==0` or `vol==0` returns intrinsic + zero Greeks except delta = ±1/0 ITM indicator. Pure-math validation only: Hull reference values (`pytest.approx(abs=0.005, rel=0.001)` to absorb textbook rounding) + put-call parity + finite-difference Greeks (~1e-4 tolerance). ORATS comparison is a manual one-time post-merge sanity check via `scripts/fetch_options_chain.py`, not a permanent test. |
+| 4 | Position + lifecycle model | NOT STARTED | Position dataclass (frozen + slots) representing a multi-leg options position with first-class active-management exit rules. **Hybrid representation:** canonical `legs: tuple[Leg, ...]` shape used by all engine code, plus per-strategy classmethod constructors (`Position.covered_call`, `Position.cash_secured_put`, future `Position.vertical_spread`, etc.) for self-documenting construction with validation in `__post_init__`. `Leg` carries (contract, sign, quantity); contract is `ContractSpec` (option), `StockContract` (stock), or `CashContract` (cash collateral) — discriminated union via type. Explicit cash legs on CSPs symmetric with explicit stock legs on CCs — honest portfolio accounting. `ExitRules` dataclass with hardcoded fields (`profit_target_pct`, `time_stop_dte`, `stop_loss_pct`, at least one required) — Optuna-friendly fixed parameter space. `PositionState` enum: `OPEN` → `CLOSED_MANAGED` (active-management exit) | `EXPIRED_ITM` (cash-settled, SPX) | `EXPIRED_OTM` | `ASSIGNED` (share-settled, equity options at expiration). Mark-to-mid P&L using daily chain close. Honest settlement at expiration: SPX cash-settles to intrinsic, SPY/QQQ/equities share-settle (the spawned equity position from `state=ASSIGNED` is created and managed by Section 6 engine, not in Section 4). Frozen with `evolve(**changes)` method that returns new instance via `dataclasses.replace`. Position aggregates leg-level Greeks via Section 3's `compute_all` (cash and stock legs contribute zero Greeks except stock delta). Closure reason format documented: `profit_target_<pct>`, `time_stop_<dte>`, `stop_loss_<pct>`, `expired_itm_cash_settled`, `expired_otm`, `assigned_call`, `assigned_put`. v1 ignores early assignment per §8 (avoid ex-div windows on short calls). **`entry_credit` convention (locked at Section 4 implementation):** `entry_credit` follows trader semantics — net cash received at open, positive for credits (CSP `+put_premium*100`, CC `-stock_basis*100 + call_premium*100`), negative for debits (long premium positions). `mark_to_market` returns P&L in dollars and excludes cash legs from the leg sum (cash held at par with zero yield per §8): `P&L = sum(sign × qty × multiplier × mark for non-cash legs) + entry_credit`. Stock legs **do** contribute (a CC's stock leg moves with the underlying). `should_exit` thresholds use `abs(entry_credit)` for symmetry across credit/debit positions: profit triggers when `P&L ≥ profit_target_pct × abs(entry_credit)`, stop_loss triggers when `P&L ≤ -stop_loss_pct × abs(entry_credit)`. The original Section 4 spec said "sum over legs ... minus entry_credit", which couldn't simultaneously satisfy trader-view `entry_credit` and the P&L-zero-at-open invariant once explicit cash collateral legs were introduced; the trader-view + non-cash-sum convention was chosen at implementation time. |
 | 5 | Options BacktestConfig | NOT STARTED | Dataclass mirroring equity shape but with options fields: `dte_target`, `profit_target_pct`, `time_stop_dte`, `strategy_class` enum, position-sizing rule, fee model, slippage model, `max_concurrent_positions`, earnings-window-avoidance flag, `strike_selector_target_delta`. |
-| 6 | Options backtest engine | NOT STARTED | Daily walk on NYSE trading calendar. Position management loop: evaluate exit rules on all open positions → close exits → evaluate entry rules → open new entries (subject to `max_concurrent_positions`). P&L roll-up per day. Train/val window split. |
+| 6 | Options backtest engine | NOT STARTED | Daily walk on NYSE trading calendar. Position management loop: evaluate exit rules on all open positions → close exits → evaluate entry rules → open new entries (subject to `max_concurrent_positions`). P&L roll-up per day. Train/val window split. Reads `state=ASSIGNED` from Section 4 positions and creates the resulting equity position for independent management. |
 | 7 | Optuna runner + smoke study | NOT STARTED | Borrow runner skeleton from `src/optuna_runner.py`. Separate `optuna_studies.db` at `models/cache/options/`. Smoke study: tiny universe (1–2 underlyings), tight DTE range, single strategy class. `promotable: false` enforced at upload. |
 | 8 | Real study (active-management CCs + CSPs) | NOT STARTED | Train/val split (windows TBD at Section 8 — likely train pre-2024, val 2024–2025). SPY total return primary benchmark, BXM secondary for CCs. Single Optuna run. Concentration analysis per Section 7 of this doc (by underlying, DTE band, IV regime, strategy variant). |
 | 9 | Dashboard wiring + publish | NOT STARTED | Replace Options placeholder with three-layer view. Tab structure: **Performance**, **Open Positions**, **Trade History**, **Greeks Exposure** (portfolio-level delta/gamma/theta/vega over time), **Risk & Behavior**, **Reliability**, **Tuning History**, **Glossary**. Adapt equity dashboard chrome — same scaffolding, options-relevant content. |
@@ -219,12 +213,15 @@ These are not blockers for v1 but should be tracked. When v1 ships, this list is
 - **Position sizing rule.** v1 default: fixed-risk per position (e.g., max-loss = 2% of portfolio). Alternative: Kelly-style or CVaR-aware. Revisit once v1 study has data.
 - **American-style early-exercise modeling.** v1 BSM ignores it. v1.1+ adds Barone-Adesi-Whaley closed-form approximation (or a small binomial tree) for stricter pricing on dividend-paying single names near ex-div windows. Pulls in iff Section 8 finds the v1 gap meaningful.
 - **Day-count basis flexibility.** v1 hardcodes ACT/365 in `time_to_expiration`. v1.1+ adds basis selection (ACT/360, business-day) if a study or strategy class needs it.
+- **Early assignment on American-style short options.** v1 avoids ex-div windows for short calls on dividend-paying single names (per §8) but does not actively model early-exercise probability. v1.1+ adds early-assignment risk modeling using BSM-derived early-exercise premium and ex-div date proximity.
+- **Cash leg interest accrual.** v1 treats all cash legs as zero-yield. v1.1+ accrues risk-free rate on cash collateral; relevant for high-rate-environment realism (CSP cash drag was ~$2/contract/month in 2026's rate regime — small but compounds).
+- **Long-leg automatic exercise modeling.** v1 cash-settles long ITM legs at expiration. Real retail brokers auto-exercise long ITM options on expiration day if ITM by ≥$0.01, with broker-specific opt-out windows. v1.1+ adds broker-realistic auto-exercise logic where it materially changes P&L.
 
 ---
 
-## Appendix A — Phase 1 spec (shared-edge refactor)
+## Appendix A — Phase 1 spec (shared-edge refactor) [archived]
 
-This is the spec to hand to Claude Code as the first PR. It's small, scope-controlled, and mirrors what Mike did for crypto Phase 1. The goal is to land the placeholder so Section 1 (universe + contract spec) can follow as a self-contained options-only PR with no shared-file edits.
+The Phase 1 spec executed in PR #3. Kept here as historical reference for the shared-edge refactor pattern subsequent asset classes can copy.
 
 ### Goal
 
@@ -234,57 +231,27 @@ Add `options` as the third asset class in the sidebar selector with placeholder 
 
 `chris/options-phase-1-shared-edge`
 
-### Files to create
+### Files created
 
 | Path | Content |
 | --- | --- |
-| `docs/Options_Extension_Decisions.md` | This file (drop in as-is) |
-| `src/options/__init__.py` | Empty package marker with module docstring referencing this design doc |
+| `docs/Options_Extension_Decisions.md` | This file |
+| `src/options/__init__.py` | Empty package marker |
 | `tests/options/__init__.py` | Empty file |
 | `tests/options/test_smoke.py` | Smoke test: import `src.options`, assert package loads |
-| `models/cache/options/.gitkeep` | Empty file (directory marker, gitignored content) |
-| `models/snapshots/options/.gitkeep` | Empty file (directory marker, gitignored content) |
 
-### Files to edit
+### Files edited
 
 | Path | Edit |
 | --- | --- |
-| `src/dashboard_app.py` | Add `Options` to the sidebar asset selector. Add `elif asset_class == "options":` branch in `main()` rendering a placeholder identical in pattern to the crypto placeholder Mike wired in Phase 1 (e.g., "Options module — Phase 2 in progress. See `docs/Options_Extension_Decisions.md`."). |
-| `.github/CODEOWNERS` | Add: `src/options/ @cmjteevan`, `tests/options/ @cmjteevan`, `docs/Options_Extension_Decisions.md @cmjteevan`. |
-| `docs/future_work.md` | Append: "Options Phase 1 (shared-edge) merged on `<merge date>`. Phase 2 sections 1–9 specced in `Options_Extension_Decisions.md`." |
-
-### Verification
-
-Before opening the PR, all of these must pass on Chris's machine:
-
-```powershell
-cd "C:\Users\cteev\AI Projects\paper_trader_dashboard"
-.\venv\Scripts\activate
-
-# Smoke test passes
-pytest tests\options\ -v
-
-# Dashboard renders, sidebar shows Options option, selecting it shows placeholder
-streamlit run src\dashboard_app.py
-# (manual visual check in browser, then Ctrl+C)
-
-# R2 dry-run succeeds (uploads nothing — no data yet)
-venv\Scripts\python.exe src\snapshot_for_cloud.py --asset-class options --dry-run
-
-# Equity dashboard verifies bit-identical to before (sanity check on the shared-file edit)
-streamlit run src\dashboard_app.py
-# (sidebar still shows Stocks and Crypto selecting unchanged behavior)
-```
+| `src/dashboard_app.py` | Added `Options` to the sidebar asset selector with placeholder branch in `main()`. |
+| `.github/CODEOWNERS` | Added: `src/options/ @cmjteevan`, `tests/options/ @cmjteevan`, `docs/Options_Extension_Decisions.md @cmjteevan`. Also fixed misleading "most-specific match" comment to "last-match-wins". |
+| `src/data_source.py` | Added `"options"` to `SUPPORTED_ASSET_CLASSES` so subsequent options sections can be options-only PRs without bundling shared-file edits. |
+| `docs/future_work.md` | Logged Phase 1 completion. |
 
 ### Reviewer requirements
 
-`src/options/`, `tests/options/`, `docs/Options_Extension_Decisions.md` self-merge under Chris's ownership. The edits to `src/dashboard_app.py` and `.github/CODEOWNERS` are shared-file changes — Mike's approval required per the multi-contributor workflow.
-
-### Out of scope for Phase 1
-
-- Any options business logic (universe, fetcher, Greeks, position model, engine — all Section 1+)
-- `requirements.txt` updates (Section 2 adds `truststore` and the Tradier client)
-- R2 bucket folder creation (`snapshot_for_cloud.py` creates prefixes lazily)
+`src/options/`, `tests/options/`, `docs/Options_Extension_Decisions.md` self-merged under Chris's ownership. Edits to `src/dashboard_app.py`, `src/data_source.py`, and `.github/CODEOWNERS` were shared-file changes — Mike's approval required per the multi-contributor workflow.
 
 ---
 
@@ -293,13 +260,17 @@ streamlit run src\dashboard_app.py
 From the handoff doc, applicable to any chat session working on this module:
 
 - Honest assessments. Push back when something's off.
+- Coherent process — one step at a time. Don't dump multiple steps in one message.
 - Bundle questions, cap 3 per turn, use pop-ups + prose.
 - All design decisions stay in chat. Claude Code executes specs only.
-- One Claude Code session per repo checkout.
+- One Claude Code session per repo checkout. Wait for Claude Code to reach a clean stopping point before switching branches in another shell.
 - Validate URLs and version pins before sharing — software versions and API tiers go stale.
-- truststore in any HTTPS fetcher (Norton 360 TLS inspection).
+- truststore in any HTTPS fetcher (Norton 360 TLS inspection) — landed in main as of Section 2.
 - Concentration analysis on every promoted study (the NVDA/META template).
+- Don't be falsely definitive. Research before recommending. If a real tradeoff exists, surface alternatives transparently.
+- Spec hand-offs to Claude Code should be short and reference the design memo, not re-paste it.
+- Don't generate filler — commit messages, PR bodies, and Claude Code prompts should be exact text Chris can paste.
 
 ---
 
-*End of design memo. Next action: hand the Phase 1 spec to Claude Code.*
+*End of design memo. Next action: hand the Section 4 spec to Claude Code.*
