@@ -20,6 +20,7 @@ from src.options.engine import (
     DEFAULT_RISK_FREE_RATE,
     DailySnapshot,
     EngineDeps,
+    EntryFilters,
     PortfolioState,
     SpawnedEquityClose,
     StudyResults,
@@ -680,3 +681,133 @@ class TestPortfolioStateMethods:
         state.stock_holdings["MSFT"] = 50
         market = {"AAPL": 200.0, "MSFT": 400.0}
         assert state.stock_value(market) == pytest.approx(40_000.0)
+
+
+# ----------------- Section 6 amendment: entry_filters -----------------
+
+
+class TestEntryFilters:
+    def test_entry_filters_validation_low_above_high_raises(self):
+        with pytest.raises(ValueError, match="dte_exclude_range"):
+            EntryFilters(dte_exclude_range=(50, 25))
+
+    def test_entry_filters_validation_negative_dte_raises(self):
+        with pytest.raises(ValueError, match="dte_exclude_range"):
+            EntryFilters(dte_exclude_range=(-1, 5))
+
+    def test_entry_filters_validation_invalid_iv_regime_raises(self):
+        with pytest.raises(ValueError, match="iv_regime_exclude"):
+            EntryFilters(iv_regime_exclude="medium")
+
+    def test_entry_filters_none_filter_unchanged_behavior(self):
+        # None filter equals running without filters at all.
+        scenario = _basic_csp_scenario()
+        config = _config(
+            start_date=date(2025, 6, 2),
+            end_date=date(2025, 6, 13),
+            train_val_split_date=date(2025, 6, 6),
+        )
+        deps = _make_deps(scenario)
+        baseline = run_backtest(config, deps=deps)
+        with_none = run_backtest(config, deps=deps, entry_filters=None)
+        # Same closed-position count and same skip counters.
+        assert len(baseline.closed_positions) == len(with_none.closed_positions)
+        assert baseline.skip_counters == with_none.skip_counters
+
+    def test_dte_band_filter_skips_matching_entries(self):
+        # The engine picks third-Friday expirations roughly DTE_target
+        # away. Set an exclude band that covers the typical pick → most
+        # entries should be skipped.
+        scenario = _basic_csp_scenario()
+        config = _config(
+            start_date=date(2025, 6, 2),
+            end_date=date(2025, 6, 30),
+            train_val_split_date=date(2025, 6, 15),
+            dte_target=30,
+        )
+        deps = _make_deps(scenario)
+        # Exclude any DTE in [10, 60] — a wide band that catches any
+        # third-Friday ~30 DTE pick.
+        filters = EntryFilters(dte_exclude_range=(10, 60))
+        results = run_backtest(config, deps=deps, entry_filters=filters)
+        assert results.skip_counters.get("dte_band_excluded", 0) > 0
+
+    def test_dte_band_filter_outside_band_does_not_skip(self):
+        # Band that doesn't overlap with typical DTE picks → no skips.
+        scenario = _basic_csp_scenario()
+        config = _config(
+            start_date=date(2025, 6, 2),
+            end_date=date(2025, 6, 13),
+            train_val_split_date=date(2025, 6, 6),
+            dte_target=30,
+        )
+        deps = _make_deps(scenario)
+        filters = EntryFilters(dte_exclude_range=(100, 200))
+        results = run_backtest(config, deps=deps, entry_filters=filters)
+        assert results.skip_counters.get("dte_band_excluded", 0) == 0
+
+    def test_iv_regime_filter_skips_matching_regime(self):
+        scenario = _basic_csp_scenario()
+        config = _config(
+            start_date=date(2025, 6, 2),
+            end_date=date(2025, 6, 13),
+            train_val_split_date=date(2025, 6, 6),
+        )
+        # Custom deps that always reports IV regime as "high".
+        deps = _make_deps(scenario)
+        deps_with_iv = EngineDeps(
+            fetch_close=deps.fetch_close,
+            reconstruct_chain=deps.reconstruct_chain,
+            fetch_earnings_dates=deps.fetch_earnings_dates,
+            trading_days=deps.trading_days,
+            fetch_iv_regime=lambda t, d: "high",
+        )
+        filters = EntryFilters(iv_regime_exclude="high")
+        results = run_backtest(
+            config, deps=deps_with_iv, entry_filters=filters,
+        )
+        assert results.skip_counters.get("iv_regime_excluded", 0) > 0
+
+    def test_iv_regime_filter_does_not_skip_non_matching(self):
+        scenario = _basic_csp_scenario()
+        config = _config(
+            start_date=date(2025, 6, 2),
+            end_date=date(2025, 6, 13),
+            train_val_split_date=date(2025, 6, 6),
+        )
+        deps = _make_deps(scenario)
+        deps_with_iv = EngineDeps(
+            fetch_close=deps.fetch_close,
+            reconstruct_chain=deps.reconstruct_chain,
+            fetch_earnings_dates=deps.fetch_earnings_dates,
+            trading_days=deps.trading_days,
+            fetch_iv_regime=lambda t, d: "low",
+        )
+        # Excluding "high" while regime is always "low" → no skips.
+        filters = EntryFilters(iv_regime_exclude="high")
+        results = run_backtest(
+            config, deps=deps_with_iv, entry_filters=filters,
+        )
+        assert results.skip_counters.get("iv_regime_excluded", 0) == 0
+
+    def test_iv_regime_none_regime_does_not_skip(self):
+        # When fetch_iv_regime returns None (undeterminable), no skip.
+        scenario = _basic_csp_scenario()
+        config = _config(
+            start_date=date(2025, 6, 2),
+            end_date=date(2025, 6, 13),
+            train_val_split_date=date(2025, 6, 6),
+        )
+        deps = _make_deps(scenario)
+        deps_with_iv = EngineDeps(
+            fetch_close=deps.fetch_close,
+            reconstruct_chain=deps.reconstruct_chain,
+            fetch_earnings_dates=deps.fetch_earnings_dates,
+            trading_days=deps.trading_days,
+            fetch_iv_regime=lambda t, d: None,
+        )
+        filters = EntryFilters(iv_regime_exclude="high")
+        results = run_backtest(
+            config, deps=deps_with_iv, entry_filters=filters,
+        )
+        assert results.skip_counters.get("iv_regime_excluded", 0) == 0

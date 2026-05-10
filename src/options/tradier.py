@@ -258,6 +258,31 @@ def fetch_history(
     return df
 
 
+def fetch_index_quote_history(
+    symbol: str,
+    start: date,
+    end: date,
+    *,
+    limiter: Optional[RateLimiter] = None,
+    session: Optional[requests.Session] = None,
+    use_cache: bool = True,
+) -> pd.DataFrame:
+    """Daily history for an index symbol (e.g., ``$BXM``, ``$VIX``).
+
+    Section 2 amendment landed with Section 8 to feed BXM into the
+    promotion gate. Wraps :func:`fetch_history` after normalizing
+    ``symbol`` to the index-prefixed form Tradier expects (a leading
+    ``$`` if the caller passed the bare ticker). Returns an empty
+    DataFrame on miss/error so :func:`benchmarks.fetch_bxm` can fall
+    back to yfinance.
+    """
+    normalized = symbol if symbol.startswith("$") else f"${symbol}"
+    return fetch_history(
+        normalized, start, end,
+        limiter=limiter, session=session, use_cache=use_cache,
+    )
+
+
 def fetch_expirations(
     ticker: str,
     *,

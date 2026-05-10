@@ -72,6 +72,7 @@ __all__ = [
     "PortfolioState",
     "StudyResults",
     "EngineDeps",
+    "EntryFilters",
     "SpawnedEquityClose",
     "run_backtest",
     "DEFAULT_RISK_FREE_RATE",
@@ -86,6 +87,52 @@ DEFAULT_RISK_FREE_RATE: float = 0.04  # v1 flat assumption; v1.1+ may vary
 
 
 # ----------------- public dataclasses -----------------
+
+
+_VALID_IV_REGIMES: frozenset[str] = frozenset({"low", "mid", "high"})
+
+
+@dataclass(frozen=True, slots=True)
+class EntryFilters:
+    """Optional ablation filters applied during entry evaluation.
+
+    Section 6 amendment landed with Section 8 to power concentration
+    analysis ablation. The engine reads these and skips entries that
+    match the exclusion criteria; the unrestricted base study leaves
+    them all None.
+
+    - ``dte_exclude_range``: ``(low, high)`` inclusive band of DTE values
+      to skip (e.g., ``(30, 35)`` excludes entries whose target DTE
+      falls in 30..35 days).
+    - ``iv_regime_exclude``: ``"high"`` or ``"low"`` to skip entries when
+      the underlying's current IV regime matches. Regime is supplied by
+      :attr:`EngineDeps.fetch_iv_regime` (default impl uses realized-
+      volatility percentile against a 252-day rolling distribution as a
+      v1 IV-rank proxy; documented as a v1 simplification in §10).
+    """
+
+    dte_exclude_range: Optional[tuple[int, int]] = None
+    iv_regime_exclude: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.dte_exclude_range is not None:
+            low, high = self.dte_exclude_range
+            if low > high:
+                raise ValueError(
+                    "dte_exclude_range must be (low, high) with "
+                    f"low <= high; got ({low}, {high})"
+                )
+            if low < 0:
+                raise ValueError(
+                    "dte_exclude_range bounds must be >= 0; "
+                    f"got ({low}, {high})"
+                )
+        if self.iv_regime_exclude is not None:
+            if self.iv_regime_exclude not in ("low", "high"):
+                raise ValueError(
+                    "iv_regime_exclude must be 'low' or 'high' "
+                    f"(or None); got {self.iv_regime_exclude!r}"
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +334,15 @@ class EngineDeps:
     trading_days: Callable[[date, date], list[date]]
     """Return NYSE trading days in [start, end] inclusive."""
 
+    fetch_iv_regime: Callable[[str, date], Optional[str]] = (
+        lambda ticker, sim_date: None
+    )
+    """Return ``"low"``/``"mid"``/``"high"`` IV regime classification
+    for ``ticker`` on ``sim_date``, or ``None`` when undeterminable.
+    Default is a no-op (returns None); :func:`_default_deps` wires up
+    the realized-volatility percentile impl. Section 6 amendment for
+    Section 8's concentration analysis."""
+
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE
 
 
@@ -330,11 +386,41 @@ def _default_deps() -> EngineDeps:
         schedule = nyse.schedule(start_date=start, end_date=end)
         return [t.date() for t in schedule.index]
 
+    def _fetch_iv_regime(ticker: str, sim_date: date) -> Optional[str]:
+        """Realized-vol percentile against a 252-day rolling
+        distribution. Documented as a v1 IV-rank proxy."""
+        from datetime import timedelta as _td
+
+        df = fetch_history(
+            ticker, sim_date - _td(days=400), sim_date, limiter=limiter,
+        )
+        if df is None or df.empty or len(df) < 30:
+            return None
+        closes = df["close"].astype(float)
+        returns = closes.pct_change().dropna()
+        if len(returns) < 30:
+            return None
+        rv21 = returns.rolling(21).std() * (252 ** 0.5)
+        rv21 = rv21.dropna()
+        if len(rv21) == 0:
+            return None
+        current = float(rv21.iloc[-1])
+        history = rv21.tail(252)
+        if len(history) < 30:
+            return None
+        pct = float((history < current).mean())
+        if pct > 0.75:
+            return "high"
+        if pct < 0.25:
+            return "low"
+        return "mid"
+
     return EngineDeps(
         fetch_close=_fetch_close,
         reconstruct_chain=_fetch_chain,
         fetch_earnings_dates=_fetch_earnings,
         trading_days=_trading_days,
+        fetch_iv_regime=_fetch_iv_regime,
     )
 
 
@@ -769,6 +855,7 @@ def _evaluate_entries(
     sim_date: date,
     earnings_lookup: Mapping[str, tuple[date, ...]],
     deps: EngineDeps,
+    entry_filters: Optional["EntryFilters"] = None,
 ) -> None:
     for ticker in config.universe:
         if len(state.open_positions) >= config.max_concurrent_positions:
@@ -791,12 +878,31 @@ def _evaluate_entries(
             if state.stock_holdings.get(ticker, 0) < _CONTRACT_MULTIPLIER:
                 state.increment_skip("no_shares_for_cc")
                 continue
+        # IV regime exclusion (cheap; before chain reconstruction).
+        if (
+            entry_filters is not None
+            and entry_filters.iv_regime_exclude is not None
+        ):
+            regime = deps.fetch_iv_regime(ticker, sim_date)
+            if regime == entry_filters.iv_regime_exclude:
+                state.increment_skip("iv_regime_excluded")
+                continue
 
         spot = market[ticker]
         target_exp = _pick_target_expiration(sim_date, config.dte_target)
         if target_exp is None:
             state.increment_skip("no_valid_target_expiration")
             continue
+        # DTE-band exclusion (after picking target_exp).
+        if (
+            entry_filters is not None
+            and entry_filters.dte_exclude_range is not None
+        ):
+            actual_dte = (target_exp - sim_date).days
+            low, high = entry_filters.dte_exclude_range
+            if low <= actual_dte <= high:
+                state.increment_skip("dte_band_excluded")
+                continue
         candidates = deps.reconstruct_chain(
             ticker, sim_date, target_exp, spot
         )
@@ -1009,12 +1115,19 @@ def run_backtest(
     config: BacktestConfig,
     *,
     deps: Optional[EngineDeps] = None,
+    entry_filters: Optional[EntryFilters] = None,
 ) -> StudyResults:
     """Run a backtest from ``config.start_date`` to ``config.end_date``.
 
     Mutable :class:`PortfolioState` is updated in place each simulated
     day; the immutable :class:`StudyResults` returned at completion
     snapshots the run.
+
+    ``entry_filters`` (Section 6 amendment for Section 8 concentration
+    analysis) optionally restricts which entries the engine opens. The
+    base study leaves it ``None``; ablation runs supply a non-None
+    filter so the same engine can re-run with specific DTE bands or IV
+    regimes excluded.
     """
     deps = deps or _default_deps()
     t0 = time.time()
@@ -1059,7 +1172,15 @@ def run_backtest(
         _handle_expirations(state, config, market, sim_date)
         _process_pending_share_liquidations(state, config, market, sim_date)
         _process_pending_share_acquisitions(state, config, market, sim_date)
-        _evaluate_entries(state, config, market, sim_date, earnings_lookup, deps)
+        _evaluate_entries(
+            state,
+            config,
+            market,
+            sim_date,
+            earnings_lookup,
+            deps,
+            entry_filters=entry_filters,
+        )
         _record_snapshot(state, config, market, sim_date, deps)
 
     return StudyResults(
