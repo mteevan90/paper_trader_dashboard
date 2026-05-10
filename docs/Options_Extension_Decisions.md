@@ -70,6 +70,7 @@ Adding `options` is mechanically the same shape as adding `crypto` was. The Phas
 | Sentiment / macro signals | Not in v1 architecture | Crypto needs sentiment because it's reflexive. Options have natural macro hooks (VIX, term structure, skew) — but these are options-derived signals, so wiring them into option strategies is recursive. Defer to v1.1. |
 | v1 publish bar | Light: single Optuna run, train/val window split, SPY + BXM benchmarks, one promoted study | Mirror crypto v1 publish bar. Walk-forward, multi-regime studies, vol-of-vol modeling are v1.1+. |
 | Snapshot for v1 study | `pre_options_v1_<date>` under `models/snapshots/options/` | Locks the data inputs at promotion. Reproducibility guarantee carries from equities. |
+| Position sizing rule | Fixed-risk: `max_loss_pct_of_portfolio` field (default 2%, search 1–4%) | Locked at Section 5. Each position sized so its theoretical max loss is at most this fraction of starting portfolio value. Kelly-style and CVaR-aware sizing deferred to v1.1+ per §10. |
 
 ---
 
@@ -190,7 +191,7 @@ Mirrors the crypto Phase 2 sectioning. Each section is a self-contained PR that 
 | 2 | Tradier OHLCV + chain fetcher | MERGED (PR #5) | Sandbox + production tokens via env vars (`TRADIER_SANDBOX_TOKEN`, `TRADIER_PRODUCTION_TOKEN`); bearer-token auth (no OAuth). Header-driven rate-limit handling (`X-Ratelimit-*`) with conservative fallback. `truststore.inject_into_ssl()` invoked by entry-point scripts via `src/options/_ssl.py` helper, mirroring crypto's pattern. Per-contract OHLCV by OCC symbol (or underlying ticker) + current-chain snapshot + expirations endpoint; historical chain enumeration is **not** offered by Tradier and is reconstructed at backtest time in Section 6 by candidate-OCC enumeration. 1-day TTL on history cache; chain snapshots immutable per `<run_date>` file. Sanity gate at <50% non-empty refuses history cache write. Caches to `models/cache/options/tradier/`. truststore landed in main with this section. Live smoke against Tradier sandbox: SPY history 20/30 days (66.7% coverage, gate pass), SPY chain 508 contracts, real cache write succeeded — truststore correctly bypasses Norton 360 TLS inspection. |
 | 3 | Black-Scholes Greeks module | MERGED (PR #6) | Closed-form Black-Scholes-Merton (continuous dividend yield `q`). Pure-function module exposing `price`, `delta`, `gamma`, `theta_per_day`, `vega_per_pct`, `rho_per_bp`, `implied_vol`, plus `compute_all` returning a frozen `GreeksResult` dataclass. Trader-convention units throughout, encoded in field names so consumers don't have to remember (theta scaled to per-calendar-day, vega per 1 IV point, rho per 1 bp). Day count ACT/365 hardcoded in a `time_to_expiration` helper (basis flexibility deferred to v1.1+ if a study needs ACT/360). Caller passes `q` (SPX: 0; SPY/QQQ: distribution yield; single names: ticker-specific) — Section 1's `UnderlyingMeta` was amended with a `dividend_yield` field in the same PR so callers have a canonical lookup. American-style treated as European — early-exercise premium ignored; documented in §8. `implied_vol` solver via Brent's method ships in Section 3 because Section 6 needs it for backtest IV reconstruction (Tradier per-contract history returns OHLCV without IV). The "below intrinsic" check uses the proper European lower bound (`max(K·e^(-rT) - S·e^(-qT), 0)` for puts, call analogue for calls), not the American intrinsic — caught mid-flight; deep-ITM puts with r > q would have spuriously raised under the simpler check. Edge cases handled explicitly: `T<0`/`S<=0`/`K<=0`/`vol<0` raise; `T==0` or `vol==0` returns intrinsic + zero Greeks except delta = ±1/0 ITM indicator. Pure-math validation only: Hull reference values (`pytest.approx(abs=0.005, rel=0.001)` to absorb textbook rounding) + put-call parity + finite-difference Greeks (~1e-4 tolerance). ORATS comparison is a manual one-time post-merge sanity check via `scripts/fetch_options_chain.py`, not a permanent test. |
 | 4 | Position + lifecycle model | NOT STARTED | Position dataclass (frozen + slots) representing a multi-leg options position with first-class active-management exit rules. **Hybrid representation:** canonical `legs: tuple[Leg, ...]` shape used by all engine code, plus per-strategy classmethod constructors (`Position.covered_call`, `Position.cash_secured_put`, future `Position.vertical_spread`, etc.) for self-documenting construction with validation in `__post_init__`. `Leg` carries (contract, sign, quantity); contract is `ContractSpec` (option), `StockContract` (stock), or `CashContract` (cash collateral) — discriminated union via type. Explicit cash legs on CSPs symmetric with explicit stock legs on CCs — honest portfolio accounting. `ExitRules` dataclass with hardcoded fields (`profit_target_pct`, `time_stop_dte`, `stop_loss_pct`, at least one required) — Optuna-friendly fixed parameter space. `PositionState` enum: `OPEN` → `CLOSED_MANAGED` (active-management exit) | `EXPIRED_ITM` (cash-settled, SPX) | `EXPIRED_OTM` | `ASSIGNED` (share-settled, equity options at expiration). Mark-to-mid P&L using daily chain close. Honest settlement at expiration: SPX cash-settles to intrinsic, SPY/QQQ/equities share-settle (the spawned equity position from `state=ASSIGNED` is created and managed by Section 6 engine, not in Section 4). Frozen with `evolve(**changes)` method that returns new instance via `dataclasses.replace`. Position aggregates leg-level Greeks via Section 3's `compute_all` (cash and stock legs contribute zero Greeks except stock delta). Closure reason format documented: `profit_target_<pct>`, `time_stop_<dte>`, `stop_loss_<pct>`, `expired_itm_cash_settled`, `expired_otm`, `assigned_call`, `assigned_put`. v1 ignores early assignment per §8 (avoid ex-div windows on short calls). **`entry_credit` convention (locked at Section 4 implementation):** `entry_credit` follows trader semantics — net cash received at open, positive for credits (CSP `+put_premium*100`, CC `-stock_basis*100 + call_premium*100`), negative for debits (long premium positions). `mark_to_market` returns P&L in dollars and excludes cash legs from the leg sum (cash held at par with zero yield per §8): `P&L = sum(sign × qty × multiplier × mark for non-cash legs) + entry_credit`. Stock legs **do** contribute (a CC's stock leg moves with the underlying). `should_exit` thresholds use `abs(entry_credit)` for symmetry across credit/debit positions: profit triggers when `P&L ≥ profit_target_pct × abs(entry_credit)`, stop_loss triggers when `P&L ≤ -stop_loss_pct × abs(entry_credit)`. The original Section 4 spec said "sum over legs ... minus entry_credit", which couldn't simultaneously satisfy trader-view `entry_credit` and the P&L-zero-at-open invariant once explicit cash collateral legs were introduced; the trader-view + non-cash-sum convention was chosen at implementation time. |
-| 5 | Options BacktestConfig | NOT STARTED | Dataclass mirroring equity shape but with options fields: `dte_target`, `profit_target_pct`, `time_stop_dte`, `strategy_class` enum, position-sizing rule, fee model, slippage model, `max_concurrent_positions`, earnings-window-avoidance flag, `strike_selector_target_delta`. |
+| 5 | Options BacktestConfig | NOT STARTED | Frozen + slots `BacktestConfig` dataclass bundling all study levers into a single immutable, serializable object the engine consumes. Embedded `ExitRules` from Section 4 (composition, no field duplication). Embedded `FeeModel` dataclass with broker_fee_per_contract and regulatory_fee_per_contract broken out for fee-sensitivity analysis (Tradier Lite defaults: $0.35 broker + $0.10 regulatory; structured rather than flat-composite for honesty in study output). Universe specification as `tuple[str, ...]` field defaulting to the 8 v1 names — smoke studies override with smaller subsets, v1.1+ replaces with liquidity-filtered selection. `BacktestConfig.suggest(trial)` classmethod owns Optuna parameter ranges (cohesive: parameter definitions and search bounds in the same place). Per-strategy_class instances — CSP and CC run as separate studies and are compared at the study level, not within a single config. Train/val split via `start_date` + `end_date` + `train_val_split_date` fields; engine processes one walk and tags days by which side of split they fall on. Position sizing as fixed-risk: `max_loss_pct_of_portfolio` (default 0.02). `promotable: bool = False` flag enforced at study upload to prevent accidental publication of smoke runs. `to_dict()` / `from_dict()` for snapshot reproducibility. |
 | 6 | Options backtest engine | NOT STARTED | Daily walk on NYSE trading calendar. Position management loop: evaluate exit rules on all open positions → close exits → evaluate entry rules → open new entries (subject to `max_concurrent_positions`). P&L roll-up per day. Train/val window split. Reads `state=ASSIGNED` from Section 4 positions and creates the resulting equity position for independent management. |
 | 7 | Optuna runner + smoke study | NOT STARTED | Borrow runner skeleton from `src/optuna_runner.py`. Separate `optuna_studies.db` at `models/cache/options/`. Smoke study: tiny universe (1–2 underlyings), tight DTE range, single strategy class. `promotable: false` enforced at upload. |
 | 8 | Real study (active-management CCs + CSPs) | NOT STARTED | Train/val split (windows TBD at Section 8 — likely train pre-2024, val 2024–2025). SPY total return primary benchmark, BXM secondary for CCs. Single Optuna run. Concentration analysis per Section 7 of this doc (by underlying, DTE band, IV regime, strategy variant). |
@@ -216,6 +217,7 @@ These are not blockers for v1 but should be tracked. When v1 ships, this list is
 - **Early assignment on American-style short options.** v1 avoids ex-div windows for short calls on dividend-paying single names (per §8) but does not actively model early-exercise probability. v1.1+ adds early-assignment risk modeling using BSM-derived early-exercise premium and ex-div date proximity.
 - **Cash leg interest accrual.** v1 treats all cash legs as zero-yield. v1.1+ accrues risk-free rate on cash collateral; relevant for high-rate-environment realism (CSP cash drag was ~$2/contract/month in 2026's rate regime — small but compounds).
 - **Long-leg automatic exercise modeling.** v1 cash-settles long ITM legs at expiration. Real retail brokers auto-exercise long ITM options on expiration day if ITM by ≥$0.01, with broker-specific opt-out windows. v1.1+ adds broker-realistic auto-exercise logic where it materially changes P&L.
+- **Sizing rule alternatives.** v1 uses fixed-risk sizing (`max_loss_pct_of_portfolio`). v1.1+ may evaluate Kelly-style sizing (variable based on edge estimation) and CVaR-aware sizing (scales position size by tail-risk estimate). Either requires a real-data baseline before introducing variable sizing.
 
 ---
 
@@ -273,4 +275,296 @@ From the handoff doc, applicable to any chat session working on this module:
 
 ---
 
-*End of design memo. Next action: hand the Section 4 spec to Claude Code.*
+## Appendix E — Section 5 spec (Options BacktestConfig + FeeModel)
+
+This is the spec for the Section 5 PR. Self-contained — Claude Code should execute it without further chat context. Mirrors the Section 1/2/3/4 spec shapes.
+
+### Goal
+
+Land the `BacktestConfig` and `FeeModel` dataclasses that bundle all study parameters into immutable, serializable objects. Section 6 (engine) consumes a `BacktestConfig` directly. Section 7 (Optuna runner) creates `BacktestConfig` instances per trial via the `suggest` classmethod. No engine logic, no walk loop — those are Section 6.
+
+### Branch
+
+`chris/options-section-5-backtest-config`
+
+### Files to create
+
+| Path | Content |
+| --- | --- |
+| `src/options/backtest_config.py` | `FeeModel`, `BacktestConfig` dataclasses + `DEFAULT_UNIVERSE` constant. See "Public API" below. |
+| `tests/options/test_backtest_config.py` | Comprehensive offline tests. See "Test scope" below. |
+
+### Files to edit
+
+| Path | Edit |
+| --- | --- |
+| `docs/Options_Extension_Decisions.md` | Apply §9 row 5 / §3 / §10 deltas above. |
+| `docs/future_work.md` | Append: "Options Section 5 (BacktestConfig + FeeModel) merged on `<merge date>`." under the Section 4 entry. |
+
+No edits to `src/dashboard_app.py`, `src/data_source.py`, `src/snapshot_for_cloud.py`, `.github/CODEOWNERS`, or `requirements.txt`. Section 5 is options-only — self-merges under Chris's CODEOWNERS rule.
+
+### Public API — `src/options/backtest_config.py`
+
+#### Module-level constants
+
+```python
+DEFAULT_UNIVERSE: tuple[str, ...] = (
+    "SPX", "SPY", "QQQ",
+    "AAPL", "JPM", "MSFT", "NVDA", "XOM",
+)
+
+VALID_STRATEGY_CLASSES: frozenset[str] = frozenset({"covered_call", "cash_secured_put"})
+```
+
+#### `FeeModel`
+
+```python
+@dataclass(frozen=True, slots=True)
+class FeeModel:
+    """Per-contract fee model. v1 defaults match Tradier Lite plan + 2026 regulatory pass-throughs."""
+    broker_fee_per_contract: float = 0.35      # Tradier Lite plan one-way
+    regulatory_fee_per_contract: float = 0.10  # Combined OCC + ORF + TAF estimate, May 2026
+```
+
+Validation in `__post_init__`:
+- `broker_fee_per_contract >= 0` (raise `ValueError` otherwise)
+- `regulatory_fee_per_contract >= 0`
+
+Methods:
+```python
+def total_per_contract_one_way(self) -> float:
+    return self.broker_fee_per_contract + self.regulatory_fee_per_contract
+
+def compute_fee(self, num_contracts: int, *, round_trip: bool = True) -> float:
+    """Total fee for opening (or opening+closing if round_trip) a position of N contracts."""
+    multiplier = 2 if round_trip else 1
+    return num_contracts * self.total_per_contract_one_way() * multiplier
+```
+
+#### `BacktestConfig`
+
+```python
+@dataclass(frozen=True, slots=True)
+class BacktestConfig:
+    """Immutable container for all study parameters. Section 6 engine consumes; Section 7 Optuna runner constructs via suggest()."""
+
+    # --- identity / scope ---
+    study_label: str
+    strategy_class: str  # "covered_call" or "cash_secured_put"
+    universe: tuple[str, ...]
+
+    # --- backtest window ---
+    start_date: date
+    end_date: date
+    train_val_split_date: date
+
+    # --- entry levers ---
+    dte_target: int
+    strike_selector_target_delta: float
+    max_concurrent_positions: int
+    earnings_window_avoid: bool
+    max_loss_pct_of_portfolio: float
+
+    # --- exit levers (composed) ---
+    exit_rules: ExitRules  # imported from src.options.positions
+
+    # --- cost model ---
+    fees: FeeModel
+
+    # --- discipline ---
+    promotable: bool = False
+    random_seed: int | None = None
+```
+
+Validation in `__post_init__`:
+- `study_label` non-empty
+- `strategy_class in VALID_STRATEGY_CLASSES`
+- `universe` non-empty (at least one ticker)
+- `end_date > start_date`
+- `start_date < train_val_split_date < end_date`
+- `dte_target in range [10, 90]` (sanity bounds; not the search range — that's wider in `suggest()`)
+
+Search ranges should be a strict subset of validation ranges. dte_target search range in suggest() is `[25, 50]`, validation is `[10, 90]`, so suggest values always pass validation. Same pattern for the other fields:
+
+- `strike_selector_target_delta in (0.0, 1.0)` (validation); suggest range `[0.15, 0.40]`
+- `max_concurrent_positions >= 1` (validation); suggest range `[3, 10]`
+- `max_loss_pct_of_portfolio in (0.0, 0.20)` (validation; max 20% per position is the absolute ceiling); suggest range `[0.01, 0.04]`
+
+Methods:
+
+```python
+@classmethod
+def suggest(
+    cls,
+    trial,  # optuna.Trial
+    *,
+    study_label: str,
+    strategy_class: str,
+    start_date: date,
+    end_date: date,
+    train_val_split_date: date,
+    universe: tuple[str, ...] | None = None,
+    fees: FeeModel | None = None,
+    promotable: bool = False,
+    random_seed: int | None = None,
+) -> "BacktestConfig":
+    """Construct a BacktestConfig from an Optuna trial. Search ranges live here.
+
+    Fixed values (study_label, strategy_class, universe, dates, fees) come from kwargs.
+    Tunable parameters (entry levers + exit rules) are sampled from the trial.
+    """
+    return cls(
+        study_label=study_label,
+        strategy_class=strategy_class,
+        universe=universe or DEFAULT_UNIVERSE,
+        start_date=start_date,
+        end_date=end_date,
+        train_val_split_date=train_val_split_date,
+        dte_target=trial.suggest_int("dte_target", 25, 50),
+        strike_selector_target_delta=trial.suggest_float(
+            "strike_selector_target_delta", 0.15, 0.40
+        ),
+        max_concurrent_positions=trial.suggest_int("max_concurrent_positions", 3, 10),
+        earnings_window_avoid=trial.suggest_categorical(
+            "earnings_window_avoid", [True, False]
+        ),
+        max_loss_pct_of_portfolio=trial.suggest_float(
+            "max_loss_pct_of_portfolio", 0.01, 0.04
+        ),
+        exit_rules=ExitRules(
+            profit_target_pct=trial.suggest_float("profit_target_pct", 0.25, 0.80),
+            time_stop_dte=trial.suggest_int("time_stop_dte", 7, 28),
+            stop_loss_pct=trial.suggest_float("stop_loss_pct", 1.5, 3.5),
+        ),
+        fees=fees or FeeModel(),
+        promotable=promotable,
+        random_seed=random_seed,
+    )
+```
+
+```python
+def to_dict(self) -> dict:
+    """Serialize to a JSON-safe dict for snapshot reproducibility.
+
+    Dates → ISO strings. Embedded ExitRules and FeeModel flattened recursively.
+    """
+    # use dataclasses.asdict + post-process date fields to isoformat
+```
+
+```python
+@classmethod
+def from_dict(cls, data: dict) -> "BacktestConfig":
+    """Reverse of to_dict. Reconstructs nested ExitRules and FeeModel."""
+```
+
+```python
+def evolve(self, **changes) -> "BacktestConfig":
+    """Return new BacktestConfig with given fields replaced. Wraps dataclasses.replace.
+
+    Useful for studies that want to run multiple variants (e.g., concentration analysis
+    where universe is replaced with a subset).
+    """
+    return dataclasses.replace(self, **changes)
+```
+
+Note on `evolve` semantics: when changing `exit_rules` or `fees`, callers pass a fully-constructed replacement (e.g., `cfg.evolve(exit_rules=ExitRules(...))`). No deep-merge logic.
+
+#### Exports
+
+```python
+__all__ = ["FeeModel", "BacktestConfig", "DEFAULT_UNIVERSE", "VALID_STRATEGY_CLASSES"]
+```
+
+### Test scope — `tests/options/test_backtest_config.py`
+
+All offline. Uses `unittest.mock.MagicMock` for the Optuna trial in `suggest()` tests. No real Optuna dependency at test time.
+
+#### FeeModel
+
+- `test_fee_model_defaults` — FeeModel() has broker=0.35, regulatory=0.10
+- `test_fee_model_validates_negative_broker_raises`
+- `test_fee_model_validates_negative_regulatory_raises`
+- `test_fee_model_total_per_contract_one_way`
+- `test_fee_model_compute_fee_round_trip` — 1 contract round-trip = 2 × 0.45 = 0.90
+- `test_fee_model_compute_fee_one_way` — 1 contract one-way = 0.45
+- `test_fee_model_compute_fee_multiple_contracts`
+
+#### BacktestConfig — construction and validation
+
+- `test_backtest_config_minimal_construction` — all required fields, defaults for optional
+- `test_backtest_config_default_universe_eight_names`
+- `test_backtest_config_promotable_defaults_false`
+- `test_backtest_config_random_seed_defaults_none`
+- `test_backtest_config_empty_study_label_raises`
+- `test_backtest_config_invalid_strategy_class_raises`
+- `test_backtest_config_empty_universe_raises`
+- `test_backtest_config_end_before_start_raises`
+- `test_backtest_config_split_outside_window_raises`
+- `test_backtest_config_dte_target_out_of_range_raises` (e.g., 5 or 100)
+- `test_backtest_config_delta_out_of_range_raises` (e.g., 0 or 1.0)
+- `test_backtest_config_max_concurrent_zero_raises`
+- `test_backtest_config_max_loss_pct_too_large_raises` (e.g., 0.25)
+- `test_backtest_config_embeds_exit_rules`
+- `test_backtest_config_embeds_fee_model`
+
+#### `suggest()` classmethod
+
+- `test_suggest_constructs_valid_config` — mock trial returns sensible values for each parameter, suggest() returns BacktestConfig that passes validation
+- `test_suggest_uses_default_universe_when_none_given`
+- `test_suggest_uses_provided_universe_when_given`
+- `test_suggest_uses_default_fees_when_none_given`
+- `test_suggest_passes_through_promotable_and_seed`
+- `test_suggest_calls_trial_with_expected_parameter_names` — verifies `dte_target`, `strike_selector_target_delta`, etc. are the names registered with Optuna (matters for resuming studies)
+- `test_suggest_search_ranges_match_spec` — verifies the suggest_int/suggest_float bounds exactly match the spec (e.g., dte_target is `(25, 50)` not `(20, 60)`)
+
+#### Serialization
+
+- `test_to_dict_round_trip_via_from_dict` — `cfg == BacktestConfig.from_dict(cfg.to_dict())`
+- `test_to_dict_dates_are_iso_strings` — start_date, end_date, train_val_split_date serialize as `"YYYY-MM-DD"`
+- `test_to_dict_universe_is_list` — JSON doesn't support tuples; tuples serialize as lists, deserialize back to tuples
+- `test_to_dict_nested_exit_rules_roundtrip`
+- `test_to_dict_nested_fee_model_roundtrip`
+
+#### `evolve()`
+
+- `test_evolve_returns_new_instance` — original unchanged
+- `test_evolve_changes_universe_for_concentration_analysis` — typical use case
+- `test_evolve_changes_exit_rules_atomically` — passes a fully-constructed replacement ExitRules
+- `test_evolve_invalid_change_raises` — e.g., evolve with end_date before start_date raises via __post_init__
+
+### Verification
+
+Before opening the PR, all of these must pass on Chris's machine:
+
+```powershell
+cd "C:\Users\cteev\AI Projects\paper_trader_dashboard"
+.\venv\Scripts\activate
+
+# All options tests pass
+pytest tests\options\ -v
+
+# Crypto + equity unaffected
+pytest tests\crypto\ -v
+pytest tests\unit -v
+```
+
+No live smoke needed — Section 5 has no network or external dependencies.
+
+### Reviewer requirements
+
+All paths Chris-owned per CODEOWNERS overrides: `src/options/`, `tests/options/`, `docs/Options_Extension_Decisions.md`, `docs/future_work.md`. Self-merge — no Mike approval required.
+
+### Out of scope for Section 5
+
+- Daily walk loop, position management orchestration — Section 6 (engine).
+- Optuna study creation, trial execution, results storage — Section 7 (runner).
+- Spawned equity-position tracking from `state=ASSIGNED` (BacktestConfig has no concept of stock-leg holdings; that's engine state, not config).
+- Universe-filter implementation (the v2 path — Section 1's stubs reserve the seam).
+- Kelly / CVaR-aware position sizing — v1.1+ per §10.
+- Walk-forward validation (multiple train/val splits per config) — v1.1+.
+- Multi-strategy-class composite configs — v1 runs CSP and CC as separate studies; combined sizing is v1.2+.
+- Per-underlying parameter overrides (e.g., different DTE for SPX vs equities) — v1.1+ if Section 8 surfaces a need.
+
+---
+
+*End of design memo. Next action: hand the Section 5 spec to Claude Code.*
