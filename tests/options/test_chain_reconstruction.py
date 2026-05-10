@@ -161,6 +161,14 @@ class TestReconstructChain:
                 fetcher=lambda *a, **k: pd.DataFrame(),
             )
 
+    def test_reconstruct_chain_default_fetcher_is_polygon(self):
+        # Section 2.5 swap: the default fetcher must come from the
+        # polygon module (Tradier's per-OCC history returns null for
+        # expired contracts and is unsuitable for backtests).
+        from src.options import polygon as polygon_mod
+        from src.options import chain_reconstruction as chain_mod
+        assert chain_mod.fetch_history is polygon_mod.fetch_history
+
     def test_reconstruct_chain_swallows_http_errors_continues(self):
         """Transient network exceptions (HTTPError, Timeout,
         ConnectionError) must be swallowed so a single bad strike

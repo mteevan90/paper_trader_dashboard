@@ -250,6 +250,10 @@ Options Section 7 (Optuna runner + smoke study) merged on `<merge date>`. Calmar
 
 Options Section 8 (production v1 study) merged on `<merge date>`. v1_study orchestrator runs primary Optuna for CSP + CC, concentration analysis (per-underlying / per-DTE-band / per-IV-regime ablations), automated promotion gate with five hardcoded checks, human-override capability, and a snapshot of the promoted run. Bundled Section 6 amendment (entry_filters + fetch_iv_regime on EngineDeps) and Section 2 amendment (fetch_index_quote_history). Manual production run is post-merge (~6 hours, network-dependent).
 
+## Options Section 2.5 (Polygon historical fetcher)
+
+Options Section 2.5 (Polygon historical fetcher) merged on `<merge date>`. New `src/options/polygon.py` replaces the historical-data path of `src/options/tradier.py` after Tradier was found to return null for expired option contracts at all plan tiers. Raw `requests` (no SDK), OCC → `O:` ticker conversion, parquet caching at `models/cache/options/polygon/history/`, full retry/backoff + 401/403/5xx error discipline. `chain_reconstruction.py` defaults to Polygon; Tradier client retained for live execution and current chain snapshots. Section 8 default `--start-date` updated to 2023-01-02 (Polygon plan floor); `--end-date` 2026-05-08; `--train-val-split-date` 2025-01-02. Manual live smoke verified: SPY 2024-07-19 $540C → 4 OHLCV rows over 2024-06-17 to 2024-06-21.
+
 ## Options Section 3 (Black-Scholes Greeks module)
 
 Options Section 3 (Black-Scholes-Merton Greeks module) merged on `<merge date>`. Pure-function module with `price`, `delta`, `gamma`, `theta_per_day`, `vega_per_pct`, `rho_per_bp`, `implied_vol`, `compute_all`, plus a `time_to_expiration` ACT/365 helper. Section 1's `UnderlyingMeta` amended in this PR to carry a `dividend_yield` field for the BSM `q` input.

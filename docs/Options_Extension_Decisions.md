@@ -59,7 +59,8 @@ Adding `options` is mechanically the same shape as adding `crypto` was. The Phas
 | Execution mode | Backtest + paper-trade | Real-time chain access required for paper-trade fidelity. Live-trade deferred to v2+. |
 | Driving thesis | Active-management edge over hold-to-expiration | Profit targets + time stops + early close. Tasty-Trade-style discipline. Tests where retail edge plausibly exists. |
 | Strategy phasing | CCs + CSPs (v1) → verticals (v1.1) → iron condors (v1.2) → long directional (v2) | Active-management thesis applies cleanest to premium collection. Multi-leg position model gets exercised once at v1.1, reused thereafter. Directional is a different engine mode. |
-| Data source | Tradier (brokerage-attached) | Free with account, backtest + paper-trade in a single integration, Greeks via ORATS bundled in chain response. Escalate to Polygon ($79/mo) or ThetaData if backtest depth becomes binding. |
+| Data source (historical) | Polygon.io / Massive.com Options Developer tier ($79/mo, ~3-4 years rolling depth on expired options) | Tradier proved unsuitable for historical backtests — its `/markets/history` endpoint returns null for any expired option contract regardless of plan tier. Polygon carries full historical OHLCV including expired contracts, OCC symbol convention matches Tradier's, response shape is straightforward. Note: Polygon.io rebranded to Massive.com on October 30, 2025; existing `api.polygon.io` URLs continue to work without interruption per the official rebrand statement. The integration uses `api.polygon.io` for stability. |
+| Data source (live execution, deferred) | Tradier (paper-trade and v2+ live execution) | Section 2's Tradier client retained for paper-trade snapshots and v2+ live order routing. Tradier's current chain endpoint, quotes, and earnings calendar (when fundamentals beta is available) remain useful for forward-looking work. Historical fetches now route through Polygon. |
 | Greeks model | Black-Scholes (closed-form) | Closed-form, fast, well-understood. Adequate for short-dated equity/index options actively managed. Vol surface modeling (Heston, SVI) deferred to v1.1+. We compute our own Greeks for validation, but treat Tradier/ORATS Greeks as a sanity check. |
 | Backtest engine | Hybrid — new options-native engine, reuse Optuna runner + config-dataclass shape | Position lifecycle differs fundamentally from equity day-walk (expirations, multi-leg atomic positions, intra-position exits). Optuna runner and BacktestConfig dataclass shape are reusable. |
 | Underlying universe | SPX, SPY, QQQ + curated equity subset (5 names locked at Section 1; v1.1+ replaces with liquidity-filtered Mike's equity universe) | Indexes for clean data and high liquidity. Equity subset for diversification. Liquidity floor much harder than equity baseline (options-grade liquidity, not just stock liquidity). |
@@ -182,6 +183,7 @@ These are carried forward into the build. Anything new discovered during section
 - **BSM treats American-style options as European.** Early-exercise premium is ignored in v1. The premium is small for non-dividend-paying single names but non-trivial for dividend-paying names near ex-div. Adequate for short-dated actively-managed positions (the v1 thesis). v1.1+ adds Barone-Adesi-Whaley approximation if Section 8 surfaces a meaningful gap. SPX is European-style and unaffected; SPY/QQQ are American-style ETFs but their distribution mechanics don't trigger the same early-exercise math as single-name ex-div windows.
 - **Expiration settlement differs by underlying type.** SPX is European-style and cash-settles to intrinsic at expiration. SPY/QQQ/equity options are American-style and share-settle when ITM at expiration: short call ITM → short shares delivered (-100 per contract); short put ITM → long shares delivered (+100 per contract); long call/put ITM → cash credit equal to intrinsic. Section 4's Position model sets `state=ASSIGNED` for share-settled cases and surfaces the resulting equity exposure for Section 6 engine to handle. Long-leg ITM on share-settled options is treated as cash-settled in v1 — automatic exercise logic for retail accounts is broker-dependent and not modeled.
 - **Cash legs in v1 are treated as zero-yield.** CSP collateral cash is held in the position but does not earn the risk-free rate. Cash drag is a real cost to the strategy in high-rate environments (4–5% in 2026). v1.1+ adds risk-free yield accrual to cash legs; impact on study results documented in concentration analysis.
+- **Provider depth verification is a spec-time discipline, not a run-time one.** The original Section 2 spec locked Tradier as the data source citing "verified, working" — but verification only covered current-date data. Historical depth on expired contracts was assumed, not probed. The 8+ hour stalled production v1 study + ~12 hours of fix-forward debugging traced to that assumption. Going forward, every external data dependency must be probed against worst-case dates (oldest in study window, expired instruments) at spec time before the design is locked. Section 2.5 ships with this discipline applied: probes against 2022-05, 2023-01, and 2024-06 ATM strikes verified Polygon's actual coverage before integration code was written.
 - **Cash-constrained sizing in v1.** The engine refuses to open positions that would push cash below zero. CSP collateral is locked while position is open. CC strategy reserves cash equal to current stock holdings' cost basis. Margin-aware sizing (allowing notional > cash up to broker margin limits) is a v1.1+ concern.
 - **Strike spacing varies by underlying.** OCC standard equity option strikes are $1 below $25 spot, $2.50 between $25 and $200, $5 above $200. SPX uses $5 strikes at-the-money (sometimes $25 in deep wings, ignored in v1). Section 6's chain reconstruction encodes these conventions in `get_strike_spacing(underlying, spot)`.
 
@@ -194,7 +196,8 @@ Mirrors the crypto Phase 2 sectioning. Each section is a self-contained PR that 
 | # | Section | Status | Notes |
 | --- | --- | --- | --- |
 | 1 | Universe + contract spec | MERGED (PR #4) | `UnderlyingMeta` (12 fields, frozen+slots; `dividend_yield` added in Section 3) and `ContractSpec` (4 fields) dataclasses, OCC symbol parse/generate utility (strict 21-char round-trip), `UNIVERSE_PARQUET_SCHEMA`, static 8-underlying universe (SPX, SPY, QQQ + AAPL, JPM, MSFT, NVDA, XOM), v1 public API + v2 stubs reserving the seam for v1.1+ filter-based expansion against Mike's equity universe. Mirrors crypto Section 1 shape. |
-| 2 | Tradier OHLCV + chain fetcher | MERGED (PR #5) | Sandbox + production tokens via env vars (`TRADIER_SANDBOX_TOKEN`, `TRADIER_PRODUCTION_TOKEN`); bearer-token auth (no OAuth). Header-driven rate-limit handling (`X-Ratelimit-*`) with conservative fallback. `truststore.inject_into_ssl()` invoked by entry-point scripts via `src/options/_ssl.py` helper, mirroring crypto's pattern. Per-contract OHLCV by OCC symbol (or underlying ticker) + current-chain snapshot + expirations endpoint; historical chain enumeration is **not** offered by Tradier and is reconstructed at backtest time in Section 6 by candidate-OCC enumeration. 1-day TTL on history cache; chain snapshots immutable per `<run_date>` file. Sanity gate at <50% non-empty refuses history cache write. Caches to `models/cache/options/tradier/`. truststore landed in main with this section. Live smoke against Tradier sandbox: SPY history 20/30 days (66.7% coverage, gate pass), SPY chain 508 contracts, real cache write succeeded — truststore correctly bypasses Norton 360 TLS inspection. |
+| 2 | Tradier OHLCV + chain fetcher | MERGED (PR #5) | Sandbox + production tokens via env vars (`TRADIER_SANDBOX_TOKEN`, `TRADIER_PRODUCTION_TOKEN`); bearer-token auth (no OAuth). Header-driven rate-limit handling (`X-Ratelimit-*`) with conservative fallback. `truststore.inject_into_ssl()` invoked by entry-point scripts via `src/options/_ssl.py` helper, mirroring crypto's pattern. Per-contract OHLCV by OCC symbol (or underlying ticker) + current-chain snapshot + expirations endpoint; historical chain enumeration is **not** offered by Tradier and is reconstructed at backtest time in Section 6 by candidate-OCC enumeration. 1-day TTL on history cache; chain snapshots immutable per `<run_date>` file. Sanity gate at <50% non-empty refuses history cache write. Caches to `models/cache/options/tradier/`. truststore landed in main with this section. Live smoke against Tradier sandbox: SPY history 20/30 days (66.7% coverage, gate pass), SPY chain 508 contracts, real cache write succeeded — truststore correctly bypasses Norton 360 TLS inspection. **Status update from Section 2.5 (May 2026):** Tradier's `/markets/history` endpoint was discovered to return null for expired option contracts at all plan tiers, blocking the v1 production study. Tradier client retained for current chain snapshots, quotes, and v2+ live order routing; historical OHLCV fetches now route through Polygon (Section 2.5). The Section 2 client and tests remain on main and continue to function for live data scenarios. |
+| 2.5 | Polygon historical fetcher | NOT STARTED | New `src/options/polygon.py` implementing the same `HistoryFetcher` protocol as Section 2's Tradier client. Raw `requests` (no SDK) for consistency with Tradier client and to keep truststore + Norton 360 TLS handling proven. OCC symbol conversion (strip Tradier-style padding, add `O:` prefix). Auth via `apiKey` query parameter from `POLYGON_API_KEY` env var. Parquet caching at `models/cache/options/polygon/history/<symbol>.parquet`, same TTL discipline as Tradier cache. Sanity gate at <50% non-empty refuses cache write. Error discipline: 200 with empty results returns empty DataFrame (contract didn't trade); 403 NOT_AUTHORIZED re-raises with clear "data timeframe outside plan" message; 401/5xx/429 handled with retries-with-backoff or re-raise per type. `chain_reconstruction.py` switches default fetcher from Tradier to Polygon. Section 8's `run_v1_study.py` default `start_date` updated to 2023-01-02 to match Polygon's enforced historical depth. Self-merges under Chris's CODEOWNERS rule (no shared-file edits — `requests` already a transitive dependency). |
 | 3 | Black-Scholes Greeks module | MERGED (PR #6) | Closed-form Black-Scholes-Merton (continuous dividend yield `q`). Pure-function module exposing `price`, `delta`, `gamma`, `theta_per_day`, `vega_per_pct`, `rho_per_bp`, `implied_vol`, plus `compute_all` returning a frozen `GreeksResult` dataclass. Trader-convention units throughout, encoded in field names so consumers don't have to remember (theta scaled to per-calendar-day, vega per 1 IV point, rho per 1 bp). Day count ACT/365 hardcoded in a `time_to_expiration` helper (basis flexibility deferred to v1.1+ if a study needs ACT/360). Caller passes `q` (SPX: 0; SPY/QQQ: distribution yield; single names: ticker-specific) — Section 1's `UnderlyingMeta` was amended with a `dividend_yield` field in the same PR so callers have a canonical lookup. American-style treated as European — early-exercise premium ignored; documented in §8. `implied_vol` solver via Brent's method ships in Section 3 because Section 6 needs it for backtest IV reconstruction (Tradier per-contract history returns OHLCV without IV). The "below intrinsic" check uses the proper European lower bound (`max(K·e^(-rT) - S·e^(-qT), 0)` for puts, call analogue for calls), not the American intrinsic — caught mid-flight; deep-ITM puts with r > q would have spuriously raised under the simpler check. Edge cases handled explicitly: `T<0`/`S<=0`/`K<=0`/`vol<0` raise; `T==0` or `vol==0` returns intrinsic + zero Greeks except delta = ±1/0 ITM indicator. Pure-math validation only: Hull reference values (`pytest.approx(abs=0.005, rel=0.001)` to absorb textbook rounding) + put-call parity + finite-difference Greeks (~1e-4 tolerance). ORATS comparison is a manual one-time post-merge sanity check via `scripts/fetch_options_chain.py`, not a permanent test. |
 | 4 | Position + lifecycle model | NOT STARTED | Position dataclass (frozen + slots) representing a multi-leg options position with first-class active-management exit rules. **Hybrid representation:** canonical `legs: tuple[Leg, ...]` shape used by all engine code, plus per-strategy classmethod constructors (`Position.covered_call`, `Position.cash_secured_put`, future `Position.vertical_spread`, etc.) for self-documenting construction with validation in `__post_init__`. `Leg` carries (contract, sign, quantity); contract is `ContractSpec` (option), `StockContract` (stock), or `CashContract` (cash collateral) — discriminated union via type. Explicit cash legs on CSPs symmetric with explicit stock legs on CCs — honest portfolio accounting. `ExitRules` dataclass with hardcoded fields (`profit_target_pct`, `time_stop_dte`, `stop_loss_pct`, at least one required) — Optuna-friendly fixed parameter space. `PositionState` enum: `OPEN` → `CLOSED_MANAGED` (active-management exit) | `EXPIRED_ITM` (cash-settled, SPX) | `EXPIRED_OTM` | `ASSIGNED` (share-settled, equity options at expiration). Mark-to-mid P&L using daily chain close. Honest settlement at expiration: SPX cash-settles to intrinsic, SPY/QQQ/equities share-settle (the spawned equity position from `state=ASSIGNED` is created and managed by Section 6 engine, not in Section 4). Frozen with `evolve(**changes)` method that returns new instance via `dataclasses.replace`. Position aggregates leg-level Greeks via Section 3's `compute_all` (cash and stock legs contribute zero Greeks except stock delta). Closure reason format documented: `profit_target_<pct>`, `time_stop_<dte>`, `stop_loss_<pct>`, `expired_itm_cash_settled`, `expired_otm`, `assigned_call`, `assigned_put`. v1 ignores early assignment per §8 (avoid ex-div windows on short calls). **`entry_credit` convention (locked at Section 4 implementation):** `entry_credit` follows trader semantics — net cash received at open, positive for credits (CSP `+put_premium*100`, CC `-stock_basis*100 + call_premium*100`), negative for debits (long premium positions). `mark_to_market` returns P&L in dollars and excludes cash legs from the leg sum (cash held at par with zero yield per §8): `P&L = sum(sign × qty × multiplier × mark for non-cash legs) + entry_credit`. Stock legs **do** contribute (a CC's stock leg moves with the underlying). `should_exit` thresholds use `abs(entry_credit)` for symmetry across credit/debit positions: profit triggers when `P&L ≥ profit_target_pct × abs(entry_credit)`, stop_loss triggers when `P&L ≤ -stop_loss_pct × abs(entry_credit)`. The original Section 4 spec said "sum over legs ... minus entry_credit", which couldn't simultaneously satisfy trader-view `entry_credit` and the P&L-zero-at-open invariant once explicit cash collateral legs were introduced; the trader-view + non-cash-sum convention was chosen at implementation time. |
 | 5 | Options BacktestConfig | NOT STARTED | Frozen + slots `BacktestConfig` dataclass bundling all study levers into a single immutable, serializable object the engine consumes. Embedded `ExitRules` from Section 4 (composition, no field duplication). Embedded `FeeModel` dataclass with broker_fee_per_contract and regulatory_fee_per_contract broken out for fee-sensitivity analysis (Tradier Lite defaults: $0.35 broker + $0.10 regulatory; structured rather than flat-composite for honesty in study output). Universe specification as `tuple[str, ...]` field defaulting to the 8 v1 names — smoke studies override with smaller subsets, v1.1+ replaces with liquidity-filtered selection. `BacktestConfig.suggest(trial)` classmethod owns Optuna parameter ranges (cohesive: parameter definitions and search bounds in the same place). Per-strategy_class instances — CSP and CC run as separate studies and are compared at the study level, not within a single config. Train/val split via `start_date` + `end_date` + `train_val_split_date` fields; engine processes one walk and tags days by which side of split they fall on. Position sizing as fixed-risk: `max_loss_pct_of_portfolio` (default 0.02). `promotable: bool = False` flag enforced at study upload to prevent accidental publication of smoke runs. `to_dict()` / `from_dict()` for snapshot reproducibility. |
@@ -229,6 +232,8 @@ These are not blockers for v1 but should be tracked. When v1 ships, this list is
 - **Batch chain pre-fetch.** v1 engine fetches historical chain data lazily per simulated trading day during the walk loop. v1.1+ adds an upfront batch pre-fetch that populates the cache for the full backtest window before any trials begin — eliminates the "trial 1 is slow" pattern, also enables parallel chain population.
 - **Vectorized BSM across candidates.** v1 computes IV and delta per-candidate iteratively (Brent's method per OCC, BSM delta per OCC). v1.1+ vectorizes both across all candidates simultaneously using numpy broadcasting — expected 5-10x speedup on the strike-selection step.
 - **Smarter strike grid.** v1 enumerates ~40 candidates per underlying per entry day at uniform strike spacing across ±20% of spot. Most are wasted (we only open one position). v1.1+ uses target_delta + recent IV to bracket the relevant strike range tightly, fetching ~10 candidates instead of 40.
+- **Live data path via Tradier** is preserved but unused in v1. v2+ paper-trade and live order routing will reactivate the Tradier client. Section 2's code stays on main as-is; only the historical-data path was rerouted to Polygon.
+- **Polygon plan depth is enforced more conservatively than the marketing implies.** Options Developer tier advertises "4 years historical data," but the plan's actual hard floor is approximately the start of the third calendar year prior — i.e., May 2026 → 2023-01-02 floor, not 2022-05-02 as the literal 4-year boundary would suggest. Probed during Section 2.5 spec verification. Study windows must respect this floor. v1.1+ may revisit if Polygon clarifies the boundary or offers higher tiers.
 
 ---
 
@@ -866,4 +871,80 @@ Mostly Chris-owned. `src/options/tradier.py`, `src/options/engine.py`, `src/opti
 
 ---
 
-*End of design memo. Next action: hand the Section 8 spec to Claude Code.*
+## Appendix I — Section 2.5 spec (Polygon historical fetcher)
+
+This is the spec for the Section 2.5 PR. Self-contained.
+
+### Goal
+
+Land `src/options/polygon.py` implementing the same `HistoryFetcher` protocol as Section 2's Tradier client, but backed by Polygon.io / Massive.com. Switch `chain_reconstruction.py`'s default fetcher from Tradier to Polygon. Update Section 8's default study window to 2023-01-02 (Polygon's enforced floor). Section 2.5 unblocks the v1 production study by replacing the historical-data backend that Tradier could not provide.
+
+### Branch
+
+`chris/options-section-2-5-polygon-fetcher`
+
+### Files to create
+
+| Path | Content |
+| --- | --- |
+| `src/options/polygon.py` | `fetch_history`, OCC-to-Polygon-ticker conversion, parquet caching, error handling. Mirrors `src/options/tradier.py` shape and discipline. |
+| `tests/options/test_polygon.py` | Comprehensive offline tests with mocked HTTP. |
+
+### Files to edit
+
+| Path | Edit |
+| --- | --- |
+| `src/options/chain_reconstruction.py` | Switch default fetcher from `src.options.tradier.fetch_history` to `src.options.polygon.fetch_history`. Tradier import retained for the `RateLimiter` type. |
+| `src/options/tradier.py` | Module-level docstring note: "Live execution and current chain snapshot only — historical OHLCV is fetched via `src/options/polygon.py` since Section 2.5 (May 2026)." Public API unchanged. |
+| `tests/options/test_chain_reconstruction.py` | Mocked-fetcher tests stay protocol-identical. New `test_reconstruct_chain_default_fetcher_is_polygon` confirms the swap. |
+| `scripts/run_options_v1_study.py` | Default `--start-date` 2023-01-03 → 2023-01-02 (Polygon plan floor); `--train-val-split-date` 2024-12-31 → 2025-01-02; `--end-date` 2025-12-31 → 2026-05-08. |
+| `scripts/run_options_smoke_study.py` | Smoke-window dates retained if within Polygon coverage; otherwise updated. |
+| `docs/Options_Extension_Decisions.md` | Apply §3 / §9 / §10 / §8 deltas above. |
+| `docs/future_work.md` | Append: "Options Section 2.5 (Polygon historical fetcher) merged on `<merge date>`." |
+
+No `requirements.txt` edit needed. `requests` is already a dependency. Raw HTTP rather than the `polygon-api-client` SDK keeps truststore + Norton 360 TLS handling consistent with Section 2's pattern. **Section 2.5 self-merges under Chris's CODEOWNERS rule.**
+
+### Public API summary — `src/options/polygon.py`
+
+- `fetch_history(symbol, start, end, *, limiter=None, session=None, use_cache=True) -> pd.DataFrame` — daily OHLCV mirroring Tradier's signature; OCC symbol auto-converted to Polygon ticker (`O:` prefix, padding stripped). Returns empty DataFrame for valid-but-untraded contracts. Cache path `models/cache/options/polygon/history/<symbol>.parquet`, sanity-gated.
+- Errors: 403 NOT_AUTHORIZED → `RuntimeError("Polygon NOT_AUTHORIZED ...")`. 401 → `RuntimeError("Polygon authentication failed ...")`. 5xx / network → retry with exponential backoff up to `DEFAULT_MAX_RETRIES`, then re-raise. 429 retried with backoff.
+- `_occ_to_polygon_ticker(occ)` — strips internal whitespace, prefixes `O:`. Idempotent on already-clean symbols.
+- `_resolve_token()` — reads `POLYGON_API_KEY` from env; clear error message on missing.
+
+### Test scope
+
+Comprehensive offline tests in `tests/options/test_polygon.py` cover OCC conversion, token resolution, success / empty / 401 / 403 / 5xx / 429 / network retry paths, cache write / read / sanity gate, `apiKey` query parameter, optional `RateLimiter` integration. Updates to `tests/options/test_chain_reconstruction.py` add a default-fetcher assertion.
+
+### Verification
+
+```powershell
+pytest tests/ -v
+
+# Mandatory live Polygon smoke (memo §8 discipline):
+venv\Scripts\python.exe -c @"
+from datetime import date
+from dotenv import load_dotenv
+from pathlib import Path
+load_dotenv(Path.cwd() / '.env')
+from src.options.polygon import fetch_history
+df = fetch_history('SPY240719C00540000', date(2024, 6, 17), date(2024, 6, 21))
+print(f'Rows: {len(df)}')
+print(df)
+'@
+```
+
+### Reviewer requirements
+
+All paths Chris-owned per CODEOWNERS overrides: `src/options/`, `tests/options/`, `scripts/`, `docs/Options_Extension_Decisions.md`, `docs/future_work.md`. **Self-merge — no Mike approval required.** No `requirements.txt` edit (raw `requests` only).
+
+### Out of scope for Section 2.5
+
+- Migrating `src/options/tradier.py` to deprecated/removed status — file stays on main, retained for v2+ live execution. Module docstring update only.
+- Polygon's other endpoints (snapshot quotes, reference data, real-time WebSockets) — v2+ if needed.
+- `polygon-api-client` SDK migration — raw `requests` is sufficient. Revisit if SDK offers material advantages.
+- Polygon-based BXM / SPY benchmark fetch — current code paths fine.
+- Polygon flat-file CSV bulk download — v1.1+ optimization.
+
+---
+
+*End of design memo. Next action: hand the Section 2.5 spec to Claude Code.*

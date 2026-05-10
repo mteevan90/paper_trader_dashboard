@@ -1,11 +1,18 @@
 """Historical chain reconstruction for the options backtest engine
-(Phase 2 Section 6).
+(Phase 2 Section 6, default backend swapped to Polygon in Section 2.5).
 
-Tradier's historical endpoint returns OHLCV per OCC contract symbol;
+Polygon's historical endpoint returns OHLCV per OCC contract symbol;
 there is no "what strikes existed for SYMBOL on DATE" endpoint. To
 reconstruct a chain at backtest time, the engine enumerates candidate
 OCC symbols within ±``width_pct`` of spot and fetches each. Empty
 fetches discover what didn't trade — they're expected, not errors.
+
+Default fetcher is :func:`src.options.polygon.fetch_history` since
+Section 2.5 (May 2026); Tradier's per-OCC history returns null for
+expired contracts at all plan tiers, so historical paths route through
+Polygon while live/paper-trade paths continue to use Tradier. The
+fetcher is injectable, so concentration analysis and tests can pass
+deterministic stubs.
 
 Strike spacing follows the OCC standard:
     SPX:               $5 (deep wings sometimes $25; ignored in v1)
@@ -32,7 +39,8 @@ from src.options.greeks import delta as bsm_delta
 from src.options.greeks import implied_vol as bsm_implied_vol
 from src.options.greeks import time_to_expiration
 from src.options.occ import generate_occ_symbol
-from src.options.tradier import RateLimiter, fetch_history
+from src.options.polygon import fetch_history
+from src.options.tradier import RateLimiter
 from src.options.types import ContractSpec
 
 
