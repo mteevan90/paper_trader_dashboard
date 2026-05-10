@@ -433,3 +433,74 @@ class TestEvolve:
         cfg = _config()
         with pytest.raises(ValueError, match="end_date"):
             cfg.evolve(end_date=date(2023, 1, 1))
+
+
+# ----------------- Section 5 amendment: starting_capital + assumed_spread_pct -----------------
+
+
+class TestStartingCapitalAndSpread:
+    def test_starting_capital_default_100k(self):
+        cfg = _config()
+        assert cfg.starting_capital == 100_000.0
+
+    def test_starting_capital_zero_raises(self):
+        with pytest.raises(ValueError, match="starting_capital"):
+            _config(starting_capital=0.0)
+
+    def test_starting_capital_negative_raises(self):
+        with pytest.raises(ValueError, match="starting_capital"):
+            _config(starting_capital=-1.0)
+
+    def test_starting_capital_round_trip_via_dict(self):
+        cfg = _config(starting_capital=250_000.0)
+        round_tripped = BacktestConfig.from_dict(cfg.to_dict())
+        assert round_tripped.starting_capital == 250_000.0
+        assert round_tripped == cfg
+
+    def test_starting_capital_from_dict_default_when_missing(self):
+        # Backwards-compat: pre-Section-6 dicts have no starting_capital key
+        cfg = _config()
+        data = cfg.to_dict()
+        del data["starting_capital"]
+        del data["assumed_spread_pct"]
+        round_tripped = BacktestConfig.from_dict(data)
+        assert round_tripped.starting_capital == 100_000.0
+        assert round_tripped.assumed_spread_pct == 0.05
+
+    def test_suggest_passes_starting_capital_through(self):
+        trial = _make_trial()
+        cfg = BacktestConfig.suggest(
+            trial,
+            starting_capital=500_000.0,
+            **_SUGGEST_KWARGS,
+        )
+        assert cfg.starting_capital == 500_000.0
+
+    def test_assumed_spread_pct_default_5pct(self):
+        assert _config().assumed_spread_pct == 0.05
+
+    def test_assumed_spread_pct_zero_allowed(self):
+        # Zero spread = treat close as fill price exactly. Useful for sanity-mode runs.
+        assert _config(assumed_spread_pct=0.0).assumed_spread_pct == 0.0
+
+    def test_assumed_spread_pct_one_or_more_raises(self):
+        with pytest.raises(ValueError, match="assumed_spread_pct"):
+            _config(assumed_spread_pct=1.0)
+
+    def test_assumed_spread_pct_negative_raises(self):
+        with pytest.raises(ValueError, match="assumed_spread_pct"):
+            _config(assumed_spread_pct=-0.01)
+
+    def test_assumed_spread_pct_round_trip_via_dict(self):
+        cfg = _config(assumed_spread_pct=0.10)
+        round_tripped = BacktestConfig.from_dict(cfg.to_dict())
+        assert round_tripped.assumed_spread_pct == 0.10
+
+    def test_suggest_passes_assumed_spread_pct_through(self):
+        trial = _make_trial()
+        cfg = BacktestConfig.suggest(
+            trial,
+            assumed_spread_pct=0.08,
+            **_SUGGEST_KWARGS,
+        )
+        assert cfg.assumed_spread_pct == 0.08
