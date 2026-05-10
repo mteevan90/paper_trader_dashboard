@@ -71,6 +71,7 @@ Adding `options` is mechanically the same shape as adding `crypto` was. The Phas
 | v1 publish bar | Light: single Optuna run, train/val window split, SPY + BXM benchmarks, one promoted study | Mirror crypto v1 publish bar. Walk-forward, multi-regime studies, vol-of-vol modeling are v1.1+. |
 | Snapshot for v1 study | `pre_options_v1_<date>` under `models/snapshots/options/` | Locks the data inputs at promotion. Reproducibility guarantee carries from equities. |
 | Position sizing rule | Fixed-risk: `max_loss_pct_of_portfolio` field (default 2%, search 1–4%) | Locked at Section 5. Each position sized so its theoretical max loss is at most this fraction of starting portfolio value. Kelly-style and CVaR-aware sizing deferred to v1.1+ per §10. |
+| Starting capital | Configurable per study via `BacktestConfig.starting_capital` (default $100k) | Snapshot-able with the config for reproducibility. Allows sensitivity analysis on capital scale (e.g., does the strategy work at $25k? At $1M?). Locked at Section 6. |
 
 ---
 
@@ -178,6 +179,8 @@ These are carried forward into the build. Anything new discovered during section
 - **BSM treats American-style options as European.** Early-exercise premium is ignored in v1. The premium is small for non-dividend-paying single names but non-trivial for dividend-paying names near ex-div. Adequate for short-dated actively-managed positions (the v1 thesis). v1.1+ adds Barone-Adesi-Whaley approximation if Section 8 surfaces a meaningful gap. SPX is European-style and unaffected; SPY/QQQ are American-style ETFs but their distribution mechanics don't trigger the same early-exercise math as single-name ex-div windows.
 - **Expiration settlement differs by underlying type.** SPX is European-style and cash-settles to intrinsic at expiration. SPY/QQQ/equity options are American-style and share-settle when ITM at expiration: short call ITM → short shares delivered (-100 per contract); short put ITM → long shares delivered (+100 per contract); long call/put ITM → cash credit equal to intrinsic. Section 4's Position model sets `state=ASSIGNED` for share-settled cases and surfaces the resulting equity exposure for Section 6 engine to handle. Long-leg ITM on share-settled options is treated as cash-settled in v1 — automatic exercise logic for retail accounts is broker-dependent and not modeled.
 - **Cash legs in v1 are treated as zero-yield.** CSP collateral cash is held in the position but does not earn the risk-free rate. Cash drag is a real cost to the strategy in high-rate environments (4–5% in 2026). v1.1+ adds risk-free yield accrual to cash legs; impact on study results documented in concentration analysis.
+- **Cash-constrained sizing in v1.** The engine refuses to open positions that would push cash below zero. CSP collateral is locked while position is open. CC strategy reserves cash equal to current stock holdings' cost basis. Margin-aware sizing (allowing notional > cash up to broker margin limits) is a v1.1+ concern.
+- **Strike spacing varies by underlying.** OCC standard equity option strikes are $1 below $25 spot, $2.50 between $25 and $200, $5 above $200. SPX uses $5 strikes at-the-money (sometimes $25 in deep wings, ignored in v1). Section 6's chain reconstruction encodes these conventions in `get_strike_spacing(underlying, spot)`.
 
 ---
 
@@ -192,7 +195,7 @@ Mirrors the crypto Phase 2 sectioning. Each section is a self-contained PR that 
 | 3 | Black-Scholes Greeks module | MERGED (PR #6) | Closed-form Black-Scholes-Merton (continuous dividend yield `q`). Pure-function module exposing `price`, `delta`, `gamma`, `theta_per_day`, `vega_per_pct`, `rho_per_bp`, `implied_vol`, plus `compute_all` returning a frozen `GreeksResult` dataclass. Trader-convention units throughout, encoded in field names so consumers don't have to remember (theta scaled to per-calendar-day, vega per 1 IV point, rho per 1 bp). Day count ACT/365 hardcoded in a `time_to_expiration` helper (basis flexibility deferred to v1.1+ if a study needs ACT/360). Caller passes `q` (SPX: 0; SPY/QQQ: distribution yield; single names: ticker-specific) — Section 1's `UnderlyingMeta` was amended with a `dividend_yield` field in the same PR so callers have a canonical lookup. American-style treated as European — early-exercise premium ignored; documented in §8. `implied_vol` solver via Brent's method ships in Section 3 because Section 6 needs it for backtest IV reconstruction (Tradier per-contract history returns OHLCV without IV). The "below intrinsic" check uses the proper European lower bound (`max(K·e^(-rT) - S·e^(-qT), 0)` for puts, call analogue for calls), not the American intrinsic — caught mid-flight; deep-ITM puts with r > q would have spuriously raised under the simpler check. Edge cases handled explicitly: `T<0`/`S<=0`/`K<=0`/`vol<0` raise; `T==0` or `vol==0` returns intrinsic + zero Greeks except delta = ±1/0 ITM indicator. Pure-math validation only: Hull reference values (`pytest.approx(abs=0.005, rel=0.001)` to absorb textbook rounding) + put-call parity + finite-difference Greeks (~1e-4 tolerance). ORATS comparison is a manual one-time post-merge sanity check via `scripts/fetch_options_chain.py`, not a permanent test. |
 | 4 | Position + lifecycle model | NOT STARTED | Position dataclass (frozen + slots) representing a multi-leg options position with first-class active-management exit rules. **Hybrid representation:** canonical `legs: tuple[Leg, ...]` shape used by all engine code, plus per-strategy classmethod constructors (`Position.covered_call`, `Position.cash_secured_put`, future `Position.vertical_spread`, etc.) for self-documenting construction with validation in `__post_init__`. `Leg` carries (contract, sign, quantity); contract is `ContractSpec` (option), `StockContract` (stock), or `CashContract` (cash collateral) — discriminated union via type. Explicit cash legs on CSPs symmetric with explicit stock legs on CCs — honest portfolio accounting. `ExitRules` dataclass with hardcoded fields (`profit_target_pct`, `time_stop_dte`, `stop_loss_pct`, at least one required) — Optuna-friendly fixed parameter space. `PositionState` enum: `OPEN` → `CLOSED_MANAGED` (active-management exit) | `EXPIRED_ITM` (cash-settled, SPX) | `EXPIRED_OTM` | `ASSIGNED` (share-settled, equity options at expiration). Mark-to-mid P&L using daily chain close. Honest settlement at expiration: SPX cash-settles to intrinsic, SPY/QQQ/equities share-settle (the spawned equity position from `state=ASSIGNED` is created and managed by Section 6 engine, not in Section 4). Frozen with `evolve(**changes)` method that returns new instance via `dataclasses.replace`. Position aggregates leg-level Greeks via Section 3's `compute_all` (cash and stock legs contribute zero Greeks except stock delta). Closure reason format documented: `profit_target_<pct>`, `time_stop_<dte>`, `stop_loss_<pct>`, `expired_itm_cash_settled`, `expired_otm`, `assigned_call`, `assigned_put`. v1 ignores early assignment per §8 (avoid ex-div windows on short calls). **`entry_credit` convention (locked at Section 4 implementation):** `entry_credit` follows trader semantics — net cash received at open, positive for credits (CSP `+put_premium*100`, CC `-stock_basis*100 + call_premium*100`), negative for debits (long premium positions). `mark_to_market` returns P&L in dollars and excludes cash legs from the leg sum (cash held at par with zero yield per §8): `P&L = sum(sign × qty × multiplier × mark for non-cash legs) + entry_credit`. Stock legs **do** contribute (a CC's stock leg moves with the underlying). `should_exit` thresholds use `abs(entry_credit)` for symmetry across credit/debit positions: profit triggers when `P&L ≥ profit_target_pct × abs(entry_credit)`, stop_loss triggers when `P&L ≤ -stop_loss_pct × abs(entry_credit)`. The original Section 4 spec said "sum over legs ... minus entry_credit", which couldn't simultaneously satisfy trader-view `entry_credit` and the P&L-zero-at-open invariant once explicit cash collateral legs were introduced; the trader-view + non-cash-sum convention was chosen at implementation time. |
 | 5 | Options BacktestConfig | NOT STARTED | Frozen + slots `BacktestConfig` dataclass bundling all study levers into a single immutable, serializable object the engine consumes. Embedded `ExitRules` from Section 4 (composition, no field duplication). Embedded `FeeModel` dataclass with broker_fee_per_contract and regulatory_fee_per_contract broken out for fee-sensitivity analysis (Tradier Lite defaults: $0.35 broker + $0.10 regulatory; structured rather than flat-composite for honesty in study output). Universe specification as `tuple[str, ...]` field defaulting to the 8 v1 names — smoke studies override with smaller subsets, v1.1+ replaces with liquidity-filtered selection. `BacktestConfig.suggest(trial)` classmethod owns Optuna parameter ranges (cohesive: parameter definitions and search bounds in the same place). Per-strategy_class instances — CSP and CC run as separate studies and are compared at the study level, not within a single config. Train/val split via `start_date` + `end_date` + `train_val_split_date` fields; engine processes one walk and tags days by which side of split they fall on. Position sizing as fixed-risk: `max_loss_pct_of_portfolio` (default 0.02). `promotable: bool = False` flag enforced at study upload to prevent accidental publication of smoke runs. `to_dict()` / `from_dict()` for snapshot reproducibility. |
-| 6 | Options backtest engine | NOT STARTED | Daily walk on NYSE trading calendar. Position management loop: evaluate exit rules on all open positions → close exits → evaluate entry rules → open new entries (subject to `max_concurrent_positions`). P&L roll-up per day. Train/val window split. Reads `state=ASSIGNED` from Section 4 positions and creates the resulting equity position for independent management. |
+| 6 | Options backtest engine | NOT STARTED | Daily walk loop on NYSE trading calendar (`pandas_market_calendars`). Mutable `PortfolioState` updated in-place each simulated day for performance — engine internals don't need the immutability discipline that user-facing dataclasses (Position, BacktestConfig) carry. Per-day sequence: (1) evaluate exit rules on open positions and close triggered ones at mid + half-spread; (2) handle expirations via `Position.resolve_expiration` per Section 4; (3) liquidate any CSP-spawned shares at next-day open per locked decision; (4) for CC strategy, buy back shares if any were called away on prior day to continue writing; (5) evaluate entries — for each eligible underlying (in universe, not in earnings window, no existing position of same strategy_class), reconstruct historical chain, select strike, open at mid − half-spread; (6) mark-to-market and record daily snapshot tagged with train/val label. Strategy mode asymmetry: CSP starts with cash and never holds shares except transiently after assignment (always liquidated). CC starts by buying 100 shares per concurrent slot from universe, writes CCs against holdings, re-buys shares after assignment to continue. Cash-constrained sizing — engine refuses entries that would require cash beyond what's available. Skip-and-continue error handling with per-reason counters surfaced in `StudyResults`. Output: `StudyResults` dataclass with daily snapshots, closed positions, skip counters, wall-time, persisted to parquet at `models/cache/options/study_results/<study_label>/<run_id>/`. Historical chain reconstruction lives in `src/options/chain_reconstruction.py` — candidate-OCC enumeration with strike-spacing-by-underlying conventions, IV reconstruction via Section 3's `implied_vol()`, strike selection by closest delta. Earnings calendar fetched from Tradier's corporate calendar endpoint via `src/options/earnings.py`, cached per ticker. |
 | 7 | Optuna runner + smoke study | NOT STARTED | Borrow runner skeleton from `src/optuna_runner.py`. Separate `optuna_studies.db` at `models/cache/options/`. Smoke study: tiny universe (1–2 underlyings), tight DTE range, single strategy class. `promotable: false` enforced at upload. |
 | 8 | Real study (active-management CCs + CSPs) | NOT STARTED | Train/val split (windows TBD at Section 8 — likely train pre-2024, val 2024–2025). SPY total return primary benchmark, BXM secondary for CCs. Single Optuna run. Concentration analysis per Section 7 of this doc (by underlying, DTE band, IV regime, strategy variant). |
 | 9 | Dashboard wiring + publish | NOT STARTED | Replace Options placeholder with three-layer view. Tab structure: **Performance**, **Open Positions**, **Trade History**, **Greeks Exposure** (portfolio-level delta/gamma/theta/vega over time), **Risk & Behavior**, **Reliability**, **Tuning History**, **Glossary**. Adapt equity dashboard chrome — same scaffolding, options-relevant content. |
@@ -218,6 +221,7 @@ These are not blockers for v1 but should be tracked. When v1 ships, this list is
 - **Cash leg interest accrual.** v1 treats all cash legs as zero-yield. v1.1+ accrues risk-free rate on cash collateral; relevant for high-rate-environment realism (CSP cash drag was ~$2/contract/month in 2026's rate regime — small but compounds).
 - **Long-leg automatic exercise modeling.** v1 cash-settles long ITM legs at expiration. Real retail brokers auto-exercise long ITM options on expiration day if ITM by ≥$0.01, with broker-specific opt-out windows. v1.1+ adds broker-realistic auto-exercise logic where it materially changes P&L.
 - **Sizing rule alternatives.** v1 uses fixed-risk sizing (`max_loss_pct_of_portfolio`). v1.1+ may evaluate Kelly-style sizing (variable based on edge estimation) and CVaR-aware sizing (scales position size by tail-risk estimate). Either requires a real-data baseline before introducing variable sizing.
+- **Margin-aware position sizing.** v1 is cash-constrained — every CSP requires full collateral, every CC requires full share ownership. v1.1+ may add margin-aware sizing where the engine permits naked-short positions sized against broker margin requirements rather than full collateral. Increases capital efficiency at the cost of ruin risk. Real but requires honest validation including stress scenarios.
 
 ---
 
@@ -567,4 +571,135 @@ All paths Chris-owned per CODEOWNERS overrides: `src/options/`, `tests/options/`
 
 ---
 
-*End of design memo. Next action: hand the Section 5 spec to Claude Code.*
+## Appendix F — Section 6 spec (Backtest Engine)
+
+This is the spec for the Section 6 PR. The largest section in Phase 2 — orchestrates everything Sections 1–5 built. Self-contained, no further chat context needed.
+
+### Section 5 amendment
+
+Add `starting_capital: float` field to `BacktestConfig` so studies can vary it for sensitivity analysis and so it gets snapshotted with the config for reproducibility.
+
+| Path | Edit |
+| --- | --- |
+| `src/options/backtest_config.py` | Add `starting_capital: float` field after `random_seed` (default 100_000.0). Validate `> 0` in `__post_init__`. Add `starting_capital` kwarg to `suggest()` classmethod (passed through, not optimized — it's a fixed study parameter, not a search variable). Update `to_dict()` / `from_dict()` to handle the field. |
+| `tests/options/test_backtest_config.py` | Add tests: `test_starting_capital_default_100k`, `test_starting_capital_zero_raises`, `test_starting_capital_negative_raises`, `test_starting_capital_round_trip_via_dict`, `test_suggest_passes_starting_capital_through`. |
+
+This amendment lands in the Section 6 PR, not as a separate PR. The dependency is one-directional — the engine needs the field, the field is small.
+
+The Section 6 implementation also adds `assumed_spread_pct: float = 0.05` to `BacktestConfig` — Tradier history is OHLCV-only, so the spec's "mid − half-spread / mid + half-spread" fill model needs a configurable spread input rather than reading bid/ask from the data. Validate `0.0 ≤ assumed_spread_pct < 1.0` in `__post_init__`.
+
+### Goal
+
+Land the backtest engine: `run_backtest(config) -> StudyResults` that simulates the active-management premium-collection strategy day-by-day over a historical window. Includes mutable PortfolioState management, NYSE trading calendar walking, chain reconstruction, strike selection, entry/exit evaluation, expiration handling, P&L roll-up, parquet persistence. Section 7 (Optuna runner) calls `run_backtest()` per trial; Section 9 (dashboard) reads the persisted results.
+
+### Branch
+
+`chris/options-section-6-engine`
+
+### Files to create
+
+| Path | Content |
+| --- | --- |
+| `src/options/engine.py` | `PortfolioState`, `DailySnapshot`, `StudyResults`, `run_backtest`. Daily-loop logic. |
+| `src/options/chain_reconstruction.py` | `reconstruct_chain`, `select_strike`, `get_strike_spacing`, OCC enumeration helpers. |
+| `src/options/earnings.py` | `fetch_earnings_calendar`, `is_in_earnings_window`. Tradier corporate calendar fetcher with caching. |
+| `scripts/run_options_backtest.py` | CLI wrapper: parses `--config-path` (JSON), constructs `BacktestConfig`, runs, saves results. |
+| `tests/options/test_engine.py` | End-to-end engine tests with mocked Tradier. |
+| `tests/options/test_chain_reconstruction.py` | Chain enumeration + strike selection tests. |
+| `tests/options/test_earnings.py` | Earnings calendar fetcher + caching tests. |
+
+### Files to edit
+
+| Path | Edit |
+| --- | --- |
+| `src/options/backtest_config.py` | Section 5 amendment: add `starting_capital` and `assumed_spread_pct` fields. |
+| `tests/options/test_backtest_config.py` | Section 5 amendment tests. |
+| `requirements.txt` | Add `pandas_market_calendars` if not already present. **Shared-file edit — Mike's approval required.** |
+| `docs/Options_Extension_Decisions.md` | Apply §9 row 6 / §3 / §8 / §10 deltas above. |
+| `docs/future_work.md` | Append: "Options Section 6 (backtest engine) merged on `<merge date>`." |
+
+### Public API — `src/options/engine.py`
+
+#### `DailySnapshot` (frozen + slots)
+
+```python
+@dataclass(frozen=True, slots=True)
+class DailySnapshot:
+    sim_date: date
+    train_val_label: str  # "train" or "val"
+    cash: float
+    stock_value: float          # for CC: shares × close price; for CSP: 0
+    open_positions_count: int
+    open_positions_mark: float  # sum of mark-to-mid for open positions
+    realized_pnl_to_date: float
+    portfolio_total: float      # cash + stock_value + open_positions_mark
+    portfolio_delta: float
+    portfolio_gamma: float
+    portfolio_theta_per_day: float
+    portfolio_vega_per_pct: float
+```
+
+#### `PortfolioState` (mutable, slots only — no frozen)
+
+`cash`, `stock_holdings: dict[str, int]`, `open_positions: list[Position]`, `closed_positions: list[Position]`, `daily_snapshots: list[DailySnapshot]`, `skip_counters: dict[str, int]`, plus `pending_share_liquidations` and `pending_share_acquisitions` as lists of `(ticker, shares, trigger_date)` tuples. Methods: `total_value(market)`, `increment_skip(reason)`, `record_snapshot(...)`.
+
+#### `StudyResults` (frozen + slots)
+
+`config: BacktestConfig`, `daily_snapshots: tuple[DailySnapshot, ...]`, `closed_positions: tuple[Position, ...]`, `skip_counters: dict[str, int]`, `wall_time_seconds: float`, `run_id: str`. `to_parquet(output_dir)` writes `daily.parquet`, `trades.parquet`, `config.json`, `run_meta.json`. `from_parquet` is its inverse.
+
+#### Main entry point
+
+`run_backtest(config: BacktestConfig) -> StudyResults` — runs from `config.start_date` to `config.end_date`. Mutable `PortfolioState` updated in-place each simulated day. Daily 7-step sequence (build market, evaluate exits, handle expirations, process pending share liquidations, process pending share acquisitions, evaluate entries, record snapshot).
+
+### Public API — `src/options/chain_reconstruction.py`
+
+`get_strike_spacing(underlying, spot) -> float` — SPX $5; equities $1 below $25, $2.50 in [25,200), $5 above $200.
+
+`reconstruct_chain(underlying, sim_date, target_expiration, spot, *, width_pct=0.20, fetcher=None) -> list[tuple[ContractSpec, float]]` — enumerate candidate OCC symbols within ±width_pct of spot, fetch each, return non-empty as `(ContractSpec, close_price)`.
+
+`select_strike(candidates, target_delta, option_type, spot, sim_date, r, q, *, delta_tolerance=0.10) -> ContractSpec | None` — caller passes magnitude, function flips sign per option_type. Returns the candidate whose computed delta (via Section 3 `implied_vol` then `delta`) is closest to target.
+
+### Public API — `src/options/earnings.py`
+
+`fetch_earnings_calendar(ticker, *, fetcher=None) -> tuple[date, ...]` — Tradier corporate calendar endpoint, parquet cache at `models/cache/options/tradier/earnings/<ticker>.parquet` with 7-day TTL. Empty tuple for indexes.
+
+`is_in_earnings_window(ticker, sim_date, *, window_days=5, earnings_dates=None) -> bool` — True if sim_date within ±window_days of any earnings date. Pre-fetched dates kwarg avoids redundant calendar lookups in the engine loop.
+
+### Daily-loop semantics
+
+Per-day sequence:
+
+1. **Build market state** for each underlying (close from `fetch_history`; skip with `missing_underlying_close` if empty).
+2. **Evaluate exits** on open positions; close at mid + half-spread; apply one-way fee; update cash; move to closed_positions with `state=CLOSED_MANAGED`.
+3. **Handle expirations** via `Position.resolve_expiration`. ASSIGNED short put → queue `pending_share_liquidations`. ASSIGNED short call → queue `pending_share_acquisitions` for next-day re-buy. EXPIRED_ITM (SPX) → cash credit at intrinsic. EXPIRED_OTM → no further action.
+4. **Process pending share liquidations** at next-day close; record as `spawned_equity_close` synthetic position in closed list.
+5. **Process pending share acquisitions** (CC re-buy) when cash permits; otherwise increment `insufficient_cash_for_cc_rebuy`.
+6. **Evaluate entries** for each eligible underlying:
+   - Skip with `existing_position_same_strategy_class`, `earnings_window`, `max_concurrent_reached`, `no_shares_for_cc` as appropriate
+   - Compute target_expiration (nearest available ≥ `sim_date + dte_target`)
+   - Reconstruct chain, select strike, size by `max_loss_pct_of_portfolio` (CSP: strike × 100; CC: spot × 100)
+   - Skip with `insufficient_cash_for_position` if cash short; otherwise open via `Position.cash_secured_put()` / `Position.covered_call()` at mid − half-spread, apply one-way fee
+7. **Record daily snapshot** tagged `train`/`val` per `train_val_split_date`.
+
+### Strategy mode initialization
+
+CC: equal-capital allocation per slot. `slot_capital = starting_capital / max_concurrent_positions`. For each slot, walk universe in order; buy `floor(slot_capital / (close × 100)) × 100` shares at first-trading-day close; if 0, leave slot empty (CC re-buy logic later fills it when cash recovers). CSP: no initialization, all cash.
+
+### Verification
+
+```powershell
+pytest tests/ -v
+python -c "import pandas_market_calendars; print(pandas_market_calendars.__version__)"
+```
+
+### Reviewer requirements
+
+`src/options/`, `tests/options/`, `scripts/run_options_backtest.py`, `docs/Options_Extension_Decisions.md`, `docs/future_work.md` self-merge. `requirements.txt` is the only shared-file edit (if `pandas_market_calendars` needs adding). Mike's approval required for that one line.
+
+### Out of scope for Section 6
+
+Optuna parameter sweeps (Section 7); concentration analysis (Section 8); walk-forward validation (v1.1+); margin-aware sizing (v1.1+); real-time / paper-trade mode (v2+); live order routing (v2+); multi-strategy-class composite engines (v1.2+); per-underlying parameter overrides (v1.1+); performance optimization beyond cache reuse (v1.1+).
+
+---
+
+*End of design memo. Next action: hand the Section 6 spec to Claude Code.*

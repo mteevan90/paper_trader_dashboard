@@ -117,6 +117,10 @@ class BacktestConfig:
     promotable: bool = False
     random_seed: int | None = None
 
+    # --- capital + fill model (Section 6) ---
+    starting_capital: float = 100_000.0
+    assumed_spread_pct: float = 0.05
+
     def __post_init__(self) -> None:
         if not self.study_label:
             raise ValueError("study_label must be a non-empty string")
@@ -161,6 +165,16 @@ class BacktestConfig:
                 "max_loss_pct_of_portfolio must be in (0.0, 0.20); "
                 f"got {self.max_loss_pct_of_portfolio!r}"
             )
+        if self.starting_capital <= 0:
+            raise ValueError(
+                "starting_capital must be > 0; "
+                f"got {self.starting_capital!r}"
+            )
+        if not (0.0 <= self.assumed_spread_pct < 1.0):
+            raise ValueError(
+                "assumed_spread_pct must be in [0.0, 1.0); "
+                f"got {self.assumed_spread_pct!r}"
+            )
 
     @classmethod
     def suggest(
@@ -176,12 +190,16 @@ class BacktestConfig:
         fees: FeeModel | None = None,
         promotable: bool = False,
         random_seed: int | None = None,
+        starting_capital: float = 100_000.0,
+        assumed_spread_pct: float = 0.05,
     ) -> "BacktestConfig":
         """Construct a ``BacktestConfig`` from an Optuna trial.
 
         Search ranges live here (cohesive: parameter definitions and
         their search bounds in the same place). Fixed values come from
         kwargs; tunable parameters are sampled from the trial.
+        ``starting_capital`` and ``assumed_spread_pct`` are passed
+        through (study-level parameters, not search variables).
         """
         return cls(
             study_label=study_label,
@@ -213,6 +231,8 @@ class BacktestConfig:
             fees=fees if fees is not None else FeeModel(),
             promotable=promotable,
             random_seed=random_seed,
+            starting_capital=starting_capital,
+            assumed_spread_pct=assumed_spread_pct,
         )
 
     def to_dict(self) -> dict:
@@ -247,6 +267,8 @@ class BacktestConfig:
             },
             "promotable": self.promotable,
             "random_seed": self.random_seed,
+            "starting_capital": self.starting_capital,
+            "assumed_spread_pct": self.assumed_spread_pct,
         }
 
     @classmethod
@@ -271,6 +293,8 @@ class BacktestConfig:
             fees=FeeModel(**data["fees"]),
             promotable=data.get("promotable", False),
             random_seed=data.get("random_seed"),
+            starting_capital=data.get("starting_capital", 100_000.0),
+            assumed_spread_pct=data.get("assumed_spread_pct", 0.05),
         )
 
     def evolve(self, **changes) -> "BacktestConfig":
