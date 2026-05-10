@@ -6,10 +6,12 @@ from datetime import date, timedelta
 
 import pandas as pd
 import pytest
+import requests
 
 from src.options.chain_reconstruction import (
     DEFAULT_DELTA_TOLERANCE,
     DEFAULT_WIDTH_PCT,
+    TRANSIENT_FETCH_EXCEPTIONS,
     get_strike_spacing,
     reconstruct_chain,
     select_strike,
@@ -158,6 +160,112 @@ class TestReconstructChain:
                 "AAPL", date(2025, 6, 2), date(2025, 6, 2), 100.0,
                 fetcher=lambda *a, **k: pd.DataFrame(),
             )
+
+    def test_reconstruct_chain_swallows_http_errors_continues(self):
+        """Transient network exceptions (HTTPError, Timeout,
+        ConnectionError) must be swallowed so a single bad strike
+        doesn't kill the chain reconstruction."""
+        sim_date = date(2025, 6, 2)
+        target = date(2025, 7, 18)
+        spot = 100.0
+        valid_specs = {
+            ContractSpec(
+                underlying="AAPL", expiration_date=target,
+                option_type="C", strike=100.0,
+            ): 2.50,
+        }
+        # Half the calls raise HTTPError, half return valid frames.
+        call_count = {"n": 0}
+
+        def flaky_fetcher(symbol, start, end, *, limiter=None):
+            call_count["n"] += 1
+            if call_count["n"] % 2 == 0:
+                raise requests.HTTPError("503 Service Unavailable")
+            try:
+                spec = parse_occ_symbol(symbol)
+            except ValueError:
+                return pd.DataFrame()
+            close = valid_specs.get(spec)
+            if close is None:
+                return pd.DataFrame()
+            return _single_day_history(close, start)
+
+        chain = reconstruct_chain(
+            "AAPL", sim_date, target, spot, fetcher=flaky_fetcher,
+        )
+        # Reconstruction kept going; we still got the valid specs back.
+        assert len(chain) == 1
+        assert chain[0][0] == list(valid_specs.keys())[0]
+
+    def test_reconstruct_chain_reraises_runtime_error_from_fetcher(self):
+        """The token-missing scenario from the production stall:
+        ``_resolve_token`` raises RuntimeError when TRADIER_SANDBOX_TOKEN
+        isn't in os.environ. That's a configuration bug, not a network
+        event — must propagate so the study fails fast instead of
+        running for hours with zero candidates."""
+        sim_date = date(2025, 6, 2)
+        target = date(2025, 7, 18)
+        spot = 100.0
+
+        def token_missing_fetcher(symbol, start, end, *, limiter=None):
+            raise RuntimeError(
+                "TRADIER_SANDBOX_TOKEN not set. Sign up at ..."
+            )
+
+        with pytest.raises(RuntimeError, match="TRADIER_SANDBOX_TOKEN"):
+            reconstruct_chain(
+                "AAPL", sim_date, target, spot,
+                fetcher=token_missing_fetcher,
+            )
+
+    def test_reconstruct_chain_reraises_unexpected_exception(self):
+        """Any non-transient exception (KeyError, ValueError, etc.) is
+        a programming or configuration bug — re-raise."""
+        sim_date = date(2025, 6, 2)
+        target = date(2025, 7, 18)
+
+        def buggy_fetcher(symbol, start, end, *, limiter=None):
+            raise KeyError("unexpected")
+
+        with pytest.raises(KeyError):
+            reconstruct_chain(
+                "AAPL", sim_date, target, 100.0, fetcher=buggy_fetcher,
+            )
+
+    def test_transient_exceptions_tuple_includes_expected_types(self):
+        # Quick sanity check on the public tuple — anchors it against
+        # the requests types so a future refactor can't accidentally
+        # drop one.
+        assert requests.HTTPError in TRANSIENT_FETCH_EXCEPTIONS
+        assert requests.Timeout in TRANSIENT_FETCH_EXCEPTIONS
+        assert requests.ConnectionError in TRANSIENT_FETCH_EXCEPTIONS
+
+    def test_reconstruct_chain_logs_first_transient_at_info_then_debug(
+        self, caplog,
+    ):
+        """First HTTPError logs at INFO; subsequent ones suppress to
+        DEBUG so analysts see the signal without spam."""
+        import logging as _log
+
+        sim_date = date(2025, 6, 2)
+        target = date(2025, 7, 18)
+
+        def always_503(symbol, start, end, *, limiter=None):
+            raise requests.HTTPError("503 Service Unavailable")
+
+        caplog.set_level(_log.INFO, logger="src.options.chain_reconstruction")
+        reconstruct_chain(
+            "AAPL", sim_date, target, 100.0, fetcher=always_503,
+        )
+        info_records = [
+            r for r in caplog.records
+            if r.levelname == "INFO"
+            and r.name == "src.options.chain_reconstruction"
+        ]
+        # Exactly one INFO log for the HTTPError type, despite many
+        # candidate strikes raising the same error.
+        assert len(info_records) == 1
+        assert "HTTPError" in info_records[0].getMessage()
 
 
 # ----------------- select_strike -----------------
