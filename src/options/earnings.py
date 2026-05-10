@@ -10,16 +10,29 @@ Public functions:
 Indexes (SPX, SPY, QQQ) have no earnings — they return empty tuples
 without hitting the network.
 
-Tradier's corporate-calendar endpoint structure has shifted between API
-versions, so the parser here is defensive: walks the payload looking
-for ISO date strings under common envelope shapes (``request/events``,
-``calendars/calendar/events``, plain ``events`` lists). When the
-payload doesn't match any of those, the call is logged and an empty
-tuple is returned rather than raising — earnings avoidance becoming a
-soft-no-op is acceptable for v1; missing it is preferred to crashing
-the daily backtest loop. ``# TODO verify endpoint`` left as a
-follow-up so the parser can be tightened against a known-good response
-once Section 6 ships.
+Source priority (post-fix):
+
+1. **Tradier fundamentals beta** at
+   ``/beta/markets/fundamentals/calendars`` — the documented endpoint
+   for corporate calendar events. Requires the Fundamentals product
+   subscription on the Tradier account; tokens without it get a 401
+   ``Invalid API call as no apiproduct match found`` from Apigee.
+2. **yfinance** ``Ticker.earnings_dates`` — used as a fallback when
+   Tradier returns an empty payload, raises, or yields no parseable
+   dates. Lets earnings avoidance keep working when the Tradier
+   subscription isn't available.
+
+The original ``/v1/markets/calendars/corporate`` URL hardcoded in
+Section 6 was wrong — that path 404s on Tradier; the real endpoint
+lives under ``/beta/markets/fundamentals/...``. Fixed in this PR.
+
+The parser is defensive: walks the payload looking for date strings
+under common envelope shapes (``calendars/calendar/events``,
+``results[].tables.corporate_calendars[]``, plain ``events`` lists)
+and accepts both string event types ("Earnings") and integer event
+codes (Tradier's fundamentals API documents specific codes for
+earnings releases). When the payload doesn't match any of those, the
+call falls through to yfinance.
 """
 
 from __future__ import annotations
@@ -33,7 +46,11 @@ from typing import Callable, Iterable, Optional
 import pandas as pd
 import requests
 
-from src.options.tradier import RateLimiter, _http_get
+from src.options.tradier import (
+    RateLimiter,
+    _http_get,
+    _resolve_beta_base_url,
+)
 
 
 __all__ = [
@@ -42,6 +59,8 @@ __all__ = [
     "INDEX_TICKERS",
     "EARNINGS_CACHE_TTL_HOURS",
     "EARNINGS_CACHE_DIR",
+    "FUNDAMENTALS_CALENDAR_PATH",
+    "EARNINGS_EVENT_TYPE_CODES",
 ]
 
 
@@ -55,7 +74,15 @@ EARNINGS_CACHE_DIR: Path = (
 )
 EARNINGS_CACHE_TTL_HOURS: int = 7 * 24
 
-CORPORATE_CALENDAR_PATH: str = "/markets/calendars/corporate"
+# Path on the Tradier beta base URL (https://<host>/beta).
+# Section 6 originally used /markets/calendars/corporate on /v1, which
+# 404s — the actual path is /markets/fundamentals/calendars on /beta.
+FUNDAMENTALS_CALENDAR_PATH: str = "/markets/fundamentals/calendars"
+
+# Tradier fundamentals event_type codes that represent an earnings
+# release (per the documented schema; treat as a probable-set rather
+# than a hard contract since the beta API's docs may shift).
+EARNINGS_EVENT_TYPE_CODES: frozenset[int] = frozenset({14, 15})
 
 
 HttpGet = Callable[..., dict]
@@ -110,14 +137,27 @@ def _coerce_iso_date(value) -> Optional[date]:
     return None
 
 
+def _is_earnings_event_type(value) -> bool:
+    """Match against the various event_type representations the Tradier
+    fundamentals API uses — string ("Earnings", "Earnings Release") or
+    integer code (14/15)."""
+    if isinstance(value, str):
+        return "earnings" in value.lower()
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return value in EARNINGS_EVENT_TYPE_CODES
+    return False
+
+
 def _walk_for_earnings(payload) -> Iterable[date]:
     """Recursively yield earnings dates found under common envelope shapes.
 
-    Tradier corporate calendar responses have nested under different keys
-    across API versions — ``calendars/calendar/events/event``,
-    ``request/events``, etc. Rather than hard-coding one path, walk the
-    structure and yield any ``date``-shaped value whose neighbor key
-    suggests "earnings".
+    Handles the v1 ``calendars/calendar/events/event`` shape (legacy /
+    pre-fundamentals) AND the fundamentals beta shape under
+    ``results[].tables.corporate_calendars[]``. Walks the structure and
+    yields any ``date``-shaped value whose neighbor key suggests an
+    earnings event.
     """
     if isinstance(payload, dict):
         type_value = (
@@ -126,8 +166,15 @@ def _walk_for_earnings(payload) -> Iterable[date]:
             or payload.get("eventType")
             or ""
         )
-        if isinstance(type_value, str) and "earnings" in type_value.lower():
-            for key in ("date", "begin_date", "event_date", "report_date"):
+        if _is_earnings_event_type(type_value):
+            for key in (
+                "date",
+                "begin_date_time",
+                "begin_date",
+                "event_date",
+                "report_date",
+                "estimated_date_for_next_event",
+            ):
                 d = _coerce_iso_date(payload.get(key))
                 if d is not None:
                     yield d
@@ -139,6 +186,82 @@ def _walk_for_earnings(payload) -> Iterable[date]:
             yield from _walk_for_earnings(item)
 
 
+def _fetch_earnings_from_tradier(
+    ticker: str,
+    *,
+    fetcher: Optional[HttpGet] = None,
+    limiter: Optional[RateLimiter] = None,
+    session: Optional[requests.Session] = None,
+) -> tuple[date, ...]:
+    """Hit Tradier fundamentals beta. Returns sorted tuple of dates,
+    or ``()`` on fetch error / parse failure (auth issues like 401
+    'Invalid API call as no apiproduct match found' included)."""
+    fetcher = fetcher or _http_get
+    limiter = limiter or RateLimiter()
+    try:
+        payload = fetcher(
+            FUNDAMENTALS_CALENDAR_PATH,
+            {"symbols": ticker},
+            limiter,
+            session=session,
+            base_url_override=_resolve_beta_base_url(),
+        )
+    except Exception as exc:
+        logger.warning(
+            "tradier earnings fetch failed for %s: %s "
+            "(will try yfinance fallback)",
+            ticker, exc,
+        )
+        return ()
+
+    raw_dates = sorted(set(_walk_for_earnings(payload)))
+    return tuple(raw_dates)
+
+
+YFinanceFetcher = Callable[[str], "pd.DataFrame | None"]
+
+
+def _yfinance_default_fetcher(ticker: str) -> "pd.DataFrame | None":
+    """Default yfinance fetcher: ``Ticker.earnings_dates`` returns a
+    DataFrame indexed by datetime with up to ~12 dates of historical +
+    upcoming earnings. Tests inject a mock instead."""
+    try:
+        import yfinance as yf
+    except ImportError:
+        logger.error("yfinance not installed; can't run earnings fallback")
+        return None
+    try:
+        return yf.Ticker(ticker).earnings_dates
+    except Exception as exc:
+        logger.warning(
+            "yfinance earnings fetch failed for %s: %s", ticker, exc
+        )
+        return None
+
+
+def _fetch_earnings_from_yfinance(
+    ticker: str,
+    *,
+    yfinance_fetcher: Optional[YFinanceFetcher] = None,
+) -> tuple[date, ...]:
+    """yfinance fallback. Returns sorted tuple of dates extracted from
+    ``Ticker.earnings_dates``'s DataFrame index."""
+    fetcher = yfinance_fetcher or _yfinance_default_fetcher
+    df = fetcher(ticker)
+    if df is None or len(df) == 0:
+        return ()
+    dates: list[date] = []
+    for ts in df.index:
+        if hasattr(ts, "date"):
+            try:
+                dates.append(ts.date())
+            except Exception:
+                continue
+        elif isinstance(ts, date):
+            dates.append(ts)
+    return tuple(sorted(set(dates)))
+
+
 def fetch_earnings_calendar(
     ticker: str,
     *,
@@ -146,16 +269,17 @@ def fetch_earnings_calendar(
     limiter: Optional[RateLimiter] = None,
     session: Optional[requests.Session] = None,
     use_cache: bool = True,
+    yfinance_fetcher: Optional[YFinanceFetcher] = None,
 ) -> tuple[date, ...]:
-    """Fetch all known earnings dates for ``ticker`` from Tradier's
-    corporate calendar endpoint. Returns sorted tuple.
+    """Fetch all known earnings dates for ``ticker`` and return a sorted
+    tuple.
 
     Indexes (SPX/SPY/QQQ) return ``()`` immediately without I/O.
 
     On cache hit (within :data:`EARNINGS_CACHE_TTL_HOURS`) returns the
-    cached tuple. On miss, fetches via Tradier, parses defensively
-    (logs and returns ``()`` on shape mismatch), writes the cache, and
-    returns. Set ``use_cache=False`` to force a refresh.
+    cached tuple. On miss, tries Tradier fundamentals beta first; if
+    that returns empty (auth not subscribed, parse miss, or genuine
+    no-data), falls through to yfinance ``Ticker.earnings_dates``.
     """
     if ticker in INDEX_TICKERS:
         return ()
@@ -165,33 +289,35 @@ def fetch_earnings_calendar(
         if cached is not None:
             return cached
 
-    fetcher = fetcher or _http_get
-    limiter = limiter or RateLimiter()
-    try:
-        payload = fetcher(
-            CORPORATE_CALENDAR_PATH,
-            {"symbols": ticker},
-            limiter,
-            session=session,
-        )
-    except Exception as exc:
-        logger.warning(
-            "tradier earnings fetch failed for %s: %s", ticker, exc
-        )
-        return ()
+    dates = _fetch_earnings_from_tradier(
+        ticker,
+        fetcher=fetcher,
+        limiter=limiter,
+        session=session,
+    )
+    source = "tradier"
 
-    raw_dates = sorted(set(_walk_for_earnings(payload)))
-    if not raw_dates:
-        # TODO verify endpoint — payload didn't match any expected
-        # shape. Log once at INFO so a study run surfaces the symbol
-        # but doesn't spam.
+    if not dates:
         logger.info(
-            "no earnings dates parsed for %s "
-            "(payload shape may have changed)",
-            ticker,
+            "tradier returned no earnings dates for %s; "
+            "falling back to yfinance", ticker,
+        )
+        dates = _fetch_earnings_from_yfinance(
+            ticker, yfinance_fetcher=yfinance_fetcher,
+        )
+        source = "yfinance" if dates else "unavailable"
+
+    if dates:
+        logger.info(
+            "earnings source for %s: %s (%d dates)",
+            ticker, source, len(dates),
+        )
+    else:
+        logger.warning(
+            "earnings source for %s: unavailable "
+            "(both Tradier and yfinance returned nothing)", ticker,
         )
 
-    dates = tuple(raw_dates)
     _write_earnings_cache(ticker, dates)
     return dates
 

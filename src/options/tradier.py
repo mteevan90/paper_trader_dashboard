@@ -129,6 +129,12 @@ def _resolve_base_url() -> str:
     )
 
 
+def _resolve_beta_base_url() -> str:
+    """Beta-product base URL (``https://<host>/beta``). The fundamentals
+    calendars endpoint lives here, not under ``/v1``."""
+    return _resolve_base_url().rsplit("/", 1)[0] + "/beta"
+
+
 def _resolve_token() -> str:
     env = os.environ.get(TRADIER_ENV_VAR, "sandbox").lower()
     var_name = SANDBOX_TOKEN_ENV if env == "sandbox" else PRODUCTION_TOKEN_ENV
@@ -146,14 +152,20 @@ def _http_get(
     params: dict,
     limiter: RateLimiter,
     session: Optional[requests.Session] = None,
+    *,
+    base_url_override: Optional[str] = None,
 ) -> dict:
     """GET ``<base_url><path>`` with bearer auth, JSON accept, retry,
     and rate-limit header consumption. Returns parsed JSON.
 
     Retries 429 (honoring ``Retry-After``) and 5xx with exponential
     backoff (1s, 2s, 4s). 4xx other than 429 raises immediately.
+
+    ``base_url_override`` lets callers point at a non-v1 base (e.g.,
+    :func:`_resolve_beta_base_url` for the fundamentals product). When
+    None, defaults to :func:`_resolve_base_url`.
     """
-    url = _resolve_base_url() + path
+    url = (base_url_override or _resolve_base_url()) + path
     headers = {
         "Authorization": f"Bearer {_resolve_token()}",
         "Accept": "application/json",
