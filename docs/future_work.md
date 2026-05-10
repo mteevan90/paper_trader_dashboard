@@ -246,6 +246,10 @@ Options Section 6 (backtest engine) merged on `<merge date>`. Included Section 5
 
 Options Section 7 (Optuna runner + smoke study) merged on `<merge date>`. Calmar objective on training-window snapshots only; Optuna TPE with SQLite storage at `models/cache/options/optuna_studies.db`; resume via `load_if_exists=True`. Compressed-full smoke study CLI exercises 8 underlyings × 2 strategies × 5 trials × 6 months — manual sandbox run is post-merge (~30min, network-dependent).
 
+## Options Section 8 (production v1 study)
+
+Options Section 8 (production v1 study) merged on `<merge date>`. v1_study orchestrator runs primary Optuna for CSP + CC, concentration analysis (per-underlying / per-DTE-band / per-IV-regime ablations), automated promotion gate with five hardcoded checks, human-override capability, and a snapshot of the promoted run. Bundled Section 6 amendment (entry_filters + fetch_iv_regime on EngineDeps) and Section 2 amendment (fetch_index_quote_history). Manual production run is post-merge (~6 hours, network-dependent).
+
 ## Options Section 3 (Black-Scholes Greeks module)
 
 Options Section 3 (Black-Scholes-Merton Greeks module) merged on `<merge date>`. Pure-function module with `price`, `delta`, `gamma`, `theta_per_day`, `vega_per_pct`, `rho_per_bp`, `implied_vol`, `compute_all`, plus a `time_to_expiration` ACT/365 helper. Section 1's `UnderlyingMeta` amended in this PR to carry a `dividend_yield` field for the BSM `q` input.

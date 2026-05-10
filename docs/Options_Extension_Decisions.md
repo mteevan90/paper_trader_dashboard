@@ -73,6 +73,8 @@ Adding `options` is mechanically the same shape as adding `crypto` was. The Phas
 | Position sizing rule | Fixed-risk: `max_loss_pct_of_portfolio` field (default 2%, search 1–4%) | Locked at Section 5. Each position sized so its theoretical max loss is at most this fraction of starting portfolio value. Kelly-style and CVaR-aware sizing deferred to v1.1+ per §10. |
 | Starting capital | Configurable per study via `BacktestConfig.starting_capital` (default $100k) | Snapshot-able with the config for reproducibility. Allows sensitivity analysis on capital scale (e.g., does the strategy work at $25k? At $1M?). Locked at Section 6. |
 | Optimization objective | Calmar ratio (compound annualized return / max drawdown) on training window | Locked at Section 7. Drawdown-aware, no tuning knob, defensible without hyperparameter justification. SPY total return and BXM remain reporting-time benchmarks but are not used as the optimization target — Calmar is asset-class-appropriate for premium collection where return distributions are skewed and Sharpe assumptions are violated. |
+| Promotion gate criteria | Automated function with five hardcoded thresholds + human override capability | Locked at Section 8. Automated check codifies discipline mechanically; human override allows nuanced judgment when results are close to thresholds. Both decisions captured in `promotion_decision.json` for audit. The five criteria: val_calmar >= 0.5 × train_calmar (overfit check), beats SPY total return on val window (basic alpha), beats BXM on val window for CC studies only (strategy-class-specific honesty), no single underlying >50% of training alpha (concentration check), high-IV-regime alpha within 2x of low-IV-regime alpha (regime independence). |
+| BXM benchmark fetch path | Tradier `/markets/quotes` for `$BXM` as primary; yfinance `^BXM` as documented fallback | Locked at Section 8. Tradier index quote endpoint may or may not carry BXM — first call verifies and either succeeds or triggers the documented yfinance fallback. yfinance is already in the project's transitive dependencies via Mike's equity infrastructure. SPY total return is fetched via the existing `src/options/tradier.py` history endpoint (no new fetcher needed). |
 
 ---
 
@@ -198,7 +200,7 @@ Mirrors the crypto Phase 2 sectioning. Each section is a self-contained PR that 
 | 5 | Options BacktestConfig | NOT STARTED | Frozen + slots `BacktestConfig` dataclass bundling all study levers into a single immutable, serializable object the engine consumes. Embedded `ExitRules` from Section 4 (composition, no field duplication). Embedded `FeeModel` dataclass with broker_fee_per_contract and regulatory_fee_per_contract broken out for fee-sensitivity analysis (Tradier Lite defaults: $0.35 broker + $0.10 regulatory; structured rather than flat-composite for honesty in study output). Universe specification as `tuple[str, ...]` field defaulting to the 8 v1 names — smoke studies override with smaller subsets, v1.1+ replaces with liquidity-filtered selection. `BacktestConfig.suggest(trial)` classmethod owns Optuna parameter ranges (cohesive: parameter definitions and search bounds in the same place). Per-strategy_class instances — CSP and CC run as separate studies and are compared at the study level, not within a single config. Train/val split via `start_date` + `end_date` + `train_val_split_date` fields; engine processes one walk and tags days by which side of split they fall on. Position sizing as fixed-risk: `max_loss_pct_of_portfolio` (default 0.02). `promotable: bool = False` flag enforced at study upload to prevent accidental publication of smoke runs. `to_dict()` / `from_dict()` for snapshot reproducibility. |
 | 6 | Options backtest engine | NOT STARTED | Daily walk loop on NYSE trading calendar (`pandas_market_calendars`). Mutable `PortfolioState` updated in-place each simulated day for performance — engine internals don't need the immutability discipline that user-facing dataclasses (Position, BacktestConfig) carry. Per-day sequence: (1) evaluate exit rules on open positions and close triggered ones at mid + half-spread; (2) handle expirations via `Position.resolve_expiration` per Section 4; (3) liquidate any CSP-spawned shares at next-day open per locked decision; (4) for CC strategy, buy back shares if any were called away on prior day to continue writing; (5) evaluate entries — for each eligible underlying (in universe, not in earnings window, no existing position of same strategy_class), reconstruct historical chain, select strike, open at mid − half-spread; (6) mark-to-market and record daily snapshot tagged with train/val label. Strategy mode asymmetry: CSP starts with cash and never holds shares except transiently after assignment (always liquidated). CC starts by buying 100 shares per concurrent slot from universe, writes CCs against holdings, re-buys shares after assignment to continue. Cash-constrained sizing — engine refuses entries that would require cash beyond what's available. Skip-and-continue error handling with per-reason counters surfaced in `StudyResults`. Output: `StudyResults` dataclass with daily snapshots, closed positions, skip counters, wall-time, persisted to parquet at `models/cache/options/study_results/<study_label>/<run_id>/`. Historical chain reconstruction lives in `src/options/chain_reconstruction.py` — candidate-OCC enumeration with strike-spacing-by-underlying conventions, IV reconstruction via Section 3's `implied_vol()`, strike selection by closest delta. Earnings calendar fetched from Tradier's corporate calendar endpoint via `src/options/earnings.py`, cached per ticker. |
 | 7 | Optuna runner + smoke study | NOT STARTED | Optuna TPE optimization runner with Calmar objective. Compound annualized return divided by max drawdown computed on training-window snapshots only — validation data is tagged in StudyResults but excluded from optimization. SQLite storage at `models/cache/options/optuna_studies.db` (separate from crypto's per asset-class isolation). Resume capability via Optuna's `load_if_exists=True`. Top-K (default 5) trials persist full StudyResults parquet to `models/cache/options/optuna_studies/<study_label>/trial_<N>/`; non-top-K trials retain only Optuna's parameter-and-objective summary in the SQLite study. Skip-and-continue error handling: failed trials return -1.0 sentinel objective and the study continues. Smoke study covers all 8 underlyings × 2 strategies × 5 trials × 6-month window with `promotable=False` enforced — exercises universe iteration, both strategy modes, and parquet persistence end-to-end (~30min runtime estimate). Pruning disabled in v1 (engine doesn't report intermediate objective values during the daily walk; v1.1+ may add MedianPruner if Optuna sweeps become time-binding). |
-| 8 | Real study (active-management CCs + CSPs) | NOT STARTED | Train/val split (windows TBD at Section 8 — likely train pre-2024, val 2024–2025). SPY total return primary benchmark, BXM secondary for CCs. Single Optuna run. Concentration analysis per Section 7 of this doc (by underlying, DTE band, IV regime, strategy variant). |
+| 8 | Real study (active-management CCs + CSPs) | NOT STARTED | Production v1 study orchestrator. Wraps `run_optuna_study` from Section 7 with: (1) primary Optuna run on full v1 universe, both strategy classes (CSP and CC as separate Optuna studies), 100 trials each, 2-year backtest window (Jan 2023 through Dec 2024 train, Jan 2025 through May 2026 val); (2) concentration analysis ablation per memo §7 — re-runs with each underlying blacklisted (8 ablations per strategy), each DTE band excluded (5 bands × 2 strategies), each IV regime excluded (top vs bottom quartile, per-underlying IV-rank against 252-day rolling distribution), strategy variant ablation (run with CSP only and CC only); (3) benchmark series fetch — SPY total return primary via existing `tradier.fetch_history` infrastructure with dividend reinvestment, BXM secondary via Tradier `/markets/quotes` index endpoint with yfinance `^BXM` fallback if Tradier doesn't carry it; (4) automated promotion gate `evaluate_promotion()` returning structured pass/fail with explanations on five hardcoded criteria (val_calmar >= 0.5 × train_calmar, beats SPY on val window by Calmar, beats BXM for CC studies, no underlying contributes >50% of training alpha, IV regime ratio within 2x); (5) human override capability — `promotion_decision.json` captures both the automated recommendation and the human's final decision with reasoning. Output structure: `models/cache/options/v1_study/<run_id>/` containing primary study output, ablation subdirectories, benchmark series, promotion decision JSON. Snapshot for v1 publish: `models/snapshots/options/pre_options_v1_<date>/` per memo §3 row 15. |
 | 9 | Dashboard wiring + publish | NOT STARTED | Replace Options placeholder with three-layer view. Tab structure: **Performance**, **Open Positions**, **Trade History**, **Greeks Exposure** (portfolio-level delta/gamma/theta/vega over time), **Risk & Behavior**, **Reliability**, **Tuning History**, **Glossary**. Adapt equity dashboard chrome — same scaffolding, options-relevant content. |
 
 ---
@@ -224,6 +226,9 @@ These are not blockers for v1 but should be tracked. When v1 ships, this list is
 - **Sizing rule alternatives.** v1 uses fixed-risk sizing (`max_loss_pct_of_portfolio`). v1.1+ may evaluate Kelly-style sizing (variable based on edge estimation) and CVaR-aware sizing (scales position size by tail-risk estimate). Either requires a real-data baseline before introducing variable sizing.
 - **Margin-aware position sizing.** v1 is cash-constrained — every CSP requires full collateral, every CC requires full share ownership. v1.1+ may add margin-aware sizing where the engine permits naked-short positions sized against broker margin requirements rather than full collateral. Increases capital efficiency at the cost of ruin risk. Real but requires honest validation including stress scenarios.
 - **Optuna trial pruning.** v1 runs every Optuna trial to completion (no early-stop on unpromising trials). v1.1+ may add MedianPruner or HyperbandPruner — requires the engine to report intermediate objective values during the daily walk, which is a non-trivial engine refactor. Worth it only when Optuna sweeps become time-binding.
+- **Batch chain pre-fetch.** v1 engine fetches historical chain data lazily per simulated trading day during the walk loop. v1.1+ adds an upfront batch pre-fetch that populates the cache for the full backtest window before any trials begin — eliminates the "trial 1 is slow" pattern, also enables parallel chain population.
+- **Vectorized BSM across candidates.** v1 computes IV and delta per-candidate iteratively (Brent's method per OCC, BSM delta per OCC). v1.1+ vectorizes both across all candidates simultaneously using numpy broadcasting — expected 5-10x speedup on the strike-selection step.
+- **Smarter strike grid.** v1 enumerates ~40 candidates per underlying per entry day at uniform strike spacing across ±20% of spot. Most are wasted (we only open one position). v1.1+ uses target_delta + recent IV to bracket the relevant strike range tightly, fetching ~10 candidates instead of 40.
 
 ---
 
@@ -788,4 +793,77 @@ All paths Chris-owned per CODEOWNERS overrides. Self-merge — no Mike approval 
 
 ---
 
-*End of design memo. Next action: hand the Section 7 spec to Claude Code.*
+## Appendix H — Section 8 spec (Production v1 study)
+
+This is the spec for the Section 8 PR. Self-contained.
+
+### Goal
+
+Land the production v1 study orchestrator: takes the locked Light scope (100 trials × 2 strategies × ~2-year window), runs the primary Optuna studies, runs concentration analysis ablation, fetches benchmark series, evaluates the automated promotion gate, captures the human override decision. Outputs become Section 9's input.
+
+### Branch
+
+`chris/options-section-8-production-study`
+
+### Files to create
+
+| Path | Content |
+| --- | --- |
+| `src/options/benchmarks.py` | `fetch_spy_total_return`, `fetch_bxm` (Tradier primary, yfinance fallback). |
+| `src/options/concentration.py` | Concentration ablation orchestrator. |
+| `src/options/promotion.py` | `evaluate_promotion()` automated gate, `promotion_decision.json` schema. |
+| `src/options/v1_study.py` | Top-level `run_v1_study()` orchestrator wrapping Optuna runs + concentration + benchmarks + promotion. |
+| `scripts/run_options_v1_study.py` | Production CLI. |
+| `tests/options/test_benchmarks.py` | Mocked fetcher tests. |
+| `tests/options/test_concentration.py` | Concentration orchestration tests. |
+| `tests/options/test_promotion.py` | Automated gate logic tests. |
+| `tests/options/test_v1_study.py` | Top-level orchestrator integration tests with all Tradier deps mocked. |
+
+### Files to edit
+
+| Path | Edit |
+| --- | --- |
+| `src/options/tradier.py` | Add `fetch_index_quote_history(symbol, start, end)` for index history (e.g., `$BXM`). Wraps `/markets/history` with index-symbol prefix. **Section 2 amendment.** |
+| `src/options/engine.py` | Add `entry_filters: EntryFilters \| None = None` parameter to `run_backtest`. Add `EntryFilters` frozen dataclass with `dte_exclude_range` and `iv_regime_exclude` fields. Add `fetch_iv_regime` callable to `EngineDeps` (default impl computes RV-percentile against 252-day rolling distribution). Engine reads filters during entry evaluation. **Section 6 amendment.** |
+| `tests/options/test_tradier.py` | Add tests for `fetch_index_quote_history`. |
+| `tests/options/test_engine.py` | Add tests for `entry_filters` (DTE band exclusion + IV regime exclusion). |
+| `requirements.txt` | If `yfinance` is not already pinned, add it. **Verified: yfinance==1.2.0 is already in requirements.txt via the equity infrastructure — no shared-file edit needed.** |
+| `docs/Options_Extension_Decisions.md` | Apply §9 row 8 / §3 / §10 deltas above. |
+| `docs/future_work.md` | Append: "Options Section 8 (production v1 study) merged on `<merge date>`." |
+
+### Public API summary
+
+- `src/options/benchmarks.py`: `fetch_spy_total_return(start, end, *, fetcher=None)` returns DataFrame with `close`, `dividend_per_share`, `total_return_index` columns. `fetch_bxm(start, end, *, fetcher=None)` returns DataFrame with `close` column; tries Tradier index history first, falls back to yfinance `^BXM`. Both cached at `models/cache/options/benchmarks/` with 7-day TTL.
+
+- `src/options/concentration.py`: `ConcentrationResult` (frozen + slots) records `ablation_dimension`, `ablation_value`, `base_calmar`, `ablated_calmar`, `delta_calmar`, `pct_alpha_attribution`. `run_concentration_analysis(...)` runs three ablation dimensions (per-underlying, per-DTE-band [25-30, 30-35, 35-40, 40-45, 45-50], per-IV-regime [high, low]) and returns a flat tuple of results.
+
+- `src/options/promotion.py`: `PromotionCheck` (per criterion), `PromotionRecommendation` (aggregate, with `to_dict`/`from_dict`). `evaluate_promotion(...)` runs five hardcoded checks (overfit, beats_spy, beats_bxm for CC only, no_underlying_concentration, regime_independence). `write_promotion_decision(output_dir, recommendation, human_override=None)` persists `promotion_decision.json` with optional human override section.
+
+- `src/options/v1_study.py`: `run_v1_study(*, run_id, ...)` returns `dict[str, Path]` with paths to per-strategy output dirs and the snapshot dir. Sequence: fetch benchmarks → for each strategy (CSP, CC) run primary Optuna + concentration + promotion gate + decision file → snapshot the run.
+
+### Verification
+
+```powershell
+pytest tests/ -v
+python -c "import yfinance; print(yfinance.__version__)"
+# Manual production run (post-merge, ~6 hours):
+# venv\Scripts\python.exe scripts\run_options_v1_study.py --non-interactive
+```
+
+### Reviewer requirements
+
+Mostly Chris-owned. `src/options/tradier.py`, `src/options/engine.py`, `src/options/benchmarks.py`, `src/options/concentration.py`, `src/options/promotion.py`, `src/options/v1_study.py`, `tests/options/`, `scripts/run_options_v1_study.py`, `docs/Options_Extension_Decisions.md`, `docs/future_work.md` — all Chris-owned. yfinance is already a transitive dependency, so `requirements.txt` is not touched.
+
+### Out of scope for Section 8
+
+- Walk-forward validation (multiple train/val splits) — v1.1+.
+- Multi-objective optimization — v1.1+.
+- Live BXM real-time updates — v1.1+ if dashboard wants live-updating benchmarks.
+- Cross-strategy concentration analysis — v1.2+.
+- Bayesian model averaging across promoted studies — v2+.
+- Automated re-promotion on data refresh — v2+. v1 is single-run-and-promote-once.
+- Real-money trading hooks — v2+.
+
+---
+
+*End of design memo. Next action: hand the Section 8 spec to Claude Code.*

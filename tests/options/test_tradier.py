@@ -30,6 +30,7 @@ from src.options.tradier import (
     fetch_chain_snapshot,
     fetch_expirations,
     fetch_history,
+    fetch_index_quote_history,
 )
 
 
@@ -369,3 +370,45 @@ def test_fetch_chain_snapshot_returns_empty_on_null_options():
     df = fetch_chain_snapshot("SPY", date(2026, 6, 19), session=session)
     assert df.empty
     assert "occ_symbol" in df.columns
+
+
+# --- fetch_index_quote_history (Section 2 amendment) -------------------------
+
+
+def test_fetch_index_quote_history_prepends_dollar_when_missing(tmp_cache):
+    session = _FakeSession([_FakeResp(_history_payload_multi_day())])
+    fetch_index_quote_history(
+        "BXM", date(2024, 1, 2), date(2024, 1, 3),
+        session=session, use_cache=False,
+    )
+    assert len(session.calls) == 1
+    assert session.calls[0]["params"]["symbol"] == "$BXM"
+
+
+def test_fetch_index_quote_history_preserves_dollar_prefix(tmp_cache):
+    session = _FakeSession([_FakeResp(_history_payload_multi_day())])
+    fetch_index_quote_history(
+        "$VIX", date(2024, 1, 2), date(2024, 1, 3),
+        session=session, use_cache=False,
+    )
+    assert session.calls[0]["params"]["symbol"] == "$VIX"
+
+
+def test_fetch_index_quote_history_returns_dataframe_shape(tmp_cache):
+    session = _FakeSession([_FakeResp(_history_payload_multi_day())])
+    df = fetch_index_quote_history(
+        "$BXM", date(2024, 1, 2), date(2024, 1, 3),
+        session=session, use_cache=False,
+    )
+    assert list(df.columns) == ["open", "high", "low", "close", "volume"]
+    assert df.index.name == "date"
+    assert len(df) == 2
+
+
+def test_fetch_index_quote_history_returns_empty_on_null_history(tmp_cache):
+    session = _FakeSession([_FakeResp({"history": None})])
+    df = fetch_index_quote_history(
+        "$BXM", date(2024, 1, 2), date(2024, 1, 3),
+        session=session, use_cache=False,
+    )
+    assert df.empty
