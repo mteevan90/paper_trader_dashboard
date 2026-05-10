@@ -58,6 +58,7 @@ from src.options.positions import (
     PositionState,
     StockContract,
 )
+from src.options.polygon import fetch_history as polygon_fetch_history
 from src.options.tradier import (
     RateLimiter,
     fetch_expirations as tradier_fetch_expirations,
@@ -346,11 +347,37 @@ class EngineDeps:
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE
 
 
-def _default_deps() -> EngineDeps:
-    limiter = RateLimiter()
+def _default_deps(
+    *,
+    study_start: Optional[date] = None,
+    study_end: Optional[date] = None,
+) -> EngineDeps:
+    """Build the default :class:`EngineDeps`.
+
+    When ``study_start`` and ``study_end`` are provided, the chain
+    reconstruction fetcher pre-fetches the full study window per OCC on
+    first call so subsequent same-symbol queries hit the cache cleanly
+    instead of repeatedly fetching single-day windows. ``run_backtest``
+    passes the config dates when wiring up its own deps.
+    """
+    # Two separate limiters: one for Tradier's underlying-history and
+    # earnings calls, one for Polygon's per-OCC chain calls. Sharing a
+    # limiter across services would let Tradier's rate-limit headers
+    # poison Polygon's pacing (and vice versa).
+    tradier_limiter = RateLimiter()
+    # Polygon Options Developer plan allows ~100 req/s; the default
+    # 60/min RateLimiter (sized for Tradier sandbox) was throttling
+    # chain reconstruction down to ~92s per cold day. Bump to 300/min
+    # (5 req/s) — well below Polygon's actual cap and well above what
+    # backtest workloads need.
+    polygon_limiter = RateLimiter(max_per_min=300)
 
     def _fetch_close(symbol: str, sim_date: date) -> Optional[float]:
-        df = fetch_history(symbol, sim_date, sim_date, limiter=limiter)
+        # Underlyings are non-expired equities — Tradier's history
+        # endpoint works for these. Per-OCC historical fetches go to
+        # Polygon (see ``_fetch_chain`` below) since Tradier returns
+        # null for any expired contract.
+        df = fetch_history(symbol, sim_date, sim_date, limiter=tradier_limiter)
         if df is None or df.empty:
             return None
         if sim_date in df.index:
@@ -367,17 +394,35 @@ def _default_deps() -> EngineDeps:
         target_expiration: date,
         spot: float,
     ) -> list[tuple[ContractSpec, float]]:
+        # Section 2.5 swap: per-OCC historical fetches route through
+        # Polygon. Tradier returns null for every expired contract so
+        # using it here would silently produce zero candidates and
+        # stall under sandbox throttle.
+        if study_start is not None and study_end is not None:
+            # Pre-fetch the full study window per OCC so the cache
+            # serves multi-day frames; reconstruct_chain's per-day
+            # query then slices the right row from the cached frame
+            # instead of re-fetching one day at a time.
+            def wide_window_fetcher(
+                occ, _narrow_start, _narrow_end, *, limiter=None,
+            ):
+                return polygon_fetch_history(
+                    occ, study_start, study_end, limiter=limiter,
+                )
+            fetcher = wide_window_fetcher
+        else:
+            fetcher = polygon_fetch_history
         return reconstruct_chain(
             underlying,
             sim_date,
             target_expiration,
             spot,
-            fetcher=fetch_history,
-            limiter=limiter,
+            fetcher=fetcher,
+            limiter=polygon_limiter,
         )
 
     def _fetch_earnings(ticker: str) -> tuple[date, ...]:
-        return fetch_earnings_calendar(ticker, limiter=limiter)
+        return fetch_earnings_calendar(ticker, limiter=tradier_limiter)
 
     def _trading_days(start: date, end: date) -> list[date]:
         import pandas_market_calendars as mcal
@@ -392,7 +437,8 @@ def _default_deps() -> EngineDeps:
         from datetime import timedelta as _td
 
         df = fetch_history(
-            ticker, sim_date - _td(days=400), sim_date, limiter=limiter,
+            ticker, sim_date - _td(days=400), sim_date,
+            limiter=tradier_limiter,
         )
         if df is None or df.empty or len(df) < 30:
             return None
@@ -1129,7 +1175,11 @@ def run_backtest(
     filter so the same engine can re-run with specific DTE bands or IV
     regimes excluded.
     """
-    deps = deps or _default_deps()
+    if deps is None:
+        deps = _default_deps(
+            study_start=config.start_date,
+            study_end=config.end_date,
+        )
     t0 = time.time()
     run_id = str(uuid.uuid4())
 

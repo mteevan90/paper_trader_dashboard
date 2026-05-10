@@ -683,6 +683,137 @@ class TestPortfolioStateMethods:
         assert state.stock_value(market) == pytest.approx(40_000.0)
 
 
+# ----------------- regression: engine uses Polygon for chain reconstruction -----------------
+
+
+class TestEngineUsesPolygonForChain:
+    """The v1 production study hung for 8 hours because engine's
+    ``_default_deps`` was passing Tradier's ``fetch_history`` to
+    ``reconstruct_chain``. Tradier returns null for every expired OCC
+    and sandbox throttle silently amplified the problem. Lock the
+    Polygon wiring so a future refactor can't regress to the
+    Tradier path.
+    """
+
+    def test_default_deps_chain_fetcher_uses_polygon_module(
+        self, monkeypatch,
+    ):
+        from src.options import engine as engine_mod
+        from src.options import polygon as polygon_mod
+
+        captured: dict[str, object] = {}
+
+        def fake_polygon_fetch(symbol, start, end, *, limiter=None):
+            captured["called"] = True
+            captured["symbol"] = symbol
+            captured["start"] = start
+            captured["end"] = end
+            captured["limiter"] = limiter
+            import pandas as pd
+            return pd.DataFrame(
+                {
+                    "open": [1.0], "high": [1.0], "low": [1.0],
+                    "close": [1.0], "volume": [10],
+                },
+                index=pd.Index([start], name="date"),
+            )
+
+        # Patch the symbol the engine reaches for.
+        monkeypatch.setattr(
+            engine_mod, "polygon_fetch_history", fake_polygon_fetch,
+        )
+        deps = engine_mod._default_deps(
+            study_start=date(2025, 6, 2),
+            study_end=date(2025, 6, 30),
+        )
+        # Trigger the chain wrapper.
+        deps.reconstruct_chain(
+            "AAPL", date(2025, 6, 2), date(2025, 7, 18), 100.0,
+        )
+        assert captured.get("called") is True, (
+            "engine deps did not call polygon_fetch_history"
+        )
+        assert "AAPL" in captured.get("symbol", "") or captured["symbol"].startswith("O:"), (
+            f"unexpected fetcher symbol: {captured.get('symbol')!r}"
+        )
+
+    def test_default_deps_uses_separate_limiters_for_tradier_and_polygon(
+        self, monkeypatch,
+    ):
+        from src.options import engine as engine_mod
+
+        captured_tradier: list[object] = []
+        captured_polygon: list[object] = []
+
+        def fake_tradier_fetch(symbol, start, end, *, limiter=None):
+            captured_tradier.append(limiter)
+            import pandas as pd
+            return pd.DataFrame(
+                columns=["open", "high", "low", "close", "volume"],
+            ).rename_axis("date")
+
+        def fake_polygon_fetch(symbol, start, end, *, limiter=None):
+            captured_polygon.append(limiter)
+            import pandas as pd
+            return pd.DataFrame(
+                columns=["open", "high", "low", "close", "volume"],
+            ).rename_axis("date")
+
+        monkeypatch.setattr(engine_mod, "fetch_history", fake_tradier_fetch)
+        monkeypatch.setattr(
+            engine_mod, "polygon_fetch_history", fake_polygon_fetch,
+        )
+        deps = engine_mod._default_deps(
+            study_start=date(2025, 6, 2),
+            study_end=date(2025, 6, 30),
+        )
+        deps.fetch_close("SPY", date(2025, 6, 2))
+        deps.reconstruct_chain(
+            "AAPL", date(2025, 6, 2), date(2025, 7, 18), 100.0,
+        )
+        # Both fetchers were called; their limiters must NOT be the
+        # same instance (cross-poisoning would re-introduce the
+        # 8-hour stall on a Tradier rate-header anomaly).
+        assert captured_tradier, "tradier fetch_close was not invoked"
+        assert captured_polygon, "polygon fetch was not invoked"
+        assert (
+            captured_tradier[0] is not captured_polygon[0]
+        ), "engine deps shared a limiter across Tradier and Polygon"
+
+    def test_default_deps_chain_uses_wide_window(self, monkeypatch):
+        """When study_start/study_end are passed, the chain fetcher
+        pre-fetches the full study window per OCC (caches multi-day
+        frames) so subsequent same-symbol calls slice locally instead
+        of re-fetching one day at a time."""
+        from src.options import engine as engine_mod
+
+        captured: list[tuple[date, date]] = []
+
+        def fake_polygon_fetch(symbol, start, end, *, limiter=None):
+            captured.append((start, end))
+            import pandas as pd
+            return pd.DataFrame(
+                columns=["open", "high", "low", "close", "volume"],
+            ).rename_axis("date")
+
+        monkeypatch.setattr(
+            engine_mod, "polygon_fetch_history", fake_polygon_fetch,
+        )
+        deps = engine_mod._default_deps(
+            study_start=date(2024, 1, 2),
+            study_end=date(2024, 12, 31),
+        )
+        deps.reconstruct_chain(
+            "AAPL", date(2024, 6, 17), date(2024, 7, 18), 100.0,
+        )
+        assert captured, "polygon fetcher was not invoked"
+        # Every captured (start, end) is the full study window, not the
+        # narrow per-day window reconstruct_chain passes.
+        for start, end in captured:
+            assert start == date(2024, 1, 2)
+            assert end == date(2024, 12, 31)
+
+
 # ----------------- Section 6 amendment: entry_filters -----------------
 
 

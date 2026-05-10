@@ -392,25 +392,24 @@ class TestFetchHistoryCaching:
         assert len(session.calls) == 1
         assert float(result["close"].iloc[0]) == 540.0
 
-    def test_sanity_gate_below_threshold_no_cache_write(
-        self, _redirect_cache, caplog,
+    def test_sparse_results_still_cached_no_sanity_gate(
+        self, _redirect_cache,
     ):
-        # 1 bar in a 10-day window → 10% coverage, below 50%.
+        """Polygon's per-OCC fetches don't run the calendar-day
+        sanity gate Tradier uses — option contracts trade sparsely
+        and rejecting their writes would re-fetch every call. Anything
+        non-empty is cached. (See cache-write block in polygon.py for
+        the rationale.)"""
+        # 1 bar in a 10-day window — this used to fail the sanity
+        # gate; now it should still get cached.
         payload = _polygon_ok_payload({date(2024, 6, 17): 540.0})
         session = _FakeSession([_FakeResp(payload)])
-        import logging
-        caplog.set_level(logging.WARNING, logger="src.options.polygon")
         fetch_history(
             "SPY240719C00540000",
             date(2024, 6, 17), date(2024, 6, 26),
             session=session, use_cache=True,
         )
-        # No cache file written.
-        assert not (_redirect_cache / "SPY240719C00540000.parquet").exists()
-        # Warning was logged.
-        assert any(
-            "sanity gate" in r.getMessage().lower() for r in caplog.records
-        )
+        assert (_redirect_cache / "SPY240719C00540000.parquet").exists()
 
     def test_cache_ttl_invalidates_stale_cache(self, _redirect_cache):
         path = _redirect_cache / "SPY240719C00540000.parquet"
