@@ -72,6 +72,7 @@ Adding `options` is mechanically the same shape as adding `crypto` was. The Phas
 | Snapshot for v1 study | `pre_options_v1_<date>` under `models/snapshots/options/` | Locks the data inputs at promotion. Reproducibility guarantee carries from equities. |
 | Position sizing rule | Fixed-risk: `max_loss_pct_of_portfolio` field (default 2%, search 1–4%) | Locked at Section 5. Each position sized so its theoretical max loss is at most this fraction of starting portfolio value. Kelly-style and CVaR-aware sizing deferred to v1.1+ per §10. |
 | Starting capital | Configurable per study via `BacktestConfig.starting_capital` (default $100k) | Snapshot-able with the config for reproducibility. Allows sensitivity analysis on capital scale (e.g., does the strategy work at $25k? At $1M?). Locked at Section 6. |
+| Optimization objective | Calmar ratio (compound annualized return / max drawdown) on training window | Locked at Section 7. Drawdown-aware, no tuning knob, defensible without hyperparameter justification. SPY total return and BXM remain reporting-time benchmarks but are not used as the optimization target — Calmar is asset-class-appropriate for premium collection where return distributions are skewed and Sharpe assumptions are violated. |
 
 ---
 
@@ -196,7 +197,7 @@ Mirrors the crypto Phase 2 sectioning. Each section is a self-contained PR that 
 | 4 | Position + lifecycle model | NOT STARTED | Position dataclass (frozen + slots) representing a multi-leg options position with first-class active-management exit rules. **Hybrid representation:** canonical `legs: tuple[Leg, ...]` shape used by all engine code, plus per-strategy classmethod constructors (`Position.covered_call`, `Position.cash_secured_put`, future `Position.vertical_spread`, etc.) for self-documenting construction with validation in `__post_init__`. `Leg` carries (contract, sign, quantity); contract is `ContractSpec` (option), `StockContract` (stock), or `CashContract` (cash collateral) — discriminated union via type. Explicit cash legs on CSPs symmetric with explicit stock legs on CCs — honest portfolio accounting. `ExitRules` dataclass with hardcoded fields (`profit_target_pct`, `time_stop_dte`, `stop_loss_pct`, at least one required) — Optuna-friendly fixed parameter space. `PositionState` enum: `OPEN` → `CLOSED_MANAGED` (active-management exit) | `EXPIRED_ITM` (cash-settled, SPX) | `EXPIRED_OTM` | `ASSIGNED` (share-settled, equity options at expiration). Mark-to-mid P&L using daily chain close. Honest settlement at expiration: SPX cash-settles to intrinsic, SPY/QQQ/equities share-settle (the spawned equity position from `state=ASSIGNED` is created and managed by Section 6 engine, not in Section 4). Frozen with `evolve(**changes)` method that returns new instance via `dataclasses.replace`. Position aggregates leg-level Greeks via Section 3's `compute_all` (cash and stock legs contribute zero Greeks except stock delta). Closure reason format documented: `profit_target_<pct>`, `time_stop_<dte>`, `stop_loss_<pct>`, `expired_itm_cash_settled`, `expired_otm`, `assigned_call`, `assigned_put`. v1 ignores early assignment per §8 (avoid ex-div windows on short calls). **`entry_credit` convention (locked at Section 4 implementation):** `entry_credit` follows trader semantics — net cash received at open, positive for credits (CSP `+put_premium*100`, CC `-stock_basis*100 + call_premium*100`), negative for debits (long premium positions). `mark_to_market` returns P&L in dollars and excludes cash legs from the leg sum (cash held at par with zero yield per §8): `P&L = sum(sign × qty × multiplier × mark for non-cash legs) + entry_credit`. Stock legs **do** contribute (a CC's stock leg moves with the underlying). `should_exit` thresholds use `abs(entry_credit)` for symmetry across credit/debit positions: profit triggers when `P&L ≥ profit_target_pct × abs(entry_credit)`, stop_loss triggers when `P&L ≤ -stop_loss_pct × abs(entry_credit)`. The original Section 4 spec said "sum over legs ... minus entry_credit", which couldn't simultaneously satisfy trader-view `entry_credit` and the P&L-zero-at-open invariant once explicit cash collateral legs were introduced; the trader-view + non-cash-sum convention was chosen at implementation time. |
 | 5 | Options BacktestConfig | NOT STARTED | Frozen + slots `BacktestConfig` dataclass bundling all study levers into a single immutable, serializable object the engine consumes. Embedded `ExitRules` from Section 4 (composition, no field duplication). Embedded `FeeModel` dataclass with broker_fee_per_contract and regulatory_fee_per_contract broken out for fee-sensitivity analysis (Tradier Lite defaults: $0.35 broker + $0.10 regulatory; structured rather than flat-composite for honesty in study output). Universe specification as `tuple[str, ...]` field defaulting to the 8 v1 names — smoke studies override with smaller subsets, v1.1+ replaces with liquidity-filtered selection. `BacktestConfig.suggest(trial)` classmethod owns Optuna parameter ranges (cohesive: parameter definitions and search bounds in the same place). Per-strategy_class instances — CSP and CC run as separate studies and are compared at the study level, not within a single config. Train/val split via `start_date` + `end_date` + `train_val_split_date` fields; engine processes one walk and tags days by which side of split they fall on. Position sizing as fixed-risk: `max_loss_pct_of_portfolio` (default 0.02). `promotable: bool = False` flag enforced at study upload to prevent accidental publication of smoke runs. `to_dict()` / `from_dict()` for snapshot reproducibility. |
 | 6 | Options backtest engine | NOT STARTED | Daily walk loop on NYSE trading calendar (`pandas_market_calendars`). Mutable `PortfolioState` updated in-place each simulated day for performance — engine internals don't need the immutability discipline that user-facing dataclasses (Position, BacktestConfig) carry. Per-day sequence: (1) evaluate exit rules on open positions and close triggered ones at mid + half-spread; (2) handle expirations via `Position.resolve_expiration` per Section 4; (3) liquidate any CSP-spawned shares at next-day open per locked decision; (4) for CC strategy, buy back shares if any were called away on prior day to continue writing; (5) evaluate entries — for each eligible underlying (in universe, not in earnings window, no existing position of same strategy_class), reconstruct historical chain, select strike, open at mid − half-spread; (6) mark-to-market and record daily snapshot tagged with train/val label. Strategy mode asymmetry: CSP starts with cash and never holds shares except transiently after assignment (always liquidated). CC starts by buying 100 shares per concurrent slot from universe, writes CCs against holdings, re-buys shares after assignment to continue. Cash-constrained sizing — engine refuses entries that would require cash beyond what's available. Skip-and-continue error handling with per-reason counters surfaced in `StudyResults`. Output: `StudyResults` dataclass with daily snapshots, closed positions, skip counters, wall-time, persisted to parquet at `models/cache/options/study_results/<study_label>/<run_id>/`. Historical chain reconstruction lives in `src/options/chain_reconstruction.py` — candidate-OCC enumeration with strike-spacing-by-underlying conventions, IV reconstruction via Section 3's `implied_vol()`, strike selection by closest delta. Earnings calendar fetched from Tradier's corporate calendar endpoint via `src/options/earnings.py`, cached per ticker. |
-| 7 | Optuna runner + smoke study | NOT STARTED | Borrow runner skeleton from `src/optuna_runner.py`. Separate `optuna_studies.db` at `models/cache/options/`. Smoke study: tiny universe (1–2 underlyings), tight DTE range, single strategy class. `promotable: false` enforced at upload. |
+| 7 | Optuna runner + smoke study | NOT STARTED | Optuna TPE optimization runner with Calmar objective. Compound annualized return divided by max drawdown computed on training-window snapshots only — validation data is tagged in StudyResults but excluded from optimization. SQLite storage at `models/cache/options/optuna_studies.db` (separate from crypto's per asset-class isolation). Resume capability via Optuna's `load_if_exists=True`. Top-K (default 5) trials persist full StudyResults parquet to `models/cache/options/optuna_studies/<study_label>/trial_<N>/`; non-top-K trials retain only Optuna's parameter-and-objective summary in the SQLite study. Skip-and-continue error handling: failed trials return -1.0 sentinel objective and the study continues. Smoke study covers all 8 underlyings × 2 strategies × 5 trials × 6-month window with `promotable=False` enforced — exercises universe iteration, both strategy modes, and parquet persistence end-to-end (~30min runtime estimate). Pruning disabled in v1 (engine doesn't report intermediate objective values during the daily walk; v1.1+ may add MedianPruner if Optuna sweeps become time-binding). |
 | 8 | Real study (active-management CCs + CSPs) | NOT STARTED | Train/val split (windows TBD at Section 8 — likely train pre-2024, val 2024–2025). SPY total return primary benchmark, BXM secondary for CCs. Single Optuna run. Concentration analysis per Section 7 of this doc (by underlying, DTE band, IV regime, strategy variant). |
 | 9 | Dashboard wiring + publish | NOT STARTED | Replace Options placeholder with three-layer view. Tab structure: **Performance**, **Open Positions**, **Trade History**, **Greeks Exposure** (portfolio-level delta/gamma/theta/vega over time), **Risk & Behavior**, **Reliability**, **Tuning History**, **Glossary**. Adapt equity dashboard chrome — same scaffolding, options-relevant content. |
 
@@ -222,6 +223,7 @@ These are not blockers for v1 but should be tracked. When v1 ships, this list is
 - **Long-leg automatic exercise modeling.** v1 cash-settles long ITM legs at expiration. Real retail brokers auto-exercise long ITM options on expiration day if ITM by ≥$0.01, with broker-specific opt-out windows. v1.1+ adds broker-realistic auto-exercise logic where it materially changes P&L.
 - **Sizing rule alternatives.** v1 uses fixed-risk sizing (`max_loss_pct_of_portfolio`). v1.1+ may evaluate Kelly-style sizing (variable based on edge estimation) and CVaR-aware sizing (scales position size by tail-risk estimate). Either requires a real-data baseline before introducing variable sizing.
 - **Margin-aware position sizing.** v1 is cash-constrained — every CSP requires full collateral, every CC requires full share ownership. v1.1+ may add margin-aware sizing where the engine permits naked-short positions sized against broker margin requirements rather than full collateral. Increases capital efficiency at the cost of ruin risk. Real but requires honest validation including stress scenarios.
+- **Optuna trial pruning.** v1 runs every Optuna trial to completion (no early-stop on unpromising trials). v1.1+ may add MedianPruner or HyperbandPruner — requires the engine to report intermediate objective values during the daily walk, which is a non-trivial engine refactor. Worth it only when Optuna sweeps become time-binding.
 
 ---
 
@@ -702,4 +704,88 @@ Optuna parameter sweeps (Section 7); concentration analysis (Section 8); walk-fo
 
 ---
 
-*End of design memo. Next action: hand the Section 6 spec to Claude Code.*
+## Appendix G — Section 7 spec (Optuna runner + smoke study)
+
+This is the spec for the Section 7 PR. Self-contained.
+
+### Goal
+
+Land the Optuna optimization runner: `run_optuna_study()` wraps the Section 6 engine in an Optuna TPE objective, persists top-K trial results, supports resume. Plus a smoke-study CLI that exercises the full v1 universe and both strategy classes against real Tradier sandbox data over a 6-month compressed window — validates Sections 1-6 work correctly end-to-end before Section 8 runs the real study.
+
+### Branch
+
+`chris/options-section-7-optuna-runner`
+
+### Files to create
+
+| Path | Content |
+| --- | --- |
+| `src/options/optuna_runner.py` | `calmar_objective`, `OptunaStudyResults`, `run_optuna_study`, top-K trial tracking. |
+| `scripts/run_options_optuna_study.py` | CLI for arbitrary studies (used by Section 8 too). |
+| `scripts/run_options_smoke_study.py` | CLI wrapper for the compressed-full smoke (CSP + CC). |
+| `tests/options/test_optuna_runner.py` | Optuna runner tests with mocked engine deps. |
+| `tests/options/test_calmar_objective.py` | Calmar objective math tests. |
+
+### Files to edit
+
+| Path | Edit |
+| --- | --- |
+| `docs/Options_Extension_Decisions.md` | Apply §9 row 7 / §3 / §10 deltas above. |
+| `docs/future_work.md` | Append: "Options Section 7 (Optuna runner + smoke study) merged on `<merge date>`." |
+
+No shared-file edits. Optuna is already a transitive dependency.
+
+### Public API — `src/options/optuna_runner.py`
+
+#### `calmar_objective(results: StudyResults) -> float`
+
+Computes Calmar = annualized compound return / max drawdown on training-window snapshots only. Edge cases:
+- Empty training data → 0.0
+- Training window < 30 days → 0.0
+- Initial portfolio value ≤ 0 → 0.0
+- Zero drawdown with positive return → 1e9 sentinel
+- Complete wipeout (final ≤ 0) → -1.0 from the compound-return path
+- Failed trial → caller catches and returns -1.0 directly
+
+#### `OptunaStudyResults` (frozen + slots)
+
+`study_label`, `strategy_class`, `n_trials_run`, `n_trials_failed`, `best_value`, `best_trial_number`, `best_params`, `top_k_trial_numbers`, `wall_time_seconds`, `storage_path: Path`, `output_dir: Path`. `to_json(path)` and `from_json(path)` for round-trip; Path objects serialize as strings.
+
+#### `run_optuna_study(...) -> OptunaStudyResults`
+
+Constructs an Optuna TPE study at `models/cache/options/optuna_studies.db` (configurable via `storage_path`). Each trial calls `BacktestConfig.suggest()` to construct a config, runs `run_backtest`, computes Calmar. Top-K trial outputs persisted to `<output_dir>/trial_<NNNN>/`. Resume capability via `load_if_exists=True`. Failed trials log and return -1.0 sentinel; failure count surfaced in `n_trials_failed`.
+
+### CLIs
+
+- `scripts/run_options_optuna_study.py` — flexible CLI for arbitrary studies (Section 8 uses this too).
+- `scripts/run_options_smoke_study.py` — locked compressed-full smoke configuration: 8 v1 underlyings × 2 strategies × 5 trials × 6 months (2024-01-02 to 2024-07-01, split 2024-05-01), `promotable=False`.
+
+### Test scope
+
+`test_calmar_objective.py`: synthetic StudyResults, no engine, no Optuna. Cover positive return with drawdown, zero-drawdown sentinels, validation exclusion, short-window guard, defensive zero-handling.
+
+`test_optuna_runner.py`: mocked EngineDeps, small `n_trials`. Cover trial completion, top-K persistence, resume from existing storage, failed-trial sentinel, OptunaStudyResults JSON round-trip.
+
+Smoke study test: only assert constants match the locked config (`SMOKE_START_DATE`, `SMOKE_TRIALS_PER_STRATEGY`, etc.). The full smoke is validated via manual run, not unit test.
+
+### Verification
+
+```powershell
+pytest tests/ -v
+# Manual smoke (post-merge, ~30min, network-dependent):
+# venv\Scripts\python.exe scripts\run_options_smoke_study.py
+```
+
+### Reviewer requirements
+
+All paths Chris-owned per CODEOWNERS overrides. Self-merge — no Mike approval required.
+
+### Out of scope for Section 7
+
+- Real (non-smoke) study execution — Section 8.
+- Concentration analysis orchestration — Section 8 calls `run_optuna_study` multiple times with `cfg.evolve(universe=...)`.
+- Walk-forward validation, multi-objective optimization, trial pruning, distributed Optuna, per-trial intermediate reporting — v1.1+.
+
+---
+
+*End of design memo. Next action: hand the Section 7 spec to Claude Code.*
