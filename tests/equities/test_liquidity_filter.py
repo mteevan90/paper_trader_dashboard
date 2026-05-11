@@ -1,10 +1,17 @@
-"""Standalone test for backtest.filter_candidates_by_liquidity.
+"""Tests for backtest.filter_candidates_by_liquidity (equity-side).
 
-Run:
-    venv\\Scripts\\python.exe src/test_liquidity_filter.py
+Run under pytest from repo root:
+    venv\\Scripts\\pytest tests/equities/test_liquidity_filter.py -v
 
-No pytest dependency — uses plain assertions so it can be invoked
-directly as part of the sp1500 code-correctness check.
+The bare ``from backtest import ...`` style matches the equity codebase's
+internal imports — src/backtest.py itself imports its siblings via
+``from alt_signals import ...`` etc., not ``from src.alt_signals``. The
+pyproject.toml at repo root puts src/ on pytest's pythonpath so this
+resolves cleanly.
+
+The ``main()`` block below is a legacy hand-rolled runner kept for the
+sp1500 diagnostic workflow. Under pytest, ``main()`` is ignored (no
+``test_`` prefix) and each ``test_*`` function runs independently.
 """
 from __future__ import annotations
 

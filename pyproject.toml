@@ -1,0 +1,16 @@
+# Minimal project-config file. Currently scoped to pytest configuration.
+# Add tool-specific sections here later as needed (black, ruff, etc.).
+
+[tool.pytest.ini_options]
+# Put src/ on the import path so test modules can use the bare-import
+# style that the equity codebase itself uses internally
+# (`from backtest import ...` inside src/backtest.py imports siblings
+# like `alt_signals`, `backtest_config`, etc. via bare names). Without
+# this, pytest collecting from repo root fails on any test that imports
+# anything under src/ at the legacy top-level (e.g.
+# tests/equities/test_liquidity_filter.py).
+#
+# The options/crypto trees (src/options/, src/crypto/) use the modern
+# `from src.options.<sibling> import ...` style and don't need this —
+# but having src/ on the path is harmless to them.
+pythonpath = ["src"]
