@@ -276,6 +276,126 @@ class TestReconstructChain:
         assert "HTTPError" in info_records[0].getMessage()
 
 
+# ----------------- concurrent chain I/O (Section 2.5+ refactor) -----------------
+
+
+class TestReconstructChainConcurrent:
+    """The chain reconstruction loop fans out per-OCC fetches across a
+    ThreadPoolExecutor with ``CHAIN_RECONSTRUCTION_WORKER_COUNT``
+    workers. These tests lock down the thread-pool wiring + correctness
+    + exception discipline under concurrency."""
+
+    def test_concurrent_fetches_use_thread_pool(self):
+        """With ~92 candidates and 16 workers, fetches must run on
+        more than one thread."""
+        import threading
+
+        sim_date = date(2025, 6, 2)
+        target = date(2025, 7, 18)
+        thread_ids: set[int] = set()
+        thread_lock = threading.Lock()
+
+        def thread_recording_fetcher(symbol, start, end, *, limiter=None):
+            with thread_lock:
+                thread_ids.add(threading.get_ident())
+            try:
+                spec = parse_occ_symbol(symbol)
+            except ValueError:
+                return pd.DataFrame()
+            # Slow each call slightly so workers run concurrently
+            # rather than sequentially-fast through a single thread.
+            import time as _time
+            _time.sleep(0.05)
+            return _single_day_history(2.50, start)
+
+        reconstruct_chain(
+            "AAPL", sim_date, target, 100.0,
+            fetcher=thread_recording_fetcher, width_pct=0.20,
+        )
+        # 92-ish candidates spread across multiple worker threads.
+        assert len(thread_ids) > 1, (
+            f"expected >1 worker thread; only saw {len(thread_ids)} "
+            "(thread pool not engaged?)"
+        )
+
+    def test_concurrent_preserves_correctness(self):
+        """Concurrent reconstruction must return the same set of
+        (spec, close) pairs as the sequential equivalent — order may
+        differ since workers complete in non-deterministic order."""
+        sim_date = date(2025, 6, 2)
+        target = date(2025, 7, 18)
+        spot = 100.0
+        # Pin closes for a known subset of strikes; everything else
+        # returns empty.
+        valid_specs = {
+            ContractSpec(
+                underlying="AAPL", expiration_date=target,
+                option_type=ot, strike=k,
+            ): close
+            for k, ot, close in [
+                (95.0, "C", 7.10), (95.0, "P", 1.20),
+                (100.0, "C", 3.40), (100.0, "P", 2.30),
+                (105.0, "C", 1.10), (105.0, "P", 5.05),
+            ]
+        }
+        fetcher = _fake_fetcher(valid_specs)
+        chain = reconstruct_chain(
+            "AAPL", sim_date, target, spot, fetcher=fetcher,
+        )
+        # Workers complete in non-deterministic order, so compare as
+        # sets.
+        result_set = {(spec, close) for spec, close in chain}
+        expected_set = set(valid_specs.items())
+        assert result_set == expected_set
+
+    def test_concurrent_per_worker_transient_exception_continues(self):
+        """One worker raising a transient exception (HTTPError /
+        Timeout / ConnectionError) drops that candidate; other
+        workers still produce valid results."""
+        sim_date = date(2025, 6, 2)
+        target = date(2025, 7, 18)
+        spot = 100.0
+        # Half of the candidates raise HTTPError; the other half
+        # return valid frames.
+        valid_close = 2.50
+
+        def half_failing_fetcher(symbol, start, end, *, limiter=None):
+            try:
+                spec = parse_occ_symbol(symbol)
+            except ValueError:
+                return pd.DataFrame()
+            # Raise on every other strike.
+            if int(spec.strike) % 10 == 0:
+                raise requests.HTTPError("503 Service Unavailable")
+            return _single_day_history(valid_close, start)
+
+        chain = reconstruct_chain(
+            "AAPL", sim_date, target, spot,
+            fetcher=half_failing_fetcher, width_pct=0.10,
+        )
+        # Some candidates survived; the chain isn't empty.
+        assert len(chain) > 0
+        # No "div by 10" strikes leaked through.
+        for spec, _ in chain:
+            assert int(spec.strike) % 10 != 0
+
+    def test_concurrent_runtime_error_propagates(self):
+        """A RuntimeError from any worker (e.g., missing token) must
+        propagate out of reconstruct_chain so the study fails fast.
+        Token-missing was the original 8-hour-stall amplifier."""
+        sim_date = date(2025, 6, 2)
+        target = date(2025, 7, 18)
+
+        def token_missing_fetcher(symbol, start, end, *, limiter=None):
+            raise RuntimeError("POLYGON_API_KEY not set")
+
+        with pytest.raises(RuntimeError, match="POLYGON_API_KEY"):
+            reconstruct_chain(
+                "AAPL", sim_date, target, 100.0,
+                fetcher=token_missing_fetcher,
+            )
+
+
 # ----------------- select_strike -----------------
 
 

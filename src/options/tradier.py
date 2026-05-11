@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from collections import deque
 from datetime import date, datetime
@@ -75,6 +76,14 @@ TRADIER_OPTION_FEE_PER_CONTRACT_USD = 0.35
 _RATELIMIT_AVAILABLE_HEADER = "X-Ratelimit-Available"
 _RATELIMIT_EXPIRY_HEADER = "X-Ratelimit-Expiry"
 
+# Defense-in-depth: header-driven sleep can never exceed this many
+# seconds. A misparsed or runaway expiry (e.g., far-future timestamp,
+# wrong unit, malformed header) silently stalled an 8-hour production
+# study before this cap was added. 60s is generous enough for any
+# real Tradier reset window and keeps a runaway value from killing a
+# study.
+_HEADER_SLEEP_CAP_SECONDS = 60.0
+
 
 class RateLimiter:
     """Sliding-window rate limiter with header-driven adjustment.
@@ -82,7 +91,8 @@ class RateLimiter:
     ``wait()`` enforces ``max_per_min`` as a fallback. After each response,
     ``update_from_headers(resp.headers)`` consumes Tradier's
     ``X-Ratelimit-*`` headers; if ``Available <= 1``, the next ``wait()``
-    sleeps until the reported ``Expiry`` epoch (plus a small buffer).
+    sleeps until the reported ``Expiry`` epoch (plus a small buffer),
+    capped at :data:`_HEADER_SLEEP_CAP_SECONDS`.
     """
 
     def __init__(self, max_per_min: int = FALLBACK_RATE_LIMIT_PER_MIN):
@@ -91,25 +101,42 @@ class RateLimiter:
         self.max_per_min = max_per_min
         self.calls: deque[float] = deque()
         self._sleep_until_epoch: Optional[float] = None
+        # Concurrent chain reconstruction (Section 2.5+) calls wait()
+        # from many worker threads simultaneously. Without the lock,
+        # the read-modify-write window in the throttle check would let
+        # a burst of N workers all decide "len < cap" and proceed past
+        # the cap. The lock serializes the bookkeeping; HTTP itself is
+        # not held under the lock (each thread does its own fetch
+        # after wait() returns).
+        self._lock = threading.Lock()
 
     def wait(self) -> None:
-        if self._sleep_until_epoch is not None:
-            now = time.time()
-            if now < self._sleep_until_epoch:
-                time.sleep(self._sleep_until_epoch - now + 0.1)
-            self._sleep_until_epoch = None
+        with self._lock:
+            if self._sleep_until_epoch is not None:
+                now = time.time()
+                sleep_for = self._sleep_until_epoch - now + 0.1
+                if sleep_for > _HEADER_SLEEP_CAP_SECONDS:
+                    logger.warning(
+                        "ratelimiter: header-driven sleep %.0fs exceeds cap; "
+                        "capping at %.0fs (likely malformed Expiry header)",
+                        sleep_for, _HEADER_SLEEP_CAP_SECONDS,
+                    )
+                    sleep_for = _HEADER_SLEEP_CAP_SECONDS
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+                self._sleep_until_epoch = None
 
-        now = time.monotonic()
-        while self.calls and now - self.calls[0] > 60.0:
-            self.calls.popleft()
-        if len(self.calls) >= self.max_per_min:
-            sleep_for = 60.0 - (now - self.calls[0]) + 0.1
-            if sleep_for > 0:
-                time.sleep(sleep_for)
             now = time.monotonic()
             while self.calls and now - self.calls[0] > 60.0:
                 self.calls.popleft()
-        self.calls.append(time.monotonic())
+            if len(self.calls) >= self.max_per_min:
+                sleep_for = 60.0 - (now - self.calls[0]) + 0.1
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+                now = time.monotonic()
+                while self.calls and now - self.calls[0] > 60.0:
+                    self.calls.popleft()
+            self.calls.append(time.monotonic())
 
     def update_from_headers(self, headers: Mapping[str, str]) -> None:
         avail = headers.get(_RATELIMIT_AVAILABLE_HEADER)
@@ -127,7 +154,8 @@ class RateLimiter:
         if expiry_epoch > 1e11:
             expiry_epoch /= 1000.0
         if avail_int <= 1:
-            self._sleep_until_epoch = expiry_epoch
+            with self._lock:
+                self._sleep_until_epoch = expiry_epoch
 
 
 def _resolve_base_url() -> str:

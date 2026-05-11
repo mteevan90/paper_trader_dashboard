@@ -36,7 +36,6 @@ from typing import Optional
 import pandas as pd
 import requests
 
-from src.options.sanity_gate import passes_sanity_gate
 from src.options.tradier import RateLimiter
 
 
@@ -117,14 +116,21 @@ def _read_cache(symbol: str) -> Optional[pd.DataFrame]:
 
 
 def _write_cache(symbol: str, df: pd.DataFrame) -> Path:
+    """Write cache atomically (write-to-temp + rename).
+
+    Concurrent chain reconstruction (Section 2.5+) has 16 worker
+    threads each writing a different OCC's parquet file, so per-file
+    contention isn't possible — but ``Path.replace`` keeps the file
+    visible to readers as either fully-old or fully-new, never
+    half-written. Cheap insurance against any future code path that
+    races on the same symbol.
+    """
     path = _cache_path(symbol)
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path)
+    tmp_path = path.with_suffix(".parquet.tmp")
+    df.to_parquet(tmp_path)
+    tmp_path.replace(path)
     return path
-
-
-def _expected_days(start: date, end: date) -> int:
-    return max((end - start).days + 1, 1)
 
 
 # ----------------- HTTP layer -----------------
@@ -312,13 +318,14 @@ def fetch_history(
         return df
 
     if use_cache:
-        expected = _expected_days(start, end)
-        passed, reason = passes_sanity_gate(df, expected)
-        if passed:
-            _write_cache(symbol, df)
-        else:
-            logger.warning(
-                "polygon: sanity gate refused cache write for %s: %s",
-                symbol, reason,
-            )
+        # No sanity gate for per-OCC cache writes. The Tradier gate
+        # (in cache.py) compares against calendar-day expected count
+        # — sensible for full-coverage equity histories like SPY,
+        # nonsensical for option contracts that trade sparsely (OTM
+        # strikes routinely have <30% calendar-day coverage even when
+        # the data is correct). Without this gate-skip, rejected
+        # writes meant every entry-eval re-fetched the same OCCs and
+        # the v1 smoke ran forever. If a future bug needs a coverage
+        # check, do it on trading-day expected-days, not calendar.
+        _write_cache(symbol, df)
     return df

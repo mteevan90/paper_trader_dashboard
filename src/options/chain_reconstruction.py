@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from typing import Callable, Optional
 
@@ -51,6 +53,7 @@ __all__ = [
     "DEFAULT_WIDTH_PCT",
     "DEFAULT_DELTA_TOLERANCE",
     "TRANSIENT_FETCH_EXCEPTIONS",
+    "CHAIN_RECONSTRUCTION_WORKER_COUNT",
 ]
 
 
@@ -70,6 +73,13 @@ TRANSIENT_FETCH_EXCEPTIONS: tuple[type[BaseException], ...] = (
 
 DEFAULT_WIDTH_PCT: float = 0.20
 DEFAULT_DELTA_TOLERANCE: float = 0.10
+
+# Worker count for the per-OCC fetch pool inside reconstruct_chain.
+# Sequential fetches at ~0.5-2s each made the smoke run for hours;
+# 16 workers brings ~92 candidate fetches into the few-seconds range.
+# Polygon Options Developer plan tolerates the burst comfortably; the
+# Polygon RateLimiter (in engine deps) caps total throughput.
+CHAIN_RECONSTRUCTION_WORKER_COUNT: int = 16
 
 
 HistoryFetcher = Callable[..., pd.DataFrame]
@@ -148,12 +158,9 @@ def reconstruct_chain(
     spacing = get_strike_spacing(underlying, spot)
     strikes = _strike_grid(spot, spacing, width_pct)
 
-    # Track which transient-exception types we've already INFO-logged
-    # for this call so an analyst sees the first occurrence of each
-    # condition without a per-strike spam wall (~80 candidates/day).
-    seen_transient_types: set[str] = set()
-
-    results: list[tuple[ContractSpec, float]] = []
+    # Build the candidate list upfront so we can submit them all to
+    # the executor and as_completed-process the results.
+    candidates: list[tuple[ContractSpec, str]] = []
     for strike in strikes:
         for option_type in ("C", "P"):
             spec = ContractSpec(
@@ -162,57 +169,103 @@ def reconstruct_chain(
                 option_type=option_type,
                 strike=strike,
             )
-            occ = generate_occ_symbol(spec)
-            try:
-                df = fetcher(occ, sim_date, sim_date, limiter=limiter)
-            except TRANSIENT_FETCH_EXCEPTIONS as exc:
-                # Expected per-OCC noise: candidate didn't trade, or a
-                # transient network blip. Log first occurrence of each
-                # exception type at INFO; the rest at DEBUG so production
-                # logs surface a signal without spamming.
-                exc_type = type(exc).__name__
-                if exc_type not in seen_transient_types:
-                    seen_transient_types.add(exc_type)
-                    logger.info(
-                        "chain_reconstruction: %s on %s for %s "
-                        "(suppressing further %s logs at DEBUG)",
-                        exc_type, occ, underlying, exc_type,
-                    )
-                else:
-                    logger.debug(
-                        "chain_reconstruction: %s on %s: %s",
-                        exc_type, occ, exc,
-                    )
-                continue
-            # Anything else (RuntimeError from missing token,
-            # KeyError, ValueError, etc.) is a configuration or
-            # programming bug — re-raise so the study fails fast
-            # instead of stalling silently like the 8-hour v1 run.
-            if df is None or df.empty:
-                continue
-            close = _close_on_date(df, sim_date)
-            if close is None or close <= 0:
-                continue
-            results.append((spec, float(close)))
+            candidates.append((spec, generate_occ_symbol(spec)))
+
+    # Track which transient-exception types we've already INFO-logged
+    # so an analyst sees the first occurrence of each condition
+    # without a per-strike spam wall (~80 candidates/day). Locked
+    # because workers may concurrently observe the first occurrence.
+    seen_transient_types: set[str] = set()
+    seen_lock = threading.Lock()
+
+    results: list[tuple[ContractSpec, float]] = []
+    with ThreadPoolExecutor(
+        max_workers=CHAIN_RECONSTRUCTION_WORKER_COUNT,
+    ) as executor:
+        futures = {
+            executor.submit(
+                _fetch_candidate,
+                spec, occ, sim_date, fetcher, limiter,
+                seen_transient_types, seen_lock, underlying,
+            ): spec
+            for spec, occ in candidates
+        }
+        # ``future.result()`` re-raises any non-transient exception
+        # (RuntimeError, KeyError, ValueError, ...) so a misconfigured
+        # study fails fast — same discipline as the sequential path.
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                results.append(result)
     return results
 
 
+def _fetch_candidate(
+    spec: ContractSpec,
+    occ: str,
+    sim_date: date,
+    fetcher: HistoryFetcher,
+    limiter: Optional[RateLimiter],
+    seen_transient_types: set[str],
+    seen_lock: threading.Lock,
+    underlying: str,
+) -> Optional[tuple[ContractSpec, float]]:
+    """Fetch a single candidate OCC. Workers run this in parallel.
+
+    Transient exceptions (HTTPError/Timeout/ConnectionError) get the
+    "INFO once per type, DEBUG thereafter" log treatment and the
+    candidate is dropped. Non-transient exceptions propagate so
+    misconfigured studies fail fast rather than silently produce empty
+    chains.
+    """
+    try:
+        df = fetcher(occ, sim_date, sim_date, limiter=limiter)
+    except TRANSIENT_FETCH_EXCEPTIONS as exc:
+        exc_type = type(exc).__name__
+        with seen_lock:
+            first_time = exc_type not in seen_transient_types
+            if first_time:
+                seen_transient_types.add(exc_type)
+        if first_time:
+            logger.info(
+                "chain_reconstruction: %s on %s for %s "
+                "(suppressing further %s logs at DEBUG)",
+                exc_type, occ, underlying, exc_type,
+            )
+        else:
+            logger.debug(
+                "chain_reconstruction: %s on %s: %s",
+                exc_type, occ, exc,
+            )
+        return None
+    if df is None or df.empty:
+        return None
+    close = _close_on_date(df, sim_date)
+    if close is None or close <= 0:
+        return None
+    return spec, float(close)
+
+
 def _close_on_date(df: pd.DataFrame, sim_date: date) -> Optional[float]:
-    """Pull the close price for ``sim_date`` from a Tradier history
-    frame. Returns None if absent."""
+    """Pull the close price for ``sim_date`` from a history frame.
+
+    Returns None if the frame doesn't have a row for ``sim_date``.
+    The earlier "last available close" fallback masked a cache-key
+    correctness bug — when a multi-day frame is cached and the
+    requested ``sim_date`` isn't in the index, returning some other
+    day's close produced wrong inputs to the engine. Now we say
+    "no data for that day" explicitly; chain_reconstruction skips the
+    candidate and the engine's per-day skip counters surface the
+    coverage gap.
+    """
     if "close" not in df.columns:
         return None
-    if sim_date in df.index:
-        value = df.loc[sim_date, "close"]
-        if isinstance(value, pd.Series):
-            value = value.iloc[0]
-        return None if pd.isna(value) else float(value)
-    # Fall back to the last available close in the frame; Tradier may
-    # return a single-day frame keyed slightly differently.
-    if not df.empty:
-        value = df["close"].iloc[-1]
-        return None if pd.isna(value) else float(value)
-    return None
+    if sim_date not in df.index:
+        return None
+    value = df.loc[sim_date, "close"]
+    if isinstance(value, pd.Series):
+        value = value.iloc[0]
+    return None if pd.isna(value) else float(value)
 
 
 def select_strike(

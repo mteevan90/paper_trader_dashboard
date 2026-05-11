@@ -183,7 +183,10 @@ def test_rate_limiter_fallback_cap_sleeps_when_window_full(monkeypatch):
     assert len(sleeps) == 1 and sleeps[0] > 0
 
 
-def test_rate_limiter_header_driven_sleep_when_available_low(monkeypatch):
+def test_rate_limiter_header_driven_sleep_capped_at_60s(monkeypatch):
+    """Header-requested sleeps now cap at 60s. A 100s reset window
+    would silently stall a study (it did, for 8 hours, before the
+    cap was added — see PR fixing v1 study hang)."""
     sleeps: list[float] = []
     monkeypatch.setattr(tradier.time, "sleep", lambda s: sleeps.append(s))
     monkeypatch.setattr(tradier.time, "time", lambda: 1000.0)
@@ -191,13 +194,18 @@ def test_rate_limiter_header_driven_sleep_when_available_low(monkeypatch):
     limiter = RateLimiter()
     limiter.update_from_headers({
         "X-Ratelimit-Available": "0",
-        "X-Ratelimit-Expiry": "1100",  # 100s in future
+        "X-Ratelimit-Expiry": "1100",  # 100s in future, exceeds cap
     })
     limiter.wait()
-    assert any(s >= 100.0 for s in sleeps)
+    # Header-driven sleep is capped — the longest sleep recorded
+    # corresponds to the 60s cap, not the requested 100s.
+    longest = max(sleeps) if sleeps else 0
+    assert longest <= 60.5, (
+        f"expected header sleep <= 60s cap; got max {longest}s"
+    )
 
 
-def test_rate_limiter_normalizes_millisecond_expiry(monkeypatch):
+def test_rate_limiter_normalizes_millisecond_expiry_then_caps(monkeypatch):
     sleeps: list[float] = []
     monkeypatch.setattr(tradier.time, "sleep", lambda s: sleeps.append(s))
     monkeypatch.setattr(tradier.time, "time", lambda: 1000.0)
@@ -208,7 +216,31 @@ def test_rate_limiter_normalizes_millisecond_expiry(monkeypatch):
         "X-Ratelimit-Expiry": "1100000",  # ms representation of 1100s
     })
     limiter.wait()
-    assert any(s >= 100.0 for s in sleeps)
+    # Expiry normalizes from ms to ~1100s, then caps at 60s.
+    longest = max(sleeps) if sleeps else 0
+    assert longest <= 60.5, (
+        f"expected ms-normalized header sleep capped at 60s; "
+        f"got max {longest}s"
+    )
+
+
+def test_rate_limiter_header_sleep_under_cap_passes_through(monkeypatch):
+    """Reasonable header-requested sleeps (under 60s) pass through
+    unchanged — the cap only kicks in for runaway values."""
+    sleeps: list[float] = []
+    monkeypatch.setattr(tradier.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(tradier.time, "time", lambda: 1000.0)
+
+    limiter = RateLimiter()
+    limiter.update_from_headers({
+        "X-Ratelimit-Available": "0",
+        "X-Ratelimit-Expiry": "1010",  # 10s in future, under cap
+    })
+    limiter.wait()
+    # Should sleep ~10s, not 60.
+    assert any(9.5 <= s <= 11.0 for s in sleeps), (
+        f"expected ~10s sleep under cap; got {sleeps}"
+    )
 
 
 def test_rate_limiter_ignores_partial_or_unparseable_headers():
