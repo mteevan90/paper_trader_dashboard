@@ -1,0 +1,162 @@
+[
+  {
+    "symbol": "SIVB",
+    "company": "Silicon Valley Bank",
+    "expected_delisting": "2023-03",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 2324,
+    "first_date": "2014-05-15",
+    "last_date": "2023-08-24"
+  },
+  {
+    "symbol": "FRC",
+    "company": "First Republic",
+    "expected_delisting": "2023-05",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 2365,
+    "first_date": "2014-05-15",
+    "last_date": "2023-10-09"
+  },
+  {
+    "symbol": "BBBY",
+    "company": "Bed Bath & Beyond",
+    "expected_delisting": "2023-04",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 3015,
+    "first_date": "2014-05-15",
+    "last_date": "2026-05-11"
+  },
+  {
+    "symbol": "SBNY",
+    "company": "Signature Bank",
+    "expected_delisting": "2023-03",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 2997,
+    "first_date": "2014-05-15",
+    "last_date": "2026-05-08"
+  },
+  {
+    "symbol": "TIF",
+    "company": "Tiffany (LVMH buyout)",
+    "expected_delisting": "2021-01",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 1674,
+    "first_date": "2014-05-15",
+    "last_date": "2021-01-06"
+  },
+  {
+    "symbol": "CTXS",
+    "company": "Citrix (TIBCO buyout)",
+    "expected_delisting": "2022-09",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 2110,
+    "first_date": "2014-05-15",
+    "last_date": "2022-09-29"
+  },
+  {
+    "symbol": "MNDT",
+    "company": "Mandiant (Google buyout)",
+    "expected_delisting": "2022-09",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 2096,
+    "first_date": "2014-05-15",
+    "last_date": "2022-09-09"
+  },
+  {
+    "symbol": "DISCA",
+    "company": "Discovery Comm (renamed WBD)",
+    "expected_delisting": "2022-04",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 2023,
+    "first_date": "2014-05-15",
+    "last_date": "2022-05-27"
+  },
+  {
+    "symbol": "VIAC",
+    "company": "ViacomCBS (renamed PARA)",
+    "expected_delisting": "2022-02",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 69,
+    "first_date": "2022-02-18",
+    "last_date": "2022-05-27"
+  },
+  {
+    "symbol": "FB",
+    "company": "Facebook (renamed META)",
+    "expected_delisting": "2022-06",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 220,
+    "first_date": "2025-06-26",
+    "last_date": "2026-05-11"
+  },
+  {
+    "symbol": "ATVI",
+    "company": "Activision (MSFT buyout)",
+    "expected_delisting": "2023-10",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 2370,
+    "first_date": "2014-05-15",
+    "last_date": "2023-10-12"
+  },
+  {
+    "symbol": "TWTR",
+    "company": "Twitter (Musk buyout)",
+    "expected_delisting": "2022-10",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 2130,
+    "first_date": "2014-05-15",
+    "last_date": "2022-10-27"
+  },
+  {
+    "symbol": "KSU",
+    "company": "Kansas City Southern (CP buyout)",
+    "expected_delisting": "2021-12",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 1910,
+    "first_date": "2014-05-15",
+    "last_date": "2021-12-13"
+  },
+  {
+    "symbol": "XLNX",
+    "company": "Xilinx (AMD buyout)",
+    "expected_delisting": "2022-02",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 1952,
+    "first_date": "2014-05-15",
+    "last_date": "2022-02-11"
+  },
+  {
+    "symbol": "CERN",
+    "company": "Cerner (Oracle buyout)",
+    "expected_delisting": "2022-06",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 2031,
+    "first_date": "2014-05-15",
+    "last_date": "2022-06-07"
+  },
+  {
+    "symbol": "PFGC",
+    "company": "Performance Food Group \u2014 control",
+    "expected_delisting": "(still active)",
+    "http_status": 200,
+    "api_s": "ok",
+    "candles": 2667,
+    "first_date": "2015-10-01",
+    "last_date": "2026-05-11"
+  }
+]

@@ -1,0 +1,901 @@
+{
+  "generated_at": "2026-05-11T20:27:51.538438+00:00",
+  "endpoints": [
+    {
+      "path": "/stock/symbol",
+      "params_sent": {
+        "exchange": "US"
+      },
+      "status": 200,
+      "elapsed_ms": 1719.3,
+      "headers": {},
+      "body_sample": {
+        "kind": "list",
+        "len": 30384,
+        "first": {
+          "currency": "USD",
+          "description": "KUAISHOU TECHNOLOGY",
+          "displaySymbol": "KUASF",
+          "figi": "BBG00Z6F5G83",
+          "figiComposite": "BBG00Z6F5G83",
+          "isin": "",
+          "mic": "OOTC",
+          "shareClassFIGI": "BBG00YYT9BF4",
+          "symbol": "KUASF",
+          "symbol2": "",
+          "type": "Common Stock"
+        }
+      },
+      "body_type": "list"
+    },
+    {
+      "path": "/stock/symbol",
+      "params_sent": {
+        "exchange": "US",
+        "delisted": "true"
+      },
+      "status": 200,
+      "elapsed_ms": 1281.8,
+      "headers": {},
+      "body_sample": {
+        "kind": "list",
+        "len": 30384,
+        "first": {
+          "currency": "USD",
+          "description": "KUAISHOU TECHNOLOGY",
+          "displaySymbol": "KUASF",
+          "figi": "BBG00Z6F5G83",
+          "figiComposite": "BBG00Z6F5G83",
+          "isin": "",
+          "mic": "OOTC",
+          "shareClassFIGI": "BBG00YYT9BF4",
+          "symbol": "KUASF",
+          "symbol2": "",
+          "type": "Common Stock"
+        }
+      },
+      "body_type": "list"
+    },
+    {
+      "path": "/stock/candle",
+      "params_sent": {
+        "symbol": "AAPL",
+        "resolution": "D",
+        "from": 1462566471,
+        "to": 1778531271
+      },
+      "status": 200,
+      "elapsed_ms": 256.6,
+      "headers": {
+        "X-Ratelimit-Limit": "150",
+        "X-Ratelimit-Remaining": "149",
+        "X-Ratelimit-Reset": "1778531334"
+      },
+      "body_sample": {
+        "kind": "dict",
+        "keys": [
+          "c",
+          "h",
+          "l",
+          "o",
+          "s",
+          "t",
+          "v"
+        ],
+        "s": "ok",
+        "c_len": 2516,
+        "t_len": 2516,
+        "v_len": 2516,
+        "o_len": 2516,
+        "h_len": 2516,
+        "l_len": 2516
+      },
+      "body_type": "dict"
+    },
+    {
+      "path": "/stock/candle",
+      "params_sent": {
+        "symbol": "AAPL",
+        "resolution": "D",
+        "from": 1400099271,
+        "to": 1778531271
+      },
+      "status": 200,
+      "elapsed_ms": 497.0,
+      "headers": {
+        "X-Ratelimit-Limit": "150",
+        "X-Ratelimit-Remaining": "148",
+        "X-Ratelimit-Reset": "1778531334"
+      },
+      "body_sample": {
+        "kind": "dict",
+        "keys": [
+          "c",
+          "h",
+          "l",
+          "o",
+          "s",
+          "t",
+          "v"
+        ],
+        "s": "ok",
+        "c_len": 3015,
+        "t_len": 3015,
+        "v_len": 3015,
+        "o_len": 3015,
+        "h_len": 3015,
+        "l_len": 3015
+      },
+      "body_type": "dict"
+    },
+    {
+      "path": "/stock/candle",
+      "params_sent": {
+        "symbol": "AAON",
+        "resolution": "D",
+        "from": 1462566471,
+        "to": 1778531271
+      },
+      "status": 200,
+      "elapsed_ms": 400.9,
+      "headers": {
+        "X-Ratelimit-Limit": "150",
+        "X-Ratelimit-Remaining": "147",
+        "X-Ratelimit-Reset": "1778531334"
+      },
+      "body_sample": {
+        "kind": "dict",
+        "keys": [
+          "c",
+          "h",
+          "l",
+          "o",
+          "s",
+          "t",
+          "v"
+        ],
+        "s": "ok",
+        "c_len": 2516,
+        "t_len": 2516,
+        "v_len": 2516,
+        "o_len": 2516,
+        "h_len": 2516,
+        "l_len": 2516
+      },
+      "body_type": "dict"
+    },
+    {
+      "path": "/stock/candle",
+      "params_sent": {
+        "symbol": "AAMI",
+        "resolution": "D",
+        "from": 1462566471,
+        "to": 1778531271
+      },
+      "status": 200,
+      "elapsed_ms": 254.6,
+      "headers": {
+        "X-Ratelimit-Limit": "150",
+        "X-Ratelimit-Remaining": "146",
+        "X-Ratelimit-Reset": "1778531334"
+      },
+      "body_sample": {
+        "kind": "dict",
+        "keys": [
+          "c",
+          "h",
+          "l",
+          "o",
+          "s",
+          "t",
+          "v"
+        ],
+        "s": "ok",
+        "c_len": 2516,
+        "t_len": 2516,
+        "v_len": 2516,
+        "o_len": 2516,
+        "h_len": 2516,
+        "l_len": 2516
+      },
+      "body_type": "dict"
+    },
+    {
+      "path": "/stock/candle",
+      "params_sent": {
+        "symbol": "TWTR",
+        "resolution": "D",
+        "from": 1462566471,
+        "to": 1778531271
+      },
+      "status": 200,
+      "elapsed_ms": 206.6,
+      "headers": {
+        "X-Ratelimit-Limit": "150",
+        "X-Ratelimit-Remaining": "145",
+        "X-Ratelimit-Reset": "1778531334"
+      },
+      "body_sample": {
+        "kind": "dict",
+        "keys": [
+          "c",
+          "h",
+          "l",
+          "o",
+          "s",
+          "t",
+          "v"
+        ],
+        "s": "ok",
+        "c_len": 1631,
+        "t_len": 1631,
+        "v_len": 1631,
+        "o_len": 1631,
+        "h_len": 1631,
+        "l_len": 1631
+      },
+      "body_type": "dict"
+    },
+    {
+      "path": "/stock/earnings",
+      "params_sent": {
+        "symbol": "AAPL"
+      },
+      "status": 200,
+      "elapsed_ms": 205.8,
+      "headers": {
+        "X-Ratelimit-Limit": "60",
+        "X-Ratelimit-Remaining": "59",
+        "X-Ratelimit-Reset": "1778531370"
+      },
+      "body_sample": {
+        "kind": "list",
+        "len": 4,
+        "first": {
+          "actual": 2.01,
+          "estimate": 1.9884,
+          "period": "2026-03-31",
+          "quarter": 2,
+          "surprise": 0.0216,
+          "surprisePercent": 1.0863,
+          "symbol": "AAPL",
+          "year": 2026
+        }
+      },
+      "body_type": "list"
+    },
+    {
+      "path": "/stock/earnings",
+      "params_sent": {
+        "symbol": "AAMI"
+      },
+      "status": 200,
+      "elapsed_ms": 220.2,
+      "headers": {
+        "X-Ratelimit-Limit": "60",
+        "X-Ratelimit-Remaining": "58",
+        "X-Ratelimit-Reset": "1778531370"
+      },
+      "body_sample": {
+        "kind": "list",
+        "len": 4,
+        "first": {
+          "actual": 0.68,
+          "estimate": 0.9044,
+          "period": "2026-03-31",
+          "quarter": 1,
+          "surprise": -0.2244,
+          "surprisePercent": -24.812,
+          "symbol": "AAMI",
+          "year": 2026
+        }
+      },
+      "body_type": "list"
+    },
+    {
+      "path": "/calendar/earnings",
+      "params_sent": {
+        "from": "2026-05-04",
+        "to": "2026-05-11"
+      },
+      "status": 200,
+      "elapsed_ms": 293.2,
+      "headers": {
+        "X-Ratelimit-Limit": "60",
+        "X-Ratelimit-Remaining": "57",
+        "X-Ratelimit-Reset": "1778531370"
+      },
+      "body_sample": {
+        "kind": "dict",
+        "keys": [
+          "earningsCalendar"
+        ]
+      },
+      "body_type": "dict"
+    },
+    {
+      "path": "/stock/recommendation",
+      "params_sent": {
+        "symbol": "AAPL"
+      },
+      "status": 200,
+      "elapsed_ms": 241.0,
+      "headers": {
+        "X-Ratelimit-Limit": "60",
+        "X-Ratelimit-Remaining": "56",
+        "X-Ratelimit-Reset": "1778531370"
+      },
+      "body_sample": {
+        "kind": "list",
+        "len": 4,
+        "first": {
+          "buy": 24,
+          "hold": 13,
+          "period": "2026-05-01",
+          "sell": 2,
+          "strongBuy": 15,
+          "strongSell": 0,
+          "symbol": "AAPL"
+        }
+      },
+      "body_type": "list"
+    },
+    {
+      "path": "/stock/recommendation",
+      "params_sent": {
+        "symbol": "AAMI"
+      },
+      "status": 200,
+      "elapsed_ms": 213.5,
+      "headers": {
+        "X-Ratelimit-Limit": "60",
+        "X-Ratelimit-Remaining": "55",
+        "X-Ratelimit-Reset": "1778531370"
+      },
+      "body_sample": {
+        "kind": "list",
+        "len": 4,
+        "first": {
+          "buy": 0,
+          "hold": 5,
+          "period": "2026-05-01",
+          "sell": 1,
+          "strongBuy": 0,
+          "strongSell": 2,
+          "symbol": "AAMI"
+        }
+      },
+      "body_type": "list"
+    },
+    {
+      "path": "/stock/metric",
+      "params_sent": {
+        "symbol": "AAPL",
+        "metric": "all"
+      },
+      "status": 200,
+      "elapsed_ms": 318.0,
+      "headers": {
+        "X-Ratelimit-Limit": "60",
+        "X-Ratelimit-Remaining": "59",
+        "X-Ratelimit-Reset": "1778531342"
+      },
+      "body_sample": {
+        "kind": "dict",
+        "keys": [
+          "metric",
+          "metricType",
+          "series",
+          "symbol"
+        ],
+        "symbol": "AAPL",
+        "metric": {
+          "10DayAverageTradingVolume": 53.55305,
+          "13WeekPriceReturnDaily": 6.31,
+          "26WeekPriceReturnDaily": 8.4884,
+          "3MonthADReturnStd": 25.452316,
+          "3MonthAverageTradingVolume": 46.86772,
+          "52WeekHigh": 294.76,
+          "52WeekHighDate": "2026-05-08",
+          "52WeekLow": 193.46,
+          "52WeekLowDate": "2025-05-23",
+          "52WeekPriceReturnDaily": 48.524,
+          "5DayPriceReturnDaily": 5.9567,
+          "assetTurnoverAnnual": 1.1584,
+          "assetTurnoverTTM": 1.253,
+          "beta": 1.0696688,
+          "bookValuePerShareAnnual": 4.991,
+          "bookValuePerShareQuarterly": 7.2602,
+          "bookValueShareGrowth5Y": 5.34,
+          "capexCagr5Y": 11.71,
+          "cashFlowPerShareAnnual": 6.6855,
+          "cashFlowPerShareQuarterly": 8.8067,
+          "cashFlowPerShareTTM": 6.86253,
+          "cashPerSharePerShareAnnual": 3.7024,
+          "cashPerSharePerShareQuarterly": 4.6706,
+          "currentDividendYieldTTM": 0.3626,
+          "currentEv/freeCashFlowAnnual": 43.8188,
+          "currentEv/freeCashFlowTTM": 33.504,
+          "currentRatioAnnual": 0.8933,
+          "currentRatioQuarterly": 1.0704,
+          "dividendGrowthRate5Y": 4.95,
+          "dividendIndicatedAnnual": 1.08,
+          "dividendPerShareAnnual": 1.0318,
+          "dividendPerShareTTM": 1.0504,
+          "dividendYieldIndicatedAnnual": 0.3681985544797491,
+          "ebitdPerShareAnnual": 9.6255,
+          "ebitdPerShareTTM": 10.8028,
+          "ebitdaCagr5Y": 13.33,
+          "ebitdaInterimCagr5Y": 5.01,
+          "enterpriseValue": 4327847,
+          "epsAnnual": 7.465,
+          "epsBasicExclExtraItemsAnnual": 7.465,
+          "epsBasicExclExtraItemsTTM": 8.2666,
+          "epsExclExtraItemsAnnual": 7.465,
+          "epsExclExtraItemsTTM": 8.2666,
+          "epsGrowth3Y": 6.89,
+          "epsGrowth5Y": 17.91,
+          "epsGrowthQuarterlyYoy": 22.04,
+          "epsGrowthTTMYoy": 29.01,
+          "epsInclExtraItemsAnnual": 7.465,
+          "epsInclExtraItemsTTM": 8.2666,
+          "epsNormalizedAnnual": 7.465,
+          "epsTTM": 8.2666,
+          "evEbitdaTTM": 27.0016,
+          "evRevenueTTM": 9.5867,
+          "focfCagr5Y": 6.13,
+          "forwardPE": 30.40936,
+          "forwardPEG": 2.21159,
+          "grossMargin5Y": 44.47,
+          "grossMarginAnnual": 46.91,
+          "grossMarginTTM": 47.86,
+          "inventoryTurnoverAnnual": 33.9834,
+          "inventoryTurnoverTTM": 36.1664,
+          "longTermDebt/equityAnnual": 1.0623,
+          "longTermDebt/equityQuarterly": 0.6987,
+          "marketCapitalization": 4288708,
+          "monthToDatePriceReturnDaily": 8.0966,
+          "netIncomeEmployeeAnnual": 0.6748,
+          "netIncomeEmployeeTTM": 0.7384,
+          "netInterestCoverageAnnual": 622.5082,
+          "netInterestCoverageTTM": 622.5082,
+          "netMarginGrowth5Y": 5.18,
+          "netProfitMargin5Y": 25.48,
+          "netProfitMarginAnnual": 26.92,
+          "netProfitMarginTTM": 27.15,
+          "operatingMargin5Y": 30.67,
+          "operatingMarginAnnual": 31.97,
+          "operatingMarginTTM": 32.64,
+          "payoutRatioAnnual": 13.77,
+          "payoutRatioTTM": 12.69,
+          "pb": 40.273,
+          "pbAnnual": 50.978,
+          "pbQuarterly": 34.0011,
+          "pcfShareAnnual": 38.47,
+          "pcfShareTTM": 30.5851,
+          "peAnnual": 38.2886,
+          "peBasicExclExtraTTM": 34.9884,
+          "peExclExtraAnnual": 30.96975,
+          "peExclExtraTTM": 34.9884,
+          "peInclExtraTTM": 34.9884,
+          "peNormalizedAnnual": 38.2886,
+          "peTTM": 34.9884,
+          "pegTTM": 2.58844,
+          "pfcfShareAnnual": 43.4225,
+          "pfcfShareTTM": 33.201,
+          "pretaxMargin5Y": 30.64,
+          "pretaxMarginAnnual": 31.89,
+          "pretaxMarginTTM": 32.71,
+          "priceRelativeToS&P50013Week": -2.5445,
+          "priceRelativeToS&P50026Week": 0.3425,
+          "priceRelativeToS&P5004Week": 5.6545,
+          "priceRelativeToS&P50052Week": 17.9857,
+          "priceRelativeToS&P500Ytd": -0.2743,
+          "psAnnual": 10.3054,
+          "psTTM": 9.5,
+          "ptbvAnnual": 4.8643,
+          "ptbvQuarterly": 42.5192,
+          "quickRatioAnnual": 0.8588,
+          "quickRatioQuarterly": 1.0202,
+          "receivablesTurnoverAnnual": 11.3725,
+          "receivablesTurnoverTTM": 15.9873,
+          "revenueEmployeeAnnual": 2.507,
+          "revenueEmployeeTTM": 2.7195,
+          "revenueGrowth3Y": 1.81,
+          "revenueGrowth5Y": 8.68,
+          "revenueGrowthQuarterlyYoy": 16.6,
+          "revenueGrowthTTMYoy": 12.76,
+          "revenuePerShareAnnual": 27.7354,
+          "revenuePerShareTTM": 30.6564,
+          "revenueShareGrowth5Y": 12.11,
+          "roa5Y": 27.93,
+          "roaRfy": 31.180000000000003,
+          "roaTTM": 34.02,
+          "roe5Y": 163.92,
+          "roeRfy": 151.91,
+          "roeTTM": 146.69,
+          "roi5Y": 57.1,
+          "roiAnnual": 64.51,
+          "roiTTM": 69.07,
+          "tangibleBookValuePerShareAnnual": 5.8583,
+          "tangibleBookValuePerShareQuarterly": 5.8058,
+          "tbvCagr5Y": 11.34,
+          "totalDebt/totalEquityAnnual": 1.3547,
+          "totalDebt/totalEquityQuarterly": 0.7955,
+          "yearToDatePriceReturnDaily": 7.8938
+        },
+        "metric_keys": [
+          "10DayAverageTradingVolume",
+          "13WeekPriceReturnDaily",
+          "26WeekPriceReturnDaily",
+          "3MonthADReturnStd",
+          "3MonthAverageTradingVolume",
+          "52WeekHigh",
+          "52WeekHighDate",
+          "52WeekLow",
+          "52WeekLowDate",
+          "52WeekPriceReturnDaily",
+          "5DayPriceReturnDaily",
+          "assetTurnoverAnnual",
+          "assetTurnoverTTM",
+          "beta",
+          "bookValuePerShareAnnual",
+          "bookValuePerShareQuarterly",
+          "bookValueShareGrowth5Y",
+          "capexCagr5Y",
+          "cashFlowPerShareAnnual",
+          "cashFlowPerShareQuarterly",
+          "cashFlowPerShareTTM",
+          "cashPerSharePerShareAnnual",
+          "cashPerSharePerShareQuarterly",
+          "currentDividendYieldTTM",
+          "currentEv/freeCashFlowAnnual",
+          "currentEv/freeCashFlowTTM",
+          "currentRatioAnnual",
+          "currentRatioQuarterly",
+          "dividendGrowthRate5Y",
+          "dividendIndicatedAnnual"
+        ]
+      },
+      "body_type": "dict"
+    },
+    {
+      "path": "/stock/metric",
+      "params_sent": {
+        "symbol": "AAMI",
+        "metric": "all"
+      },
+      "status": 200,
+      "elapsed_ms": 208.7,
+      "headers": {
+        "X-Ratelimit-Limit": "60",
+        "X-Ratelimit-Remaining": "58",
+        "X-Ratelimit-Reset": "1778531342"
+      },
+      "body_sample": {
+        "kind": "dict",
+        "keys": [
+          "metric",
+          "metricType",
+          "series",
+          "symbol"
+        ],
+        "symbol": "AAMI",
+        "metric": {
+          "10DayAverageTradingVolume": 0.37214,
+          "13WeekPriceReturnDaily": 41.4468,
+          "26WeekPriceReturnDaily": 42.6819,
+          "3MonthADReturnStd": 39.20232,
+          "3MonthAverageTradingVolume": 0.28964,
+          "52WeekHigh": 69.87,
+          "52WeekHighDate": "2026-04-22",
+          "52WeekLow": 28.675,
+          "52WeekLowDate": "2025-05-08",
+          "52WeekPriceReturnDaily": 132.6441,
+          "5DayPriceReturnDaily": 1.5988,
+          "assetTurnoverAnnual": 0.8326,
+          "assetTurnoverTTM": 0.8117,
+          "beta": 1.352366,
+          "bookValuePerShareAnnual": 1.698,
+          "bookValuePerShareQuarterly": 1.698,
+          "capexCagr5Y": -15.24,
+          "cashFlowPerShareAnnual": -0.4005,
+          "cashFlowPerShareQuarterly": -0.4005,
+          "cashPerSharePerShareAnnual": 2.834,
+          "cashPerSharePerShareQuarterly": 2.834,
+          "currentDividendYieldTTM": 0.0612,
+          "currentRatioAnnual": 1.0762,
+          "currentRatioQuarterly": 1.0762,
+          "dividendGrowthRate5Y": -20.84,
+          "dividendIndicatedAnnual": 0.4,
+          "dividendPerShareAnnual": 0.041,
+          "dividendPerShareTTM": 0.041,
+          "dividendYieldIndicatedAnnual": 0.5828354946816262,
+          "ebitdPerShareAnnual": 4.0691,
+          "ebitdPerShareTTM": 4.0719,
+          "ebitdaCagr5Y": -17.82,
+          "ebitdaInterimCagr5Y": -25.73,
+          "enterpriseValue": 2558.2396,
+          "epsAnnual": 2.2099,
+          "epsBasicExclExtraItemsAnnual": 2.2099,
+          "epsBasicExclExtraItemsTTM": 2.2152,
+          "epsExclExtraItemsAnnual": 2.2099,
+          "epsExclExtraItemsTTM": 2.2152,
+          "epsGrowth3Y": -1.73,
+          "epsGrowth5Y": -8.77,
+          "epsGrowthQuarterlyYoy": -14.23,
+          "epsGrowthTTMYoy": -1.05,
+          "epsInclExtraItemsAnnual": 2.2099,
+          "epsInclExtraItemsTTM": 2.2152,
+          "epsNormalizedAnnual": 2.2099,
+          "epsTTM": 2.2152,
+          "evEbitdaTTM": 17.3675,
+          "evRevenueTTM": 4.5383,
+          "focfCagr5Y": null,
+          "forwardPE": 13.71302,
+          "longTermDebt/equityAnnual": 3.2984,
+          "longTermDebt/equityQuarterly": 3.2984,
+          "marketCapitalization": 2451.6396,
+          "monthToDatePriceReturnDaily": 1.9005,
+          "netIncomeEmployeeAnnual": 0.202,
+          "netIncomeEmployeeTTM": 0.202,
+          "netInterestCoverageAnnual": 19.3103,
+          "netInterestCoverageTTM": 12.4273,
+          "netMarginGrowth5Y": -24.38,
+          "netProfitMargin5Y": 45.74,
+          "netProfitMarginAnnual": 14.19,
+          "netProfitMarginTTM": 14.19,
+          "operatingMargin5Y": 30.29,
+          "operatingMarginAnnual": 23.19,
+          "operatingMarginTTM": 23.19,
+          "payoutRatioAnnual": 1.87,
+          "payoutRatioTTM": 1.87,
+          "pb": 40.4323,
+          "pbAnnual": 27.6789,
+          "pbQuarterly": 27.6789,
+          "pcfShareAnnual": null,
+          "pcfShareTTM": null,
+          "peAnnual": 30.6455,
+          "peBasicExclExtraTTM": 30.6455,
+          "peExclExtraTTM": 30.6455,
+          "peInclExtraTTM": 30.6455,
+          "peNormalizedAnnual": 30.6455,
+          "peTTM": 30.6455,
+          "pfcfShareAnnual": 53.4126,
+          "pfcfShareTTM": 38.4873,
+          "pretaxMargin5Y": 28.32,
+          "pretaxMarginAnnual": 25.4,
+          "pretaxMarginTTM": 25.4,
+          "priceRelativeToS&P50013Week": 32.5923,
+          "priceRelativeToS&P50026Week": 34.536,
+          "priceRelativeToS&P5004Week": 0.6719,
+          "priceRelativeToS&P50052Week": 102.1058,
+          "priceRelativeToS&P500Ytd": 37.8532,
+          "psAnnual": 4.3492,
+          "psTTM": 4.3492,
+          "quickRatioAnnual": 1.0762,
+          "quickRatioQuarterly": 1.0762,
+          "revenueEmployeeAnnual": 1.4235,
+          "revenueEmployeeTTM": 1.4235,
+          "revenueGrowth3Y": 10.55,
+          "revenueGrowth5Y": 2.45,
+          "revenueGrowthQuarterlyYoy": 2.62,
+          "revenueGrowthTTMYoy": 11.49,
+          "revenuePerShareAnnual": 15.5718,
+          "revenuePerShareTTM": 15.8343,
+          "revenueShareGrowth5Y": 20.65,
+          "roa5Y": 33.99,
+          "roaRfy": 11.82,
+          "roaTTM": 11.52,
+          "roe5Y": 232.43,
+          "roeRfy": 131.94,
+          "roeTTM": 285.59999999999997,
+          "roi5Y": 30.79,
+          "roiAnnual": 29.799999999999997,
+          "roiTTM": 24.33,
+          "totalDebt/totalEquityAnnual": 3.427,
+          "totalDebt/totalEquityQuarterly": 3.427,
+          "yearToDatePriceReturnDaily": 46.0213
+        },
+        "metric_keys": [
+          "10DayAverageTradingVolume",
+          "13WeekPriceReturnDaily",
+          "26WeekPriceReturnDaily",
+          "3MonthADReturnStd",
+          "3MonthAverageTradingVolume",
+          "52WeekHigh",
+          "52WeekHighDate",
+          "52WeekLow",
+          "52WeekLowDate",
+          "52WeekPriceReturnDaily",
+          "5DayPriceReturnDaily",
+          "assetTurnoverAnnual",
+          "assetTurnoverTTM",
+          "beta",
+          "bookValuePerShareAnnual",
+          "bookValuePerShareQuarterly",
+          "capexCagr5Y",
+          "cashFlowPerShareAnnual",
+          "cashFlowPerShareQuarterly",
+          "cashPerSharePerShareAnnual",
+          "cashPerSharePerShareQuarterly",
+          "currentDividendYieldTTM",
+          "currentRatioAnnual",
+          "currentRatioQuarterly",
+          "dividendGrowthRate5Y",
+          "dividendIndicatedAnnual",
+          "dividendPerShareAnnual",
+          "dividendPerShareTTM",
+          "dividendYieldIndicatedAnnual",
+          "ebitdPerShareAnnual"
+        ]
+      },
+      "body_type": "dict"
+    },
+    {
+      "path": "/stock/peers",
+      "params_sent": {
+        "symbol": "AAPL"
+      },
+      "status": 200,
+      "elapsed_ms": 221.4,
+      "headers": {
+        "X-Ratelimit-Limit": "60",
+        "X-Ratelimit-Remaining": "54",
+        "X-Ratelimit-Reset": "1778531370"
+      },
+      "body_sample": {
+        "kind": "list",
+        "len": 11,
+        "first": "AAPL"
+      },
+      "body_type": "list"
+    }
+  ],
+  "rate_limit_burst": {
+    "n_sent": 20,
+    "elapsed_s": 4.58,
+    "results": [
+      {
+        "i": 0,
+        "status": 200,
+        "remaining": "144",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 1,
+        "status": 200,
+        "remaining": "143",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 2,
+        "status": 200,
+        "remaining": "142",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 3,
+        "status": 200,
+        "remaining": "141",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 4,
+        "status": 200,
+        "remaining": "140",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 5,
+        "status": 200,
+        "remaining": "139",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 6,
+        "status": 200,
+        "remaining": "138",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 7,
+        "status": 200,
+        "remaining": "137",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 8,
+        "status": 200,
+        "remaining": "136",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 9,
+        "status": 200,
+        "remaining": "135",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 10,
+        "status": 200,
+        "remaining": "134",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 11,
+        "status": 200,
+        "remaining": "133",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 12,
+        "status": 200,
+        "remaining": "132",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 13,
+        "status": 200,
+        "remaining": "131",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 14,
+        "status": 200,
+        "remaining": "130",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 15,
+        "status": 200,
+        "remaining": "129",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 16,
+        "status": 200,
+        "remaining": "128",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 17,
+        "status": 200,
+        "remaining": "127",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 18,
+        "status": 200,
+        "remaining": "126",
+        "limit": "150",
+        "retry_after": null
+      },
+      {
+        "i": 19,
+        "status": 200,
+        "remaining": "125",
+        "limit": "150",
+        "retry_after": null
+      }
+    ]
+  }
+}
