@@ -43,6 +43,7 @@ HEADING_BLUE = RGBColor(0x1F, 0x4E, 0x79)
 TEXT_BLACK = RGBColor(0x00, 0x00, 0x00)
 TEXT_GRAY = RGBColor(0x50, 0x50, 0x50)
 CODE_BG = "F2F2F2"     # very light gray
+ONBOARDING_BG = "F5F5F5"  # very light gray (distinct from code blocks)
 STATUS_RED = "F4CCCC"  # light red
 STATUS_YELLOW = "FFF2CC"  # light yellow
 STATUS_GREEN = "D5E8D4"  # light green
@@ -162,12 +163,12 @@ def bullet_runs(doc, parts):
     return p
 
 
-def code_block(doc, code_text: str) -> None:
+def code_block(doc, code_text: str, *, bg_color: str = CODE_BG) -> None:
     """Render a code block as a single-cell table with gray fill + Consolas."""
     table = doc.add_table(rows=1, cols=1)
     table.autofit = True
     cell = table.rows[0].cells[0]
-    _set_cell_shading(cell, CODE_BG)
+    _set_cell_shading(cell, bg_color)
     cell.text = ""    # clear default
     for line in code_text.split("\n"):
         p = cell.add_paragraph()
@@ -188,6 +189,68 @@ def divider(doc) -> None:
     p = doc.add_paragraph()
     r = p.add_run("⸻" * 1)
     r.font.color.rgb = TEXT_GRAY
+
+
+# ---------------------------------------------------------------------------
+# Embedded onboarding prompt
+# ---------------------------------------------------------------------------
+
+ONBOARDING_PROMPT = (
+    "I'm working on a quant equity / options paper trading project at\n"
+    "github.com/mteevan90/paper_trader_dashboard. Two contributors: Mike\n"
+    "(equity research; account @mteevan90) and Chris (options + paused\n"
+    "crypto; @cmjteevan).\n"
+    "\n"
+    "Before answering my first question, please read these in order:\n"
+    "\n"
+    "1. docs/Project_State_Tracker.docx — canonical current state, action\n"
+    "   items, strategic context. THIS is your primary orientation doc.\n"
+    "\n"
+    "2. docs/Comprehensive_User_Guide.docx — full technical reference\n"
+    "   (architecture, data layer, dashboard patterns, gotchas). Reference\n"
+    "   for depth.\n"
+    "\n"
+    "3. docs/Project_State_Audit.docx — most recent audit from Claude Code\n"
+    "   (2026-05-11), with file-level details on what's broken / stale /\n"
+    "   clean.\n"
+    "\n"
+    "4. docs/Options_Extension_Decisions.md — Chris's options architecture\n"
+    "   decisions.\n"
+    "\n"
+    "5. docs/Crypto_Extension_Decisions.md — Crypto extension architectural\n"
+    "   decisions (extension is paused but doc is authoritative if work\n"
+    "   resumes).\n"
+    "\n"
+    "6. docs/future_work.md — deferred items, including hardware-aware work\n"
+    "   allocation and distributed Optuna trigger.\n"
+    "\n"
+    "Once you've read these, give me a 3-sentence summary of where the\n"
+    "project stands and what URGENT items remain, then ask what I want to\n"
+    "work on. Don't write any code or run any tools until I respond. Don't\n"
+    "make assumptions about my role (Mike or Chris) — ask if it's not\n"
+    "clear from context.\n"
+    "\n"
+    "Key project conventions to absorb:\n"
+    "- Mike owns equity work + shared infrastructure\n"
+    "- Chris owns options + crypto code\n"
+    "- CODEOWNERS in .github/ enforces cross-namespace boundaries\n"
+    "- Cloud dashboard at paper-trader-mteev.streamlit.app (read-only,\n"
+    "  R2-backed)\n"
+    "- Asset-class-namespaced data layer: equities/, crypto/, options/\n"
+    "  subdirs under models/cache/ and models/snapshots/\n"
+    "- The tracker doc supersedes prior versions of any other handoff doc\n"
+    "\n"
+    "Three things you should specifically NOT do without explicit\n"
+    "confirmation:\n"
+    "- Don't push to main (use feature branches; let me merge via PR)\n"
+    "- Don't run snapshot_for_cloud.py without --dry-run first\n"
+    "- Don't pop or modify stash@{0} (deferred SP1500 work)\n"
+    "\n"
+    "If you find yourself working without having read the tracker doc\n"
+    "first, stop and read it. The tracker is updated when project state\n"
+    "changes meaningfully — its commit date in git log tells you how\n"
+    "recently."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +508,23 @@ def build(doc: Document) -> None:
               "as designed.",
          italic=True, size=10)
     render_status_table(doc)
+
+    # ------------------------------------------------------------------
+    # Claude Session Onboarding
+    # ------------------------------------------------------------------
+    h1(doc, "Claude Session Onboarding")
+    para(doc, "When opening a new Claude.ai or Claude Code session about "
+              "this project, paste the prompt below into the first message. "
+              "This gives Claude immediate context on project state, recent "
+              "decisions, and what's in flight — so the session doesn't "
+              "waste turns asking what the project is or rediscovering "
+              "things this tracker already documents.")
+    code_block(doc, ONBOARDING_PROMPT, bg_color=ONBOARDING_BG)
+    para(doc, "After pasting, Claude will read this tracker and any "
+              "referenced docs before answering your first question. Update "
+              "this prompt's reference list if you add new authoritative "
+              "docs to the repo.",
+         italic=True, size=10)
 
     # ------------------------------------------------------------------
     # 1. Top 5 Findings
@@ -915,6 +995,18 @@ def build(doc: Document) -> None:
               "repo. Update via Claude Code when state changes "
               "meaningfully — e.g., after PR #15 merges, after a major "
               "Polygon decision, after the next big sprint.")
+    para_runs(doc, [
+        ("Maintenance: ", True, False),
+        ("when adding new authoritative docs to docs/, update the "
+         "\"Claude Session Onboarding\" prompt above to reference them. "
+         "When contributor roles or conventions change, update the "
+         "prompt's conventions section. Specifically, review the embedded "
+         "prompt whenever:", False, False)])
+    bullet(doc, "Major docs are added to or removed from the reading list")
+    bullet(doc, "Project conventions change (data layout, branching, "
+                "deployment targets)")
+    bullet(doc, "Contributor roles shift (ownership, handoffs, "
+                "namespace boundaries)")
 
     # ------------------------------------------------------------------
     # Appendix C: Cleanup Session Summary
