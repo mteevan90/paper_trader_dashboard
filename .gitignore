@@ -48,10 +48,13 @@ src/.claude/
 *.msix
 
 # Documentation: scratch/working docx files stay local; anything under
-# docs/ is intentional project documentation and IS tracked.
+# docs/ at any depth is intentional project documentation and IS tracked.
+# The `!docs/**/*.docx` pattern covers docs/foo.docx AND docs/specs/foo.docx
+# AND any deeper nesting — the prior `!docs/*.docx` was depth-1 only and
+# silently dropped specs files (e.g. docs/specs/Dashboard_Rebuild_Spec.docx).
 *.docx
 !src/paper_trader_user_guide.docx
-!docs/*.docx
+!docs/**/*.docx
 
 models/cache/*.toml.txt# V3 study scratch files
 inspect_*.py
@@ -80,3 +83,9 @@ best_continuous.py
 touch_snapshot.py
 rescue_save_continuous.py
 _spec_extracted.txt
+
+# SP1500 paused-state diagnostic logs at repo root — kept locally per
+# project audit decision (2026-05-11) to document the paused workstream
+# state, but never re-committed. The base `*.log` rule above already
+# catches these; this section just records the intent for future readers.
+sp1500_*.log
