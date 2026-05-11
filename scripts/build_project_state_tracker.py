@@ -265,25 +265,25 @@ STATUS_ROWS = [
      "None; dashboard updates needed for NVDA/META finding",
      "GREEN"),
     ("Cloud dashboard (equities)",
-     "WORKING but R2 stale",
+     "WORKING — R2 current",
      "Mike",
-     "Sync R2 after PR #15 merges",
-     "YELLOW"),
+     "Synced 2026-05-11 at git_sha 993527f",
+     "GREEN"),
     ("Options Sections 1-8 + 2.5",
      "MERGED",
      "Chris",
      "Done; foundation for v1 study",
      "GREEN"),
     ("Options PR #15 (hang fix)",
-     "OPEN — URGENT",
+     "MERGED",
      "Chris",
-     "Mike review + merge",
-     "RED"),
+     "Merged 2026-05-11; commit 993527f",
+     "GREEN"),
     ("Options v1 study",
-     "BLOCKED on PR #15",
+     "READY — pending Chris launch",
      "Chris",
-     "Cannot run until merge",
-     "RED"),
+     "Chris launches v1 production study",
+     "YELLOW"),
     ("Crypto Phase 2 strategy code",
      "PAUSED — STUB ONLY",
      "Chris",
@@ -309,6 +309,12 @@ STATUS_ROWS = [
      "Mike",
      "Commit 5c39cc5",
      "GREEN"),
+    ("Options R2 sync",
+     "PENDING — no v1 study output yet",
+     "Chris",
+     "Run v1 production study; that produces the artifacts "
+     "snapshot_for_cloud.py expects under models/cache/options/",
+     "YELLOW"),
 ]
 
 
@@ -449,9 +455,10 @@ def build(doc: Document) -> None:
     r.font.name = BODY_FONT
     para(doc, "Canonical project-state doc. Built from the Claude Code audit "
               "(2026-05-11) plus strategic context — Polygon piggyback "
-              "analysis, prioritization framing, and cleanup commit summary. "
-              "Lives at docs/Project_State_Tracker.docx; update via Claude "
-              "Code when state changes meaningfully.",
+              "analysis, prioritization framing, cleanup commit summary, and "
+              "the post-PR-#15-merge refresh. Lives at "
+              "docs/Project_State_Tracker.docx; update via Claude Code when "
+              "state changes meaningfully.",
          italic=True, size=10)
 
     # ------------------------------------------------------------------
@@ -459,7 +466,7 @@ def build(doc: Document) -> None:
     # ------------------------------------------------------------------
     h1(doc, "Executive Summary")
     para(doc, "Where the project actually stands as of May 11, 2026 "
-              "(post-cleanup):")
+              "(post-PR-#15-merge):")
     bullet_runs(doc, [
         ("Equity research framework (Mike) is production-stable.", True,
          False),
@@ -473,18 +480,25 @@ def build(doc: Document) -> None:
     bullet_runs(doc, [
         ("Options extension is the active build-out.", True, False),
         (" Chris shipped Sections 1-8 + 2.5 to main over 2 days. "
-         "PR #15 (hang fix + concurrency refactor) is open and blocks "
-         "the v1 production study from running.", False, False)])
+         "PR #15 (hang fix + concurrency refactor) merged 2026-05-11 "
+         "(commit 993527f); v1 production study is now ready to run "
+         "and is pending Chris's launch.", False, False)])
     bullet_runs(doc, [
-        ("Cloud dashboard renders equity content correctly but R2 is "
-         "stale.", True, False),
-        (" Last upload 2026-05-09; main has advanced 13 commits since "
-         "(all options). Options content has never been uploaded to R2.",
+        ("Cloud dashboard equity content is current; options content "
+         "is pending Chris's v1 study output.", True, False),
+        (" R2 synced 2026-05-11 at git_sha 993527f. The options/ "
+         "prefix stays empty in R2 until the v1 study produces "
+         "artifacts under models/cache/options/.", False, False)])
+    bullet_runs(doc, [
+        ("Mike's venv is healthy.", True, False),
+        (" Test collection bug fixed (commit c1346cd); "
+         "truststore + pytest installed; full test suite runs.",
          False, False)])
     bullet_runs(doc, [
-        ("Mike's venv is missing dependencies.", True, False),
-        (" truststore and pytest aren't installed — both are in "
-         "requirements.txt. One-command fix.", False, False)])
+        (".env.example now documents the full key set.", True, False),
+        (" Tradier, Polygon, FRED, Finnhub, R2, plus the optional "
+         "PAPER_TRADER_* runtime knobs — see Finding 4.",
+         False, False)])
     bullet_runs(doc, [
         ("SP1500 universe expansion remains stashed, awaiting Finnhub "
          "TOS clarity.", True, False),
@@ -494,18 +508,20 @@ def build(doc: Document) -> None:
 
     para_runs(doc, [
         ("Honest read: ", True, False),
-        ("The project is in a much better technical state than it was "
-         "2 weeks ago. The mess is in coordination overhead — a stale "
-         "R2, an open PR blocking a study, deferred decisions on "
-         "infrastructure cleanup. The code itself is healthy. Three "
-         "different research domains (equity, crypto, options) coexist "
-         "without conflict thanks to Phase 1's asset-class refactor.",
-         False, False)])
+        ("URGENT items are now cleared. PR #15 is merged, equity R2 is "
+         "current, venv dependencies are installed, .env.example is "
+         "complete. The next forcing function is Chris launching the "
+         "v1 production study — once that completes, options content "
+         "gets uploaded to R2 and we get the first end-to-end "
+         "options-side dashboard. Three different research domains "
+         "(equity, crypto, options) coexist without conflict thanks to "
+         "Phase 1's asset-class refactor.", False, False)])
 
     h2(doc, "Status table at a glance")
-    para(doc, "Red rows are URGENT (blocking work); yellow rows are warnings "
-              "(needs attention but not blocking); green rows are working "
-              "as designed.",
+    para(doc, "Red rows are URGENT (blocking work); yellow rows are "
+              "warnings (needs attention but not blocking); green rows "
+              "are working as designed. As of 2026-05-11 post-merge, no "
+              "rows are red.",
          italic=True, size=10)
     render_status_table(doc)
 
@@ -531,8 +547,14 @@ def build(doc: Document) -> None:
     # ------------------------------------------------------------------
     h1(doc, "1. Top 5 Most Important Findings")
 
-    h2(doc, "Finding 1: PR #15 blocks the options v1 study")
-    para(doc, "Branch chris/options-fix-v1-study-hang @ 7e0881c is 1 commit "
+    h2(doc, "Finding 1: PR #15 blocks the options v1 study — RESOLVED")
+    para_runs(doc, [
+        ("Resolved 2026-05-11: ", True, False),
+        ("PR #15 merged at commit 993527f. Branch "
+         "chris/options-fix-v1-study-hang folded into main; v1 study "
+         "is now unblocked and pending Chris's launch.", False, False)])
+    para(doc, "Historical context — original finding kept for the record:")
+    para(doc, "Branch chris/options-fix-v1-study-hang @ 7e0881c was 1 commit "
               "ahead of main. Real fix, not cosmetic. Root cause: engine.py "
               "was still passing Tradier's fetch_history to "
               "chain_reconstruction after PR #14 swapped the default to "
@@ -547,55 +569,58 @@ def build(doc: Document) -> None:
     bullet(doc, "Multi-day pre-fetch in _default_deps")
     bullet(doc, "Removed Polygon cache-write sanity gate that was rejecting "
                 "legitimate sparse-expiry contracts")
-    para(doc, "8 files, +526/-106 lines, new tests included. Impact: v1 "
-              "production study cannot complete until this lands. No "
-              "models/snapshots/options/pre_options_v1_<date>/ exists yet.")
+    para(doc, "8 files, +526/-106 lines, new tests included.")
+
+    h2(doc, "Finding 2: R2 stale — RESOLVED for equities; options "
+            "pending Chris's v1 study")
     para_runs(doc, [
-        ("Action: ", True, False),
-        ("Mike reviews the diff, merges via squash on GitHub. "
-         "~10 minutes.", False, False)])
+        ("Resolved 2026-05-11 (equities): ", True, False),
+        ("R2 synced at git_sha 993527f. Equity content on the cloud "
+         "dashboard is current. Options content still pending — there "
+         "is no v1 study output to upload yet, so the options/ prefix "
+         "in R2 remains empty until Chris launches the v1 production "
+         "study.", False, False)])
+    para(doc, "Historical context — original finding kept for the record:")
+    para(doc, "R2 bucket snapshot_manifest.json had been at git_sha=bfee6dc, "
+              "generated_at=2026-05-09T17:20:38Z while main had advanced to "
+              "f3c3800. Functionally, equity content was still correct "
+              "because none of those 13 commits touched equity files — "
+              "they were all options work. But options content had never "
+              "been uploaded to R2 at all.")
 
-    h2(doc, "Finding 2: R2 is stale — main is 13 commits ahead of last upload")
-    para(doc, "R2 bucket snapshot_manifest.json says git_sha=bfee6dc, "
-              "generated_at=2026-05-09T17:20:38Z. Main is at f3c3800. "
-              "Functionally, equity content is still correct because none "
-              "of those 13 commits touched equity files — they're all "
-              "options work. But options content has never been uploaded "
-              "to R2 at all (no options/ prefix exists in the bucket).")
-    para_runs(doc, [("Action sequence:", True, False)])
-    bullet(doc, "Merge PR #15")
-    bullet(doc, "Run snapshot_for_cloud.py --asset-class equities (catches "
-                "any equity changes — should be a near-no-op)")
-    bullet(doc, "Run snapshot_for_cloud.py --asset-class options "
-                "(first-ever options upload)")
-    bullet(doc, "Hard-refresh the cloud dashboard, verify Options tab no "
-                "longer shows placeholder")
-
-    h2(doc, "Finding 3: Mike's venv is missing truststore and pytest")
-    para(doc, "truststore==0.10.4 is in requirements.txt but not installed. "
-              "Two test failures, both same root cause:")
+    h2(doc, "Finding 3: Mike's venv missing truststore and pytest — "
+            "RESOLVED")
+    para_runs(doc, [
+        ("Resolved 2026-05-11: ", True, False),
+        ("Test collection bug fixed in commit c1346cd; venv "
+         "dependencies installed via pip install -r requirements.txt. "
+         "Full test suite now collects and runs.", False, False)])
+    para(doc, "Historical context — original finding kept for the record:")
+    para(doc, "truststore==0.10.4 was in requirements.txt but not installed "
+              "on Mike's machine. Two test failures, both same root cause:")
     bullet(doc, "test_ssl_setup.py: collection error (ModuleNotFoundError: "
                 "No module named 'truststore')")
     bullet(doc, "test_optuna_runner.py::test_smoke_study_constants_match_locked_config: "
-                "fails for the same reason transitively via "
+                "failed for the same reason transitively via "
                 "src/options/_ssl.py")
-    para(doc, "After fixing: 374 tests pass, 1 skipped. Fix is one command:")
-    code_block(doc, "venv\\Scripts\\pip install -r requirements.txt")
-    para(doc, "Also flagged: pytest itself isn't in requirements.txt at "
-              "all. Add it as a dev dep so future fresh venvs are "
+    para(doc, "After fixing: 374 tests pass, 1 skipped. Also flagged at "
+              "the time: pytest itself wasn't in requirements.txt at all. "
+              "Add it as a dev dep so future fresh venvs are "
               "self-bootstrapping.")
 
-    h2(doc, "Finding 4: .env.example missing POLYGON_API_KEY — silent "
-            "onboarding failure")
-    para(doc, "src/options/polygon.py requires POLYGON_API_KEY and even "
-              "cites Massive.com as the signup destination. But "
-              ".env.example only documents Tradier env vars. A new "
-              "contributor (or Mike on a fresh checkout) will hit a "
-              "runtime error with no docs path forward.")
+    h2(doc, "Finding 4: .env.example missing POLYGON_API_KEY — RESOLVED")
     para_runs(doc, [
-        ("Easy fix: ", True, False),
-        ("add to .env.example with a comment linking to "
-         "https://polygon.io/signup.", False, False)])
+        ("Resolved in this commit: ", True, False),
+        (".env.example now enumerates every environment variable the "
+         "codebase reads at runtime (Tradier, Polygon, FRED, Finnhub, "
+         "R2, and the optional PAPER_TRADER_* runtime knobs), grouped "
+         "by purpose with signup links where relevant.", False, False)])
+    para(doc, "Historical context — original finding kept for the record:")
+    para(doc, "src/options/polygon.py required POLYGON_API_KEY and even "
+              "cited Massive.com as the signup destination. But "
+              ".env.example only documented Tradier env vars. A new "
+              "contributor (or Mike on a fresh checkout) would have hit "
+              "a runtime error with no docs path forward.")
 
     h2(doc, "Finding 5: Repo hygiene cleanup completed "
             "(2026-05-11, commit 5c39cc5)")
@@ -632,28 +657,32 @@ def build(doc: Document) -> None:
               "what they unblock or risk if deferred.")
 
     h2(doc, "URGENT (do today)")
-    bullet_runs(doc, [
-        ("Merge PR #15.", True, False),
-        (" Mike eyeballs the diff on GitHub, clicks Squash and Merge. "
-         "~10 min.", False, False)])
-    bullet_runs(doc, [
-        ("Run pip install -r requirements.txt.", True, False),
-        (" Fixes the 2 test failures and gets truststore. <1 min.",
-         False, False)])
-    bullet_runs(doc, [
-        ("Sync R2 with --asset-class equities and --asset-class options.",
-         True, False),
-        (" Brings cloud dashboard current. ~5 min.", False, False)])
-    bullet_runs(doc, [
-        ("Visually verify the cloud dashboard.", True, False),
-        (" Hard-refresh paper-trader-mteev.streamlit.app, click each tab. "
-         "Confirm no 404 errors. ~3 min.", False, False)])
+    para(doc, "URGENT items resolved 2026-05-11. Next URGENT item will "
+              "surface when Chris runs the v1 study and we need to verify "
+              "the options dashboard renders correctly.")
 
     h2(doc, "HIGH (this week)")
     bullet_runs(doc, [
-        ("Add POLYGON_API_KEY to .env.example.", True, False),
-        (" Trivial fix; eliminates silent onboarding failure. ~2 min.",
+        ("Sync .env between Mike and Chris's machines (one-time).",
+         True, False),
+        (" Out-of-band task. Both contributors need identical .env "
+         "content so either workstation can run any task. .env.example "
+         "in this commit enumerates the full key set — each contributor "
+         "fills in their copy and shares it with the other via a secure "
+         "channel.", False, False)])
+    bullet_runs(doc, [
+        ("Wait for Chris to run v1 study; then sync options R2.",
+         True, False),
+        (" Once Chris launches and the v1 study produces "
+         "models/cache/options/ artifacts, run snapshot_for_cloud.py "
+         "--asset-class options to push them to R2.",
          False, False)])
+    bullet_runs(doc, [
+        ("Verify options dashboard end-to-end after R2 sync.",
+         True, False),
+        (" Equity tabs already verified at git_sha 993527f. Options "
+         "verification is pending Chris's v1 study + the subsequent "
+         "options R2 sync.", False, False)])
     bullet_runs(doc, [
         ("Update Options_Extension_Decisions.md Status row.", True, False),
         (" Currently says \"Sections 1, 2, 3 merged\"; reality is 1-8 + "
@@ -852,7 +881,7 @@ def build(doc: Document) -> None:
     # 5. Strategic Read
     # ------------------------------------------------------------------
     h1(doc, "5. Strategic Read")
-    para(doc, "Beyond the immediate action items, three things about where "
+    para(doc, "Beyond the immediate action items, four things about where "
               "the project is now:")
 
     h2(doc, "The architecture is paying off")
@@ -865,12 +894,13 @@ def build(doc: Document) -> None:
               "dividend on the upfront infrastructure investment.")
 
     h2(doc, "The bottleneck is coordination, not code")
-    para(doc, "Everything in the URGENT and HIGH action lists is "
-              "coordination work — review a PR, sync R2, update docs, "
-              "install deps. No deep technical work is currently blocked. "
-              "That's a much better state than \"we have a working "
-              "strategy but the code is broken,\" which is where many "
-              "quant projects get stuck.")
+    para(doc, "Everything that remains on the HIGH action list is "
+              "coordination work — launch a queued study, sync R2 once "
+              "artifacts exist, share .env between machines, update "
+              "stale memos. No deep technical work is currently "
+              "blocked. That's a much better state than \"we have a "
+              "working strategy but the code is broken,\" which is "
+              "where many quant projects get stuck.")
 
     h2(doc, "The next strategic decision is data infrastructure")
     para(doc, "The Polygon piggyback question is the most consequential "
@@ -887,20 +917,38 @@ def build(doc: Document) -> None:
               "to yfinance's flakiness at scale.")
 
     h2(doc, "On Chris's options work")
-    para(doc, "Chris shipped 13 commits in 2 days. That's a meaningful "
-              "sprint and the audit shows the work is real — proper "
-              "Greeks (Black-Scholes), engine, position model, "
-              "BacktestConfig, FeeModel, Optuna runner, promotion gate, "
-              "concentration analysis. The PR #15 hang fix is exactly "
-              "the kind of bug that shows up when you actually try to run "
-              "something end-to-end. Worth merging soon so he doesn't "
-              "have to context-switch back to it later.")
-    para(doc, "Once PR #15 merges and the v1 study runs, you'll have a "
-              "third promotable workstream alongside the three equity "
+    para(doc, "Chris shipped 13 commits in 2 days, with PR #15 landing "
+              "the hang fix + concurrency refactor on 2026-05-11. The "
+              "work is real — proper Greeks (Black-Scholes), engine, "
+              "position model, BacktestConfig, FeeModel, Optuna runner, "
+              "promotion gate, concentration analysis. The PR #15 hang "
+              "fix was exactly the kind of bug that shows up when you "
+              "actually try to run something end-to-end.")
+    para(doc, "Now that PR #15 has merged, the v1 study is unblocked. "
+              "Once Chris launches it and it completes, the project gets "
+              "a third promotable workstream alongside the three equity "
               "studies. The dashboard will need parallel options tabs "
               "eventually (or at least a Performance tab that handles "
               "both asset classes); that's a future-work item Chris "
               "should think about as he gets close to v1 promotion.")
+
+    h2(doc, "Workstation parity goal")
+    para(doc, "Mike and Chris are working toward a two-workstation parity "
+              "model — either machine should be capable of picking up "
+              "tasks the other was doing. Most code is already portable "
+              "thanks to the Phase 1 asset-class refactor. Remaining work "
+              "to reach full parity:")
+    bullet(doc, "Identical .env on both machines (done as of this commit "
+                "— .env.example now enumerates the full key set)")
+    bullet(doc, "Python version + venv package parity")
+    bullet(doc, "Snapshot data portability — the 228 MB equity snapshot "
+                "is currently single-source on Mike's machine; should be "
+                "backed up to R2 or regeneratable")
+    bullet(doc, "Documented hardware-aware task routing for CUDA-required "
+                "work on Chris's RTX 5080")
+    para(doc, "See docs/future_work.md (\"Two-workstation parity for "
+              "cross-contributor handoff\") for the multi-phase plan and "
+              "per-phase cost estimates.")
 
     # ------------------------------------------------------------------
     # Appendix A: Quick Reference
@@ -909,26 +957,28 @@ def build(doc: Document) -> None:
 
     h2(doc, "Action sequence — copy-paste")
     code_block(doc,
-               "# 1. Install missing dependencies\n"
-               "cd C:\\Users\\mteev\\Documents\\Claude-Investing\\paper_trader\n"
-               "venv\\Scripts\\pip install -r requirements.txt\n"
+               "# Post-PR-#15-merge action sequence (most URGENT items done\n"
+               "# 2026-05-11; remaining items pending Chris's v1 study output).\n"
                "\n"
-               "# 2. After PR #15 merges, pull main\n"
+               "cd C:\\Users\\mteev\\Documents\\Claude-Investing\\paper_trader\n"
+               "\n"
+               "# 1. Confirm local main is current\n"
                "git checkout main\n"
                "git pull origin main\n"
                "\n"
-               "# 3. Sync R2 for both asset classes\n"
-               "venv\\Scripts\\python.exe src\\snapshot_for_cloud.py --asset-class equities --dry-run\n"
-               "venv\\Scripts\\python.exe src\\snapshot_for_cloud.py --asset-class equities\n"
+               "# 2. (Chris) Launch the v1 production study. ~6h runtime.\n"
+               "venv\\Scripts\\python.exe scripts\\run_options_v1_study.py\n"
                "\n"
+               "# 3. After v1 study completes, sync options R2 (first-ever\n"
+               "#    options upload). --dry-run first.\n"
                "venv\\Scripts\\python.exe src\\snapshot_for_cloud.py --asset-class options --dry-run\n"
                "venv\\Scripts\\python.exe src\\snapshot_for_cloud.py --asset-class options\n"
                "\n"
                "# 4. Hard-refresh https://paper-trader-mteev.streamlit.app\n"
-               "#    Click each tab. Verify no errors. Verify Options tab shows\n"
-               "#    real content instead of placeholder.\n"
+               "#    Click each tab. Verify Options tab shows real content\n"
+               "#    instead of placeholder.\n"
                "\n"
-               "# 5. Run pytest to confirm all tests pass\n"
+               "# 5. Run pytest to confirm all tests still pass\n"
                "venv\\Scripts\\pytest -v")
 
     h2(doc, "Key file paths")
@@ -969,7 +1019,7 @@ def build(doc: Document) -> None:
     code_block(doc,
                "# Active branches\n"
                "main                                       # latest commit\n"
-               "chris/options-fix-v1-study-hang            # 7e0881c (1 ahead, OPEN PR #15)\n"
+               "                                           # (PR #15 merged 2026-05-11 at 993527f)\n"
                "\n"
                "# Stashed work\n"
                "stash@{0}                                  # SP1500 retry/sanity-gate\n"
@@ -982,6 +1032,11 @@ def build(doc: Document) -> None:
     para(doc, "This is the canonical project state doc. It supersedes "
               "prior versions and is committed to the repo for the first "
               "time.")
+    para_runs(doc, [
+        ("Last updated: ", True, False),
+        ("2026-05-11 (post-PR-#15-merge refresh — URGENT items cleared, "
+         ".env.example completed, workstation-parity goal added).",
+         False, False)])
     render_lineage_table(doc)
     para_runs(doc, [
         ("Older docs remain valid as historical reference. ", False, False),
@@ -1076,6 +1131,17 @@ def build(doc: Document) -> None:
          "silently dropping any docx file under docs/specs/ for weeks. "
          "The fix means committed documentation now reliably lands in "
          "the repo.", False, False)])
+
+    h2(doc, "2026-05-11 (later in day) — Post-merge sweep")
+    bullet(doc, "PR #15 merged (commit 993527f)")
+    bullet(doc, "R2 synced for equities at the new HEAD")
+    bullet(doc, "Test collection bug fixed (commit c1346cd)")
+    bullet(doc, "Venv dependencies installed (pip install -r requirements.txt)")
+    bullet(doc, ".env.example completed with all required keys "
+                "(Tradier, Polygon, FRED, Finnhub, R2, optional "
+                "PAPER_TRADER_* runtime knobs)")
+    bullet(doc, "URGENT block of action items cleared; next URGENT "
+                "surfaces when Chris launches the v1 production study")
 
 
 def main() -> None:

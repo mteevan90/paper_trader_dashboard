@@ -36,6 +36,26 @@ When something here moves to active work, move it out of this doc into the appro
 
 ---
 
+## Two-workstation parity for cross-contributor handoff
+
+**Status:** Phase 1 done (2026-05-11); Phases 2–5 deferred.
+
+**What:**  Mike and Chris are working toward a model where either workstation can pick up any task the other was doing. The goal is operational resilience (either of us can step away briefly without blocking the other) and flexibility (we can work from each other's offices). Most code is already portable thanks to the Phase 1 asset-class refactor; the remaining work is environmental + data.
+
+**Why it's worth doing:**  Single-machine ownership of a workstream is a hidden continuity risk. If Mike's snapshot disk dies, the locked equity baseline goes with it. If only one machine has the right .env, the other contributor can't even run the test suite. Parity also lets us trade off the GPU-bound vs CPU-bound tasks intentionally (see "Hardware-aware work allocation" below).
+
+**Phases:**
+
+- **Phase 1 — identical .env on both machines.** **DONE (2026-05-11).** Both contributors now have all required keys via the completed `.env.example`. Out-of-band: each contributor copies the populated `.env` once to the other's machine.
+- **Phase 2 — Python version + venv package parity.** Verify both machines run identical Python versions and that `pip install -r requirements.txt` produces identical package versions. Document in README or a new `SETUP.md`. **Cost:** ~30 min comparison + any version-pin fixes.
+- **Phase 3 — Snapshot data portability.** The 228 MB locked equity snapshot at `models/snapshots/equities/pre_v2_20260505/` is currently single-source on Mike's machine. Options: (a) backup to R2 under a `snapshots-backup/` prefix, (b) commit via git-lfs, (c) document a yfinance-based regeneration recipe. **Cost:** 1–2 hours depending on approach. Worth doing soon regardless of parity goal — this is also the disaster-recovery story.
+- **Phase 4 — Documented hardware-aware task routing.** Some tasks (model training/retraining, deep-learning experiments) should run on Chris's CUDA box. Most tasks (Optuna optimization, backtests, dashboard work) are CPU-bound and run identically on either machine. Create `docs/HARDWARE_ROUTING.md` that documents which scripts to run where and why. **Cost:** ~1 hour to write + ongoing updates as new tasks emerge.
+- **Phase 5 — R2 sync coordination.** With two machines both able to push to R2, need either (a) coordination convention ("Slack before pushing") or (b) sync lock mechanism (check `snapshot_manifest.json` `generated_at` before overwriting). Phase 5 only becomes necessary when both contributors are actively running production studies in parallel. **Cost:** trivial if (a); ~2 hours if (b).
+
+**When to do which phase:** Phase 1 done. Phase 2 worth doing soon for low cost. Phase 3 worth doing soon for disaster recovery. Phases 4–5 can wait until hardware-specific work or sync conflicts actually surface.
+
+---
+
 ## Hardware-aware work allocation between contributors
 
 **Status:** Worth a conversation, not a code task.
