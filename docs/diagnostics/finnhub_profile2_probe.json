@@ -1,0 +1,84 @@
+[
+  {
+    "symbol": "AAPL",
+    "http_status": 200,
+    "rate_limit": "60",
+    "remaining": "59",
+    "elapsed_ms": 265.8,
+    "body": {
+      "country": "US",
+      "currency": "USD",
+      "estimateCurrency": "USD",
+      "exchange": "NASDAQ NMS - GLOBAL MARKET",
+      "finnhubIndustry": "Technology",
+      "ipo": "1980-12-12",
+      "logo": "https://static2.finnhub.io/file/publicdatany/finnhubimage/stock_logo/AAPL.png",
+      "marketCapitalization": 4308095.429129953,
+      "name": "Apple Inc",
+      "phone": "14089961010",
+      "shareOutstanding": 14681.14,
+      "ticker": "AAPL",
+      "weburl": "https://www.apple.com/"
+    }
+  },
+  {
+    "symbol": "AAON",
+    "http_status": 200,
+    "rate_limit": "60",
+    "remaining": "58",
+    "elapsed_ms": 204.7,
+    "body": {
+      "country": "US",
+      "currency": "USD",
+      "estimateCurrency": "USD",
+      "exchange": "NASDAQ NMS - GLOBAL MARKET",
+      "finnhubIndustry": "Building",
+      "ipo": "1991-01-03",
+      "logo": "https://static2.finnhub.io/file/publicdatany/finnhubimage/stock_logo/942959053736.png",
+      "marketCapitalization": 11430.29279738971,
+      "name": "Aaon Inc",
+      "phone": "19185832266",
+      "shareOutstanding": 81.84,
+      "ticker": "AAON",
+      "weburl": "https://www.aaon.com/"
+    }
+  },
+  {
+    "symbol": "AAMI",
+    "http_status": 200,
+    "rate_limit": "60",
+    "remaining": "57",
+    "elapsed_ms": 214.1,
+    "body": {
+      "country": "US",
+      "currency": "USD",
+      "estimateCurrency": "USD",
+      "exchange": "NEW YORK STOCK EXCHANGE, INC.",
+      "finnhubIndustry": "Financial Services",
+      "ipo": "2014-10-09",
+      "logo": "https://static2.finnhub.io/file/publicdatany/finnhubimage/stock_logo/BSIG.png",
+      "marketCapitalization": 2451.639570497219,
+      "name": "Acadian Asset Management Inc",
+      "phone": "13026365400",
+      "shareOutstanding": 35.72,
+      "ticker": "AAMI",
+      "weburl": "https://www.acadian-inc.com/"
+    }
+  },
+  {
+    "symbol": "SIVB",
+    "http_status": 200,
+    "rate_limit": "60",
+    "remaining": "56",
+    "elapsed_ms": 269.6,
+    "body": {}
+  },
+  {
+    "symbol": "TWTR",
+    "http_status": 200,
+    "rate_limit": "60",
+    "remaining": "55",
+    "elapsed_ms": 226.1,
+    "body": {}
+  }
+]

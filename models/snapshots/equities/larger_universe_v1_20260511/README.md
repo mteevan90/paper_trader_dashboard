@@ -11,7 +11,7 @@ component-change tables, last 10y, SEC CIK-disambiguated where possible.
 | Path | Count | Notes |
 |---|---|---|
 | `price_cache/*.parquet` | 1963 | Daily OHLCV, split-and-dividend-adjusted. OTC-tail-truncated at Wikipedia-documented delisting date for removed names. |
-| `cache/fundamentals.json` | 1919 | Finnhub /stock/metric snapshot per ticker (point-in-time, ~130 metrics). |
+| `cache/fundamentals.json` | 1919 | Finnhub /stock/metric **current-snapshot-only** (~130 metrics per ticker, as of fetch time). For point-in-time historical fundamentals see "Historical fundamentals" below. |
 | `cache/universe.json` | 2180 | Membership map: tier (SP500/400/600), status (active/removed), removed_at, reuse_flag. |
 | `cache/macro_signals.parquet` | (carried forward) | FRED-sourced, ticker-independent — unchanged from pre_v2. |
 | `manifest.json` | — | File listing in pre_v2-compatible format. |
@@ -33,6 +33,18 @@ This is "best-effort survivorship-bias mitigation" — not survivorship-bias-fre
 - 17 of 616 deduped historical-removal records lack a Wikipedia removal date (asymmetric add-only entries)
 
 Studies using this snapshot should disclaim "best-effort survivorship-bias mitigation with documented residual gaps tilting toward overstated returns by an estimated 0.3-0.6 pp/yr" rather than "survivorship-bias-free".
+
+## Historical fundamentals (added 2026-05-11 post-Phase-1)
+
+The snapshot's `cache/fundamentals.json` is a point-in-time snapshot only — using it as a feature in a 2016–2026 backtest creates look-ahead bias by construction. **Historical fundamentals time series ARE available** at the raw Finnhub cache:
+
+```
+models/cache/equities/finnhub/metrics/<SYMBOL>.json
+```
+
+Each file contains the full /stock/metric response, including `series.annual` (~40 years) and `series.quarterly` (~150 quarters) with `{period, v}` entries per metric. The Larger Universe v1 study Phase 1 extracted these into a point-in-time table at `models/features/larger_universe_v1/fundamentals_pit.parquet` with a 45-day reporting lag applied (industry-standard for 10-Q filings). See `docs/diagnostics/larger_universe_v1_features.md` and `scripts/research/build_fundamentals_pit.py` for the extraction recipe.
+
+The snapshot's `fundamentals.json` is kept as the convenient current-state lookup for any consumer that doesn't need historical depth; future studies that need historical fundamentals should follow the same `series.quarterly`-extraction pattern. The snapshot's *data files are unchanged* — this section is documentation only.
 
 ## Lifecycle
 
