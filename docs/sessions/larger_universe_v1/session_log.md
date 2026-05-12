@@ -1098,3 +1098,57 @@ All tracked, none urgent. Mike decides when/whether to action.
 4. **Convergence-pattern methodology memo** (this entry, item 1 above). Pending a third Optuna data point.
 
 After this merge, the Larger Universe v1 dashboard is functionally complete with parity-plus to legacy. Phase 5 closure plus this enhancement land the full deliverable.
+
+## 2026-05-12 — Primary-model default bug + fix branch
+
+Branch: `feat/dashboard-primary-model-default` off `main`. Pre-merge, awaiting Mike's review.
+
+### Symptom
+
+The contract Tuning tab (and every other contract tab with a model selector) defaulted to **elasticnet** instead of **xgboost** on initial render. ENet is the sanity-check model for Larger Universe v1 — only 14 of 100 attempted trials succeeded (86 hit constant-prediction regions at high alpha and failed). The narrative box on initial render read "tested 14 configurations" instead of "tested 200 configurations" for XGB, making the dashboard look analytically weak when first opened. A partner reviewing the dashboard would see the sparse ENet view before realizing they could toggle to the rich XGB view.
+
+### Root cause
+
+All 5 contract-tab model selectboxes used `index=0` against an alphabetically sorted models list. For Larger Universe v1 alphabetical-first = `elasticnet`. The meta.json contract spec declares `models[].role` (xgboost: "primary", elasticnet: "sanity_check") precisely so the dashboard can default to the primary, but the implementation never read the role field. Plain oversight from Phase 4.5 — the selectboxes were added in a single sweep without role-aware defaulting.
+
+### Affected selectboxes (audit)
+
+All 5 contract-tab model selectboxes were affected. None defaulted to "primary role from meta.json"; all defaulted to alphabetical-first via `index=0`.
+
+| # | Tab | Selectbox key | Pre-fix default | Post-fix default |
+|---|---|---|---|---|
+| 1 | Holdings | `contract_hold_model` | elasticnet | **xgboost** |
+| 2 | Trades | `contract_trade_model` | elasticnet | **xgboost** |
+| 3 | Alpha Attribution | `contract_alpha_model` | elasticnet | **xgboost** |
+| 4 | Tuning (main) | `contract_tune_model_selector` | elasticnet | **xgboost** |
+| 5 | Tuning (feature importance) | `contract_tune_fi_model` | elasticnet | **xgboost** |
+
+Already correct (no model selector — show all models together): Overview, Performance, Diagnostics, Walk-forward.
+
+### Fix
+
+New helper `_default_model_index(study_name, available)` in `src/dashboard_app.py`. Preference order:
+
+1. The model with `role: "primary"` in `meta.json.models[]`
+2. If no model has `role: "primary"`, the first entry in `meta.json.models[]` (note: order in the meta.json array, NOT alphabetical)
+3. If meta.json declares no models, or none of the preferred names appear in the displayed list, return 0 (first alphabetically in the displayed list)
+
+Defensive: if multiple models declare `role: "primary"` (data error), picks the first alphabetically and emits a Python `warnings.warn(...)` visible in the Streamlit server log (not the page body — page-body st.warning would render in every page load and be intrusive). For Larger Universe v1 this branch never fires; included for forward-compatibility.
+
+All 5 selectboxes updated to call the helper. Selectors still accept toggling — only the default changes.
+
+### Smoke-test
+
+Streamlit AppTest harness:
+
+- Initial render after toggling sidebar to "Contract-conformant (v1+)": all 5 selectboxes report `value='xgboost'`.
+- Tuning narrative box on initial render: "The optimizer tested **200** configurations for **xgboost**. The winner was **Trial #142** with score **0.0282**…" (the rich view, as intended).
+- Toggle tuning selector to elasticnet → 0 exceptions.
+- Toggle tuning selector back to xgboost → 0 exceptions.
+
+### Branch + commit
+
+- **Branch**: `feat/dashboard-primary-model-default` (off `main`)
+- **Commit SHA**: (filled at commit time)
+- **Push**: yes; not auto-merged — awaiting Mike's review.
+- **Tracker**: NOT updated (dashboard fix, not study-level event).

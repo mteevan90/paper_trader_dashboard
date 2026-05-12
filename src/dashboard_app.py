@@ -3849,6 +3849,53 @@ def load_contract_tuning_summary(study_name: str) -> dict | None:
         return json.load(f)
 
 
+def _default_model_index(study_name: str, available: list[str]) -> int:
+    """Return the index of the preferred default model within `available`.
+
+    Preference order, per meta.json:
+      1. The model with role="primary"
+      2. If no model has role="primary", the first entry in meta.json.models[]
+      3. If meta.json declares no models, or none of the preferred names
+         appear in `available`, return 0 (first in the displayed list)
+
+    Defensive: if multiple models declare role="primary" (data error),
+    picks the first alphabetically and emits a Python warning visible in
+    the Streamlit server log (not in the page body).
+    """
+    if not available:
+        return 0
+    try:
+        meta = load_contract_meta(study_name)
+    except Exception:
+        return 0
+
+    declared = meta.get("models") or []
+    if not declared:
+        return 0
+
+    primaries = [m.get("name") for m in declared
+                 if isinstance(m, dict) and m.get("role") == "primary"
+                 and m.get("name")]
+    if len(primaries) > 1:
+        import warnings
+        warnings.warn(
+            f"meta.json for study '{study_name}' declares multiple models "
+            f"with role='primary' ({primaries}); defaulting to first "
+            "alphabetically.", stacklevel=2,
+        )
+        primaries.sort()
+
+    if primaries:
+        preferred = primaries[0]
+    else:
+        first = declared[0]
+        preferred = first.get("name") if isinstance(first, dict) else None
+
+    if preferred and preferred in available:
+        return available.index(preferred)
+    return 0
+
+
 @st.cache_data(show_spinner=False)
 def load_contract_parquet(study_name: str, name: str) -> pd.DataFrame:
     p = _contract_dir(study_name) / name
@@ -4035,7 +4082,11 @@ def tab_contract_holdings(study_name: str) -> None:
         return
     holdings["date"] = pd.to_datetime(holdings["date"])
     models = sorted(holdings["model"].unique())
-    model = st.selectbox("Model", models, index=0, key="contract_hold_model")
+    model = st.selectbox(
+        "Model", models,
+        index=_default_model_index(study_name, models),
+        key="contract_hold_model",
+    )
     dates = sorted(holdings[holdings["model"] == model]["date"].unique(),
                    reverse=True)
     date_pick = st.selectbox(
@@ -4062,7 +4113,11 @@ def tab_contract_trades(study_name: str) -> None:
         if c in trades.columns:
             trades[c] = pd.to_datetime(trades[c])
     models = sorted(trades["model"].unique())
-    model = st.selectbox("Model", models, index=0, key="contract_trade_model")
+    model = st.selectbox(
+        "Model", models,
+        index=_default_model_index(study_name, models),
+        key="contract_trade_model",
+    )
     sub = trades[trades["model"] == model].copy()
     st.caption(f"{len(sub)} round-trip trades — {model}")
     st.dataframe(sub, use_container_width=True, hide_index=True)
@@ -4074,7 +4129,11 @@ def tab_contract_alpha(study_name: str) -> None:
         st.warning("No per_ticker_attribution.parquet found.")
         return
     models = sorted(df["model"].unique())
-    model = st.selectbox("Model", models, index=0, key="contract_alpha_model")
+    model = st.selectbox(
+        "Model", models,
+        index=_default_model_index(study_name, models),
+        key="contract_alpha_model",
+    )
     sub = df[df["model"] == model].nlargest(25, "pct_of_total_alpha").copy()
     fig = go.Figure(go.Bar(
         x=sub["pct_of_total_alpha"],
@@ -4295,7 +4354,8 @@ def tab_contract_tuning(study_name: str) -> None:
             st.warning("trial_log.parquet has no models.")
         else:
             model = st.selectbox(
-                "Model", models, index=0,
+                "Model", models,
+                index=_default_model_index(study_name, models),
                 key="contract_tune_model_selector",
             )
 
@@ -4477,7 +4537,8 @@ def tab_contract_tuning(study_name: str) -> None:
         st.caption(f"Method: `{method}`")
         models = sorted(fi["model"].unique())
         fi_model = st.selectbox(
-            "Model", models, index=0,
+            "Model", models,
+            index=_default_model_index(study_name, models),
             key="contract_tune_fi_model",
         )
         sub = fi[fi["model"] == fi_model].nlargest(20, "importance").copy()
