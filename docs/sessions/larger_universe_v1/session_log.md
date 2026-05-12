@@ -1149,6 +1149,45 @@ Streamlit AppTest harness:
 ### Branch + commit
 
 - **Branch**: `feat/dashboard-primary-model-default` (off `main`)
+- **Commit SHA**: `b8731947cff12d04731fea77f93e152b0f9629c9`
+- **Merge SHA**: `235c8a619e91bddb629a3340a9d13a9c1de0e614` (--no-ff merge to main, 2026-05-12T14:13:08-04:00)
+- **Branch state**: preserved (not deleted) per branch policy.
+- **Post-merge smoke**: AppTest confirmed all 5 selectors `value='xgboost'`, 0 exceptions.
+
+## 2026-05-12 — Sanity-check methodology memo drafted + APPROVED
+
+Branch: `feat/sanity-check-methodology-memo` off the just-merged `main`. TL;DR approved as-written by Mike; full memo committed without phrasing edits. Pre-merge, awaiting Mike's merge approval.
+
+### What was built
+
+`docs/architecture/sanity_check_methodology_v1.md` — second architectural memo derived from Larger Universe v1. Same 8-section shape as `ml_study_cv_objectives_v1.md`, which is now the established template for memos in this project.
+
+### On-demand pattern, in one paragraph
+
+The memo recommends Option A: run sanity-check models on-demand (triggered by strong claims) rather than as default parallel runs in every study. Three triggers — high excess return (suggested |excess CAGR| > 10pp), suspicious feature importance (e.g., macro-heavy top loadings), single-name concentration investigation. The discipline guardrail is **claim strength, not claim favorability** — a +15pp claim and a −8pp claim both warrant scrutiny, so the trigger threshold is applied symmetrically. The dashboard contract already supports multi-model studies and the Tuning tab defaults to `role: "primary"` after the prior fix, so on-demand sanity-check runs integrate cleanly without code changes. Options B (always-run) and C (never-run) are documented as defensible under different project constraints.
+
+### Implementation pattern preserved for future studies
+
+- `scripts/research/run_sanity_check.py --study X --model Y --trigger "<reason>"` — runs Optuna for the specified model against the locked feature set + CV folds, writes artifacts into the study's `contract_v1/`, appends the model to `meta.json.models[]`.
+- Additive v1 contract change (note in memo): meta.json's `models[]` entries gain an optional `triggered_by` field present only on on-demand sanity-check models. Documents WHY the sanity check was run, distinguishing routine-sanity-check from triggered-scrutiny.
+- No mandatory code change for v2 onward; the change is in the default phase 3 driver (one-model run instead of two-model).
+
+### Reference to template
+
+The memo inherits the architectural-memo convention from `docs/architecture/ml_study_cv_objectives_v1.md`. It doesn't re-establish filename, shape, or versioning rules — those are settled. It adds one observation: **paired memos** (two memos emerging from the same study) should cross-reference explicitly. The CV-objectives memo and this memo are entangled in v1 — the sanity-check value was load-bearing for the CV-objectives discovery, and the CV-objectives fix may reduce future sanity-check value at the v1-specific trigger.
+
+### Branch + commit
+
+- **Branch**: `feat/sanity-check-methodology-memo` (off `main`)
 - **Commit SHA**: (filled at commit time)
 - **Push**: yes; not auto-merged — awaiting Mike's review.
-- **Tracker**: NOT updated (dashboard fix, not study-level event).
+- **Tracker**: NOT updated — derived methodology artifact from a closed study; not a new study event.
+
+### Standing follow-ups (unchanged from prior entries)
+
+All tracked, none urgent.
+
+1. `use_container_width` deprecation sweep
+2. Dashboard pytest coverage via `streamlit.testing.v1.AppTest`
+3. `attempted_trials` enhancement to `tuning_summary.json`
+4. Convergence-pattern methodology memo (pending third Optuna data point)
