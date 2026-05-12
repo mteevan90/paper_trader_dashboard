@@ -1,16 +1,16 @@
 # Larger Universe v1 — Cross-validation design (Phase 2)
 
 **Branch:** `feat/larger-universe-v1-study`
-**Phase 2 status:** Training pipelines + CV scaffolding built; 10-trial smoke run completed for both models. Phase 3 tuning has NOT run yet.
+**Phase 2 status:** Training pipelines + CV scaffolding built; 10-trial smoke run completed for both models with cross-sectional IC. **Phase 3 currently paused** pending Mike's review of the corrected smoke — the smoke surfaced near-zero cross-sectional alpha on the price+macro-only feature subset, which is a "pause" trigger per the agreed framework.
 
 ## TL;DR
 
 - Label: forward 5-trading-day return per (date, ticker), matching the weekly rebalance cadence
-- Scoring metric: cross-sectional Spearman IC (information coefficient), mean across folds
+- Scoring metric: **cross-sectional Spearman IC** (per-date Spearman, mean across dates) with min_tickers=30. Reported with mean, std, positive-rate. Mean is the Optuna objective; std and positive-rate are diagnostic.
 - CV: 5-fold expanding-window TimeSeriesSplit over 2017-05-12 → 2023-05-11 with a 5-trading-day embargo
-- XGBoost: native NaN + native categorical (sector), Optuna over 9 hyperparameters
+- XGBoost: native NaN + native categorical (sector), Optuna over 9 hyperparameters (max_depth tightened to 3–8 per Phase-2-gate review)
 - ElasticNet: SimpleImputer(mean, add_indicator=True) + StandardScaler + ElasticNet, Optuna over alpha + l1_ratio
-- **Smoke result: both models produce positive cross-sectional IC** (XGB 0.085, ENet 0.071) on the SP500-active subset with 22 price+macro features. Not suspiciously high; signal is real but modest.
+- **Corrected smoke result: cross-sectional IC is near-zero** on the price+macro-only subset (well-covered XGB trials cluster at -0.01 to +0.01; ENet folds range -0.02 to +0.03). The original "0.085 panel IC" reported in the first cut of this doc was almost entirely market-timing signal — predictions are constant within each date (475 SP500 tickers all get the same value), so cross-sectional ranking adds zero information. Smoke deliberately excluded fundamentals + sector + log_market_cap (the ticker-level features designed to provide cross-sectional differentiation); whether Phase 3's full feature set rescues this remains an open question.
 
 ## Label
 
@@ -56,18 +56,31 @@ The training window grows fold-by-fold (expanding window) which is the canonical
 
 Implementation: `src/equities/study/cv.py:make_folds` operates on sorted unique dates (not row indices) and yields `Fold` dataclasses with date boundaries. The caller filters rows by date range.
 
-## Scoring metric — Spearman IC
+## Scoring metric — Cross-sectional Spearman IC (corrected 2026-05-11)
 
-The **Information Coefficient (IC)** is the cross-sectional Spearman rank correlation between predictions and realized forward returns, computed across all (date, ticker) rows in the validation block.
+The **Information Coefficient (IC)** is the **per-date** Spearman rank correlation between predictions and realized forward returns, averaged across dates in the validation block:
+
+```
+for each unique date D in val_fold with >= 30 tickers (after dropna):
+    rho_D = spearmanr(preds_on_D, realized_returns_on_D)
+    if rho_D is finite: per_date.append(rho_D)
+mean_ic       = mean(per_date)
+std_ic        = std(per_date)         # consistency check across dates
+positive_rate = (per_date > 0).mean() # "how often does the model win"
+```
+
+The Optuna objective is `mean_ic` aggregated across folds. `std_ic` and `positive_rate` are surfaced per fold for review but NOT part of the optimization target — keeping the search single-objective and clean.
+
+The first cut of this doc reported a **panel-wise** IC (single Spearman across all (date, ticker) rows pooled). That metric was wrong for this study: it conflated stock-ranking signal (what the portfolio uses) with market-timing signal (what it doesn't). Replaced 2026-05-11 after Phase 2 gate review.
 
 Why Spearman rank rather than MSE or Pearson:
-- The portfolio construction step (Phase 4) maps scores to weights via a ranking/softmax transformation. The model's ability to RANK stocks correctly matters more than its absolute return prediction accuracy.
+- The portfolio construction step (Phase 4) maps scores to weights via a ranking transformation. The model's ability to RANK stocks correctly matters more than its absolute return prediction accuracy.
 - Rank correlation is robust to outliers and heteroskedasticity (a ticker that triples in a week shouldn't dominate the loss signal).
 - IC is the de-facto industry standard for cross-sectional alpha research.
 
-Implementation: `_safe_spearman` in training.py masks non-finite values; returns NaN if fewer than 100 valid pairs (e.g., a constant-prediction fold).
+Why min_tickers=30: Spearman on N points has SE ≈ 1/√(N-1), so 30 tickers gives ~0.19 SE per date — enough to see a real signal but not so high that we lose marginal dates. SP500 has ~500 tickers and SP1500 ~1,900; both far above the threshold for normal dates. min_tickers also defends against the degenerate case where most tickers have NaN predictions on a given date (e.g., a thin-history fold).
 
-The Optuna objective is **mean IC across the 5 folds**. NaN folds are excluded from the mean. Pruning is disabled (5 folds is small enough that median-pruning is more disruptive than it's worth).
+Implementation: `cross_sectional_ic_stats` in `src/equities/study/training.py`. NaN folds (where no date qualified) are excluded from the mean-across-folds. Pruning is disabled (5 folds is small enough that median-pruning is more disruptive than it's worth).
 
 ## Model pipelines
 
@@ -79,7 +92,7 @@ The Optuna objective is **mean IC across the 5 folds**. NaN folds are excluded f
 
   | Param | Range | Note |
   |---|---|---|
-  | max_depth | 3–10 | tree depth |
+  | max_depth | 3–8 | tree depth (tightened from 3–10 at Phase 2 gate; deeper trees rarely useful on financial tabular data) |
   | learning_rate | 0.01–0.30 (log) | shrinkage |
   | n_estimators | 100–800 | number of trees |
   | subsample | 0.5–1.0 | row subsample per tree |
@@ -122,38 +135,74 @@ Implementation: `train_enet_single_fold` in `src/equities/study/training.py`.
 
 Both pipelines see **identical feature inputs** (same columns, same dates, same tickers) — the only difference is how each model consumes them. This is the spec's "trained on identical features and identical splits" requirement satisfied.
 
-## Smoke run results (10 trials each)
+## Smoke run results (10 trials each, CORRECTED 2026-05-11 with cross-sectional IC)
 
 **Subset for smoke:**
 - Universe: SP500 actives only (503 tickers)
-- Features: price-derived (12) + macro (10) = 22 features (no fundamentals, no sector)
+- Features: price-derived (12) + macro (10) = 22 features (NO fundamentals, NO sector, NO log_market_cap, NO index-membership flags — deliberately excluded to keep smoke fast)
 - 734,646 training rows after target-NaN filter
+- min_tickers=30 per date for cross-sectional IC scoring
 
-**XGBoost (10 trials, 5 folds each = 50 fits):**
-
-| Metric | Value |
-|---|---|
-| Best mean IC | **0.0854** |
-| Best params | max_depth=3, lr=0.20, n_est=437, subsample=0.85, colsample=0.86, min_child_weight=15, gamma=0.80, reg_alpha=4.48, reg_lambda=1.06 |
-| Wall-clock | ~5 min |
-
-Per-trial mean IC range: 0.044 to 0.085. All trials produced positive IC. Some trials had NaN on fold 0 (earliest validation, narrow training set, constant predictions on certain hyperparameter combos) but mean-across-valid-folds was always positive.
-
-**ElasticNet (10 trials, 5 folds each = 50 fits, 5 trial failures):**
+### XGBoost (10 trials × 5 folds)
 
 | Metric | Value |
 |---|---|
-| Best mean IC | **0.0711** |
-| Best params | alpha=0.00119, l1_ratio=0.433 |
-| Wall-clock | ~37 s |
-| Failed trials | 5 of 10 |
+| Best mean cross-sectional IC | **0.2177** (degenerate — see note below) |
+| Wall-clock | ~88 s |
 
-5 trials returned NaN (constant predictions) — these were the high-alpha trials where the L1/L2 penalty was strong enough to zero out all coefficients. **This is informative, not a bug:** Optuna's TPE sampler in Phase 3 will learn from these failures and avoid high-alpha regions, focusing tuning on the productive alpha range (< 0.01). The valid trials (5 of 10) all produced positive IC between 0.056 and 0.071.
+**Note: the "best" of 0.2177 is misleading and should NOT be interpreted as a real signal.** The "best trial" produced **constant predictions on 3 of 5 folds** (n_dates_scored=0), and the 2 surviving folds totaled 74 valid dates — one of which contributed mean_ic=0.415 over just 4 dates of validation. Optuna's mean-of-valid-folds objective lets such trials win against well-covered trials whose cross-sectional IC is honestly near-zero.
 
-**Smoke-level sanity check:**
-- Both models produce **positive cross-sectional IC** on out-of-sample folds → there is signal in the price + macro features alone
-- XGBoost's slight edge (0.085 vs 0.071) is consistent with its ability to capture non-linear interactions
-- Neither value is suspiciously high (we'd flag IC > 0.20 as a possible label-leakage red flag). The 0.05–0.10 range is typical for daily/weekly cross-sectional alpha in liquid US equities and gives the portfolio enough signal to make non-trivial allocation decisions
+**Per-fold structure of well-covered XGBoost trials** (where all or most folds produced n_dates ≥ 200):
+
+| Trial | F0 n,IC | F1 n,IC | F2 n,IC | F3 n,IC | F4 n,IC | Real mean IC (covered folds only) |
+|---|---|---|---|---|---|---|
+| 0 | 0, — | 0, — | 242, -0.018 | 210, +0.006 | 255, -0.011 | **-0.008** |
+| 2 | 0, — | 150, -0.019 | 251, -0.013 | 251, +0.005 | 255, +0.013 | **-0.004** |
+| 6 | 0, — | 0, — | 225, -0.022 | 154, +0.010 | 230, +0.010 | **-0.001** |
+| 8 | 0, — | 222, -0.000 | 251, -0.004 | 251, -0.030 | 255, +0.010 | **-0.006** |
+
+**XGBoost cross-sectional IC on the smoke subset is ESSENTIALLY ZERO.**
+
+Why folds 0 and 1 produce n_dates=0: the trained model outputs constant predictions WITHIN each date (every SP500 ticker on date D gets the same predicted value, but the value varies across dates). Verified by inspecting the prediction array directly — `nunique` per date is 1, but `nunique` across all dates is ~15. The model has learned to predict the day's average return from macro features (which vary by date) and is ignoring the price features that would differentiate tickers on a given day. Panel-wise Spearman picks up this date-level signal as if it were stock-ranking signal; cross-sectional Spearman correctly attributes it to date-level and reports zero stock-ranking content.
+
+This is the panel-vs-cross-sectional distinction working exactly as designed.
+
+### ElasticNet (10 trials × 5 folds, 1 trial failure)
+
+| Metric | Value |
+|---|---|
+| Best mean cross-sectional IC | **0.0131** |
+| Best params | alpha=0.000462, l1_ratio=0.688 |
+| Wall-clock | ~152 s |
+| Failed trials | 1 of 10 (constant-prediction at high alpha) |
+
+Per-fold breakdown of the best trial:
+
+| Fold | n_dates | mean_ic | std_ic | positive_rate |
+|---|---|---|---|---|
+| 0 | 251 | +0.0264 | 0.196 | 0.55 |
+| 1 | 251 | -0.0066 | 0.272 | 0.51 |
+| 2 | 251 | +0.0325 | 0.240 | 0.51 |
+| 3 | 251 | -0.0207 | 0.259 | 0.44 |
+| 4 | 255 | +0.0338 | 0.210 | 0.56 |
+
+ElasticNet covers every date in every fold (no constant-prediction collapse — the linear model with mild regularization spreads coefficient mass across price + macro features rather than zeroing out the price features as XGBoost effectively does). Per-fold mean ICs span -0.02 to +0.03 with positive-rates near 0.50 (essentially coin-flip per date). **ElasticNet cross-sectional IC on the smoke subset is also essentially zero, with high per-date std (≈ 0.20–0.27)** — the signal that exists is noisy enough that any single date is largely uninformative.
+
+### Interpretation
+
+The smoke result is in the **"pause" zone** per the agreed Phase 3 framework: cross-sectional IC near zero, not negative but not clearly positive either. The price-derived features alone (in the smoke universe) do not provide meaningful stock-ranking power at 5-day horizon for SP500 actives.
+
+What this DOES tell us:
+- The panel-wise IC of 0.085 was almost entirely market-timing signal — explicitly what cross-sectional IC was designed to filter out
+- The cross-sectional metric is working correctly; the IC of ~0 reflects the actual stock-ranking signal in this feature subset
+- ElasticNet covers more dates than XGBoost on early folds; the algorithm difference matters for whether constant predictions are produced
+
+What this does NOT tell us:
+- Whether the FULL feature set (38 features incl. fundamentals, sector, log_market_cap, index_membership) provides cross-sectional alpha. The smoke deliberately excluded those features.
+- Whether the 5-day horizon is too short for the features we have. Weekly cross-sectional alpha is genuinely difficult; many academic factor studies use monthly.
+- Whether the universe size affects signal (smoke is 503 tickers; full universe is 1,963)
+
+**Recommended Phase-2.5 step before authorizing Phase 3:** re-smoke with the full 38-feature set (still on SP500-actives subset to keep wall-clock short) and re-evaluate. If IC stays near zero, the spec's feature choices may not have alpha at 5-day horizon and we should redesign before burning 6-7 hours. If IC climbs to the 0.02-0.05 range, proceed to Phase 3.
 
 ## Open items for Phase 3
 

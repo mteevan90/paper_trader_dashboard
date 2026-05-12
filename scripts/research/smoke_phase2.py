@@ -94,6 +94,13 @@ def main() -> int:
                     f.fold_id, f.train_start.date(), f.train_end.date(),
                     f.val_start.date(), f.val_end.date())
 
+    def _fold_attrs(fold_results):
+        return [
+            {"fold_id": r.fold_id, "mean_ic": r.mean_ic, "std_ic": r.std_ic,
+             "positive_rate": r.positive_rate, "n_dates_scored": r.n_dates_scored}
+            for r in fold_results
+        ]
+
     # XGBoost smoke
     logger.info("=== XGBoost smoke (%d trials, %d folds) ===", N_TRIALS, N_FOLDS)
     t0 = time.time()
@@ -101,15 +108,19 @@ def main() -> int:
 
     def xgb_objective(trial: optuna.Trial) -> float:
         params = _make_xgb_params(trial)
-        mean_ic, fold_results = cv_score(train_xgb_single_fold, merged, folds, params)
-        trial.set_user_attr("fold_ics", [r.ic for r in fold_results])
-        return mean_ic
+        overall_mean_ic, fold_results = cv_score(train_xgb_single_fold, merged, folds, params)
+        trial.set_user_attr("folds", _fold_attrs(fold_results))
+        return overall_mean_ic
 
     xgb_study = optuna.create_study(direction="maximize", study_name="larger_universe_v1_phase2_xgb_smoke")
     xgb_study.optimize(xgb_objective, n_trials=N_TRIALS, show_progress_bar=False)
     logger.info("XGBoost smoke done in %.1fs", time.time() - t0)
-    logger.info("  best mean IC: %.4f", xgb_study.best_value)
+    logger.info("  best mean cross-sectional IC: %.4f", xgb_study.best_value)
     logger.info("  best params: %s", xgb_study.best_params)
+    best_xgb = xgb_study.best_trial
+    for f in best_xgb.user_attrs.get("folds", []):
+        logger.info("    fold %d  mean_ic=%.4f  std=%.4f  pos_rate=%.2f  n_dates=%d",
+                    f["fold_id"], f["mean_ic"], f["std_ic"], f["positive_rate"], f["n_dates_scored"])
 
     # ElasticNet smoke
     logger.info("=== ElasticNet smoke (%d trials, %d folds) ===", N_TRIALS, N_FOLDS)
@@ -120,15 +131,19 @@ def main() -> int:
             "alpha": trial.suggest_float("alpha", 1e-5, 1.0, log=True),
             "l1_ratio": trial.suggest_float("l1_ratio", 0.0, 1.0),
         }
-        mean_ic, fold_results = cv_score(train_enet_single_fold, merged, folds, params)
-        trial.set_user_attr("fold_ics", [r.ic for r in fold_results])
-        return mean_ic
+        overall_mean_ic, fold_results = cv_score(train_enet_single_fold, merged, folds, params)
+        trial.set_user_attr("folds", _fold_attrs(fold_results))
+        return overall_mean_ic
 
     enet_study = optuna.create_study(direction="maximize", study_name="larger_universe_v1_phase2_enet_smoke")
     enet_study.optimize(enet_objective, n_trials=N_TRIALS, show_progress_bar=False)
     logger.info("ElasticNet smoke done in %.1fs", time.time() - t0)
-    logger.info("  best mean IC: %.4f", enet_study.best_value)
+    logger.info("  best mean cross-sectional IC: %.4f", enet_study.best_value)
     logger.info("  best params: %s", enet_study.best_params)
+    best_enet = enet_study.best_trial
+    for f in best_enet.user_attrs.get("folds", []):
+        logger.info("    fold %d  mean_ic=%.4f  std=%.4f  pos_rate=%.2f  n_dates=%d",
+                    f["fold_id"], f["mean_ic"], f["std_ic"], f["positive_rate"], f["n_dates_scored"])
 
     # Persist smoke results
     summary = {
@@ -154,9 +169,10 @@ def main() -> int:
             "n_trials": len(xgb_study.trials),
             "best_value_mean_ic": xgb_study.best_value,
             "best_params": xgb_study.best_params,
+            "best_trial_folds": xgb_study.best_trial.user_attrs.get("folds"),
             "all_trials": [
                 {"number": t.number, "value": t.value, "params": t.params,
-                 "fold_ics": t.user_attrs.get("fold_ics")}
+                 "folds": t.user_attrs.get("folds")}
                 for t in xgb_study.trials
             ],
         },
@@ -164,9 +180,10 @@ def main() -> int:
             "n_trials": len(enet_study.trials),
             "best_value_mean_ic": enet_study.best_value,
             "best_params": enet_study.best_params,
+            "best_trial_folds": enet_study.best_trial.user_attrs.get("folds"),
             "all_trials": [
                 {"number": t.number, "value": t.value, "params": t.params,
-                 "fold_ics": t.user_attrs.get("fold_ics")}
+                 "folds": t.user_attrs.get("folds")}
                 for t in enet_study.trials
             ],
         },
