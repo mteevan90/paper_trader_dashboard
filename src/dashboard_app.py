@@ -3840,6 +3840,16 @@ def load_contract_concentration(study_name: str) -> dict | None:
 
 
 @st.cache_data(show_spinner=False)
+def load_contract_tuning_summary(study_name: str) -> dict | None:
+    """Per-model tuning summary (optional v1 artifact). None if absent."""
+    p = _contract_dir(study_name) / "tuning_summary.json"
+    if not p.exists():
+        return None
+    with open(p) as f:
+        return json.load(f)
+
+
+@st.cache_data(show_spinner=False)
 def load_contract_parquet(study_name: str, name: str) -> pd.DataFrame:
     p = _contract_dir(study_name) / name
     if not p.exists():
@@ -4164,16 +4174,300 @@ def tab_contract_walk_forward(study_name: str) -> None:
     st.dataframe(wf, use_container_width=True, hide_index=True)
 
 
-def tab_contract_tuning(study_name: str) -> None:
-    tl = load_contract_parquet(study_name, "trial_log.parquet")
-    if not tl.empty:
-        st.markdown("### Trial log")
-        st.caption(
-            f"{len(tl)} trials. CV objective is "
-            f"`{load_contract_meta(study_name).get('objective', {}).get('training_cv', '?')}`."
-        )
-        st.dataframe(tl.head(200), use_container_width=True, hide_index=True)
+def _render_param_sensitivity(
+    trial_log: pd.DataFrame, model_name: str,
+) -> None:
+    """Per-parameter scatter (param value vs trial score) with winner marked.
 
+    Detects log-scale params heuristically (max/min > 100 on positive values).
+    Overlays a binned-mean line so the eye picks up monotonic trends. Only
+    plots params that actually have non-null values for the selected model
+    (avoids empty subplots for the other model's params).
+    """
+    g = trial_log[
+        (trial_log["tuning_study"] == model_name)
+        & (trial_log["state"] == "COMPLETE")
+    ].copy()
+    if g.empty:
+        st.caption("No COMPLETE trials for this model — sensitivity skipped.")
+        return
+
+    param_cols = [c for c in g.columns if c.startswith("param_")
+                  and g[c].notna().any()]
+    if not param_cols:
+        st.caption("No populated params on this trial log; sensitivity skipped.")
+        return
+
+    winner_row = g.loc[g["value"].idxmax()]
+
+    n = len(param_cols)
+    ncols = 3 if n > 4 else min(n, 2)
+    nrows = (n + ncols - 1) // ncols
+
+    from plotly.subplots import make_subplots
+    fig = make_subplots(
+        rows=nrows, cols=ncols,
+        subplot_titles=[c.replace("param_", "") for c in param_cols],
+        vertical_spacing=0.12, horizontal_spacing=0.08,
+    )
+
+    for i, col in enumerate(param_cols):
+        r = (i // ncols) + 1
+        c = (i % ncols) + 1
+        x = g[col].astype(float)
+        y = g["value"].astype(float)
+
+        # Scatter
+        fig.add_trace(go.Scatter(
+            x=x, y=y, mode="markers",
+            marker=dict(size=5, color="#475569", opacity=0.55),
+            showlegend=False, hoverinfo="x+y",
+        ), row=r, col=c)
+
+        # Winner marker — distinct red diamond
+        w = float(winner_row[col]) if pd.notna(winner_row[col]) else None
+        if w is not None:
+            fig.add_trace(go.Scatter(
+                x=[w], y=[float(winner_row["value"])], mode="markers",
+                marker=dict(size=11, color="#dc2626", symbol="diamond",
+                            line=dict(color="#7f1d1d", width=1)),
+                showlegend=False, hoverinfo="x+y",
+                name="winner",
+            ), row=r, col=c)
+
+        # Binned-mean overlay (10 quantile bins; collapses gracefully when
+        # there are fewer distinct x values)
+        try:
+            bins = pd.qcut(x, q=min(10, x.nunique()),
+                           duplicates="drop")
+            bm = pd.DataFrame({"bin": bins, "x": x, "y": y}).groupby(
+                "bin", observed=True
+            ).agg(x_mid=("x", "median"), y_mean=("y", "mean"))
+            if len(bm) >= 2:
+                bm = bm.sort_values("x_mid")
+                fig.add_trace(go.Scatter(
+                    x=bm["x_mid"], y=bm["y_mean"], mode="lines",
+                    line=dict(color="#2563eb", width=1.8),
+                    showlegend=False, hoverinfo="skip",
+                ), row=r, col=c)
+        except (ValueError, TypeError):
+            pass  # not all params support qcut; skip overlay silently
+
+        # Log-axis heuristic — only when ALL values are strictly positive
+        # and span > 100x. Avoids silently dropping zero-valued trials on
+        # log axes for params like `gamma` that often include zero.
+        if (x > 0).all() and x.max() / x.min() > 100:
+            fig.update_xaxes(type="log", row=r, col=c)
+
+    fig.update_layout(
+        height=240 * nrows + 60,
+        title=f"{model_name} — per-parameter sensitivity "
+              f"(score vs param value; red diamond = winner)",
+        margin=dict(t=80, l=40, r=20, b=40),
+    )
+    fig.update_yaxes(title_text="score" if ncols == 1 else None)
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(
+        "Each panel shows trial score (y) against one hyperparameter (x). "
+        "Blue line is a binned-mean overlay. Red diamond marks the winning "
+        "trial's parameter value. Flat scatter = parameter has weak signal "
+        "in this search; strong gradient = optimizer found a productive "
+        "direction."
+    )
+
+
+def tab_contract_tuning(study_name: str) -> None:
+    """Tuning tab: narrative + histogram + convergence curve + sensitivity
+    + collapsed trial log + feature importance."""
+    tl = load_contract_parquet(study_name, "trial_log.parquet")
+    if tl.empty:
+        st.info("No trial_log.parquet found — this study did not perform tuning.")
+        # Still try to render feature importance below (separate artifact).
+    else:
+        meta = load_contract_meta(study_name)
+        st.caption(
+            f"CV objective: "
+            f"`{meta.get('objective', {}).get('training_cv', '?')}`."
+        )
+
+        models = sorted(tl["tuning_study"].dropna().unique())
+        if not models:
+            st.warning("trial_log.parquet has no models.")
+        else:
+            model = st.selectbox(
+                "Model", models, index=0,
+                key="contract_tune_model_selector",
+            )
+
+            conv = load_contract_parquet(
+                study_name, "tuning_convergence.parquet",
+            )
+            summary = load_contract_tuning_summary(study_name)
+            has_precomputed = (
+                not conv.empty
+                and summary is not None
+                and model in summary
+                and summary[model].get("total_trials", 0) > 0
+            )
+
+            if has_precomputed:
+                m_summary = summary[model]
+                m_conv = conv[conv["model"] == model].sort_values(
+                    "trial_number",
+                )
+
+                # === Section A — narrative summary ===
+                pct = m_summary.get("pct_trials_to_plateau", 0) or 0
+                win_z = m_summary.get("winner_zscore")
+                z_phrase = (
+                    f" Winner sits **{win_z:+.2f}σ** vs the trial-score mean."
+                    if win_z is not None else ""
+                )
+                st.info(
+                    f"The optimizer tested **{m_summary['total_trials']}** "
+                    f"configurations for **{model}**. The winner was "
+                    f"**Trial #{m_summary['winning_trial']}** with score "
+                    f"**{m_summary['winning_score']:.4f}**. 95% of the "
+                    f"winning score was reached after about **{pct:.0%}** "
+                    f"of the trials — the curve plateaus early, then "
+                    f"refinement happens at the margin. Optuna is "
+                    f"**search, not proof**: a different random seed or "
+                    f"longer search might find a better config or might "
+                    f"find that this peak doesn't generalize to other "
+                    f"validation windows." + z_phrase
+                )
+
+                # === Section B — score distribution histogram ===
+                complete_scores = tl.loc[
+                    (tl["tuning_study"] == model)
+                    & (tl["state"] == "COMPLETE"),
+                    "value",
+                ].dropna()
+                mean_s = float(m_summary["mean_score"])
+                std_s = float(m_summary["std_score"])
+                win_score = float(m_summary["winning_score"])
+
+                hist = go.Figure()
+                hist.add_trace(go.Histogram(
+                    x=complete_scores, nbinsx=min(40, max(10, len(complete_scores) // 5)),
+                    marker=dict(color="#475569",
+                                line=dict(color="#1f2937", width=0.5)),
+                    name="Trials", showlegend=False,
+                ))
+                if std_s > 0:
+                    hist.add_vrect(
+                        x0=mean_s - 2 * std_s, x1=mean_s + 2 * std_s,
+                        fillcolor="#94a3b8", opacity=0.10, line_width=0,
+                        layer="below", annotation_text="±2σ",
+                        annotation_position="top left",
+                        annotation=dict(font=dict(size=10, color="#475569")),
+                    )
+                    hist.add_vrect(
+                        x0=mean_s - std_s, x1=mean_s + std_s,
+                        fillcolor="#94a3b8", opacity=0.18, line_width=0,
+                        layer="below", annotation_text="±1σ",
+                        annotation_position="top left",
+                        annotation=dict(font=dict(size=10, color="#475569")),
+                    )
+                    hist.add_vline(x=mean_s, line_dash="dot",
+                                   line_color="#475569", line_width=1)
+                z_label = (
+                    f" ({win_z:+.2f}σ above mean)"
+                    if win_z is not None else ""
+                )
+                hist.add_vline(
+                    x=win_score, line_color="#dc2626", line_width=2.5,
+                    annotation_text=(
+                        f"Winner: Trial #{m_summary['winning_trial']} "
+                        f"(score {win_score:.4f}){z_label}"
+                    ),
+                    annotation_position="top right",
+                    annotation=dict(font=dict(size=11, color="#dc2626")),
+                )
+                hist.update_layout(
+                    title=(
+                        f"Trial score distribution — "
+                        f"{m_summary['total_trials']:,} configurations"
+                    ),
+                    xaxis_title="Trial score (CV objective value)",
+                    yaxis_title="Number of trials",
+                    height=380, margin=dict(l=10, r=10, t=50, b=10),
+                    bargap=0.05,
+                )
+                st.plotly_chart(hist, use_container_width=True)
+
+                # === Section C — running-best convergence curve ===
+                conv_fig = go.Figure()
+                conv_fig.add_trace(go.Scatter(
+                    x=m_conv["trial_number"], y=m_conv["score"],
+                    mode="markers", name="Trial score",
+                    marker=dict(size=5, color="#94a3b8", opacity=0.55),
+                ))
+                conv_fig.add_trace(go.Scatter(
+                    x=m_conv["trial_number"],
+                    y=m_conv["running_best_score"],
+                    mode="lines", name="Running best",
+                    line=dict(color="#2563eb", width=2.5),
+                ))
+                plateau_trial = m_summary.get("trials_to_95pct_winning")
+                if plateau_trial is not None:
+                    conv_fig.add_vline(
+                        x=int(plateau_trial),
+                        line=dict(color="#16a34a", dash="dash", width=1.5),
+                        annotation_text=(
+                            f"95% plateau (trial #{int(plateau_trial)}, "
+                            f"~{pct:.0%} of trials)"
+                        ),
+                        annotation_position="bottom right",
+                        annotation=dict(font=dict(size=10, color="#16a34a")),
+                    )
+                conv_fig.add_hline(
+                    y=win_score,
+                    line=dict(color="#dc2626", dash="dot", width=1),
+                    annotation_text=f"Winner: {win_score:.4f}",
+                    annotation_position="top left",
+                    annotation=dict(font=dict(size=10, color="#dc2626")),
+                )
+                conv_fig.update_layout(
+                    title="Running-best convergence",
+                    xaxis_title="Trial number (0-indexed)",
+                    yaxis_title="Score",
+                    height=400, margin=dict(l=10, r=10, t=50, b=10),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                xanchor="right", x=1),
+                )
+                st.plotly_chart(conv_fig, use_container_width=True)
+            else:
+                st.caption(
+                    "Pre-computed convergence data not found "
+                    "(`tuning_convergence.parquet` / `tuning_summary.json`). "
+                    "Run `scripts/maintenance/backfill_tuning_convergence.py "
+                    f"--study {study_name}` to enrich, or this study "
+                    "will get the narrative + histogram + convergence-curve "
+                    "sections once its Phase 3 produces them natively."
+                )
+
+            # === Section D — per-parameter sensitivity ===
+            st.markdown("### Parameter sensitivity")
+            _render_param_sensitivity(tl, model)
+
+            # === Section E — trial log (collapsed, secondary position) ===
+            model_tl = tl[tl["tuning_study"] == model]
+            with st.expander(
+                f"Trial log ({len(model_tl)} trials)", expanded=False,
+            ):
+                st.dataframe(
+                    model_tl.head(50),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                if len(model_tl) > 50:
+                    st.caption(
+                        f"Showing first 50 of {len(model_tl)} trials. "
+                        "Re-export the parquet for the full table."
+                    )
+
+    # === Feature importance (unchanged — separate analytical view) ===
     fi = load_contract_parquet(study_name, "feature_importance.parquet")
     if not fi.empty:
         st.markdown("### Feature importance")
@@ -4182,15 +4476,17 @@ def tab_contract_tuning(study_name: str) -> None:
         )
         st.caption(f"Method: `{method}`")
         models = sorted(fi["model"].unique())
-        model = st.selectbox("Model", models, index=0,
-                             key="contract_tune_model")
-        sub = fi[fi["model"] == model].nlargest(20, "importance").copy()
+        fi_model = st.selectbox(
+            "Model", models, index=0,
+            key="contract_tune_fi_model",
+        )
+        sub = fi[fi["model"] == fi_model].nlargest(20, "importance").copy()
         fig = go.Figure(go.Bar(
             x=sub["importance"], y=sub["feature"],
             orientation="h",
         ))
         fig.update_layout(
-            title=f"{model} — top 20 features by importance",
+            title=f"{fi_model} — top 20 features by importance",
             xaxis_title="Importance",
             height=540,
             yaxis=dict(autorange="reversed"),

@@ -1023,3 +1023,51 @@ Tracked for future-Mike to decide if/when to address. Not creating branches or w
 1. **`use_container_width` deprecation sweep.** Streamlit logs ~40 deprecation warnings per page render: `use_container_width` will be removed after 2025-12-31; replace with `width='stretch'` / `width='content'`. Affects both legacy and Phase 4.5 contract-conformant code in `src/dashboard_app.py`. Not blocking; mechanical sweep candidate when convenient.
 
 2. **Dashboard pytest coverage via `streamlit.testing.v1.AppTest`.** No existing pytest coverage for the dashboard module. The AppTest harness pattern used to smoke-test this fix (instantiate `AppTest.from_file`, toggle sidebar widgets via `.set_value(...).run()`, inspect `.exception` and `.main.tabs`) is the right shape for future tests. Worth considering as a focused follow-up effort; not blocking. Sample fixture: Larger Universe v1 contract artifacts already in-repo at `models/studies/larger_universe_v1/contract_v1/`.
+
+## 2026-05-12 — Contract Tuning-tab enhancements (additive v1)
+
+Branch: `feat/contract-tuning-enhancements` off `main`. Three coupled deliverables landed as separate commits on the branch; not merged. Surfaced for review.
+
+### What was built
+
+1. **Contract spec addition** (`docs/architecture/dashboard_contract_v1.md`, commit `1ae5567`). Added `tuning_convergence.parquet` and `tuning_summary.json` as OPTIONAL artifacts under the tuned-study category. Both are **additive v1 changes** — `schema_version` stays `"v1"`. Documented per-column / per-field schemas, the narrative phrasing the dashboard quotes verbatim, and the explicit backward-compat requirement (dashboards must render the trial_log-only view when these files are absent).
+2. **Back-fill script + retroactive artifacts for Larger Universe v1** (`scripts/maintenance/backfill_tuning_convergence.py`, commit `0be2a3b`). One-time retroactive build from `trial_log.parquet`. Produced 300 rows of convergence data (200 XGB + 100 ENet) and a per-model summary JSON. Future studies will produce these as part of their Phase 3 natively; the maintenance script exists only for studies that were tuned before the contract addition landed.
+3. **Dashboard Tuning-tab rewrite** (`src/dashboard_app.py`, commit `c0a0a72`). Five sections matching legacy parity plus the preserved Feature Importance view:
+    - **A. Narrative summary** — st.info box with plain-language sentence quoting total_trials, winning_trial, winning_score, pct_trials_to_plateau, winner_zscore. Uses the contract's standard phrasing.
+    - **B. Score distribution histogram** — same visual pattern as the legacy Tuning tab. ±1σ/±2σ shaded vrects, mean as dotted vline, winner as red vline with z-score annotation.
+    - **C. Running-best convergence curve** — scatter of trial scores beneath a line of running_best. Vertical dashed line at the 95%-plateau trial; horizontal dotted line at the winning score.
+    - **D. Per-parameter sensitivity** — `make_subplots` grid (3-col for XGB's 9 params, 2-col for ENet's 2 params), showing param-value vs trial-score scatter, winner as red diamond, binned-mean overlay. Log axis when ALL values are strictly positive AND span > 100x (the heuristic guards against silently truncating zero-valued trials on params that include zero like `gamma`).
+    - **E. Trial log** — moved to a collapsed expander, first 50 rows. Secondary position per Mike's spec.
+
+### Decisions
+
+- **Summary as a separate JSON file rather than a sidecar row in the parquet.** Cleaner separation of concerns; no NULL-padding or schema confusion when reading the parquet for the convergence chart. Documented in the contract spec.
+- **`total_trials` is COMPLETE-only.** The contract spec's `total_trials` counts COMPLETE trials, not all attempted. Defensible per "information-bearing trials" framing, but it does produce ENet's "14 configurations" narrative even though Optuna attempted 100. The 86 FAIL trials are visible in the trial-log expander; surfaced as a future-clarity item below.
+- **`pct_trials_to_plateau` denominator is COMPLETE-only, with COMPLETE-count-up-to-plateau-trial-number as the numerator.** Conceptually robust to studies where early trial numbers are FAIL (which would otherwise inflate the percentage). For Larger Universe v1 both formulas coincide because the early ENet trial numbers happen to be COMPLETE.
+- **Section D (parameter sensitivity) included rather than deferred.** Mike's framing was "if implementable cleanly within reasonable scope". The `make_subplots` grid with log-axis heuristic + binned-mean overlay fit in ~70 LOC and reads cleanly. Skipped: per-parameter Plotly `parameter_importances` plot (Optuna's), since it would require importing Optuna and re-constructing the Study from the trial log — adds a heavyweight dependency to the dashboard for a marginal view. The scatter + smoothed-mean overlay covers the same conceptual ground.
+- **Graceful fallback for studies without pre-computed convergence.** When `tuning_convergence.parquet` / `tuning_summary.json` are absent, sections A–C are skipped with an explanatory caption pointing to the back-fill script. Sections D (sensitivity from `trial_log.parquet`) and E (trial log) still render. No hard dependency on the new artifacts.
+
+### Smoke-test
+
+Streamlit AppTest harness, same pattern as the prior fix:
+- Toggled sidebar to "Contract-conformant (v1+)" → 0 exceptions
+- Switched Tuning model selector to xgboost → 0 exceptions
+- Switched to elasticnet → 0 exceptions
+- Verified narrative content for both:
+  - XGBoost: "tested 200 configurations, winner Trial #142 score 0.0282, plateau at 61% of trials"
+  - ElasticNet: "tested 14 configurations, winner Trial #93 score 0.0144, plateau at 21% of trials"
+- All 8 contract tabs render with the expected labels
+
+### Side observation (not actioned)
+
+- **ENet "14 vs 100" discrepancy.** ENet's Phase 3 attempted 100 Optuna trials but only 14 completed (86 hit constant-prediction regions at high alpha and returned FAIL). The narrative box quotes "tested 14 configurations" per the contract spec's COMPLETE-only convention. A more truthful narrative would surface the attempted-vs-complete split (e.g., "tested 14 configurations, 86 additional trials failed during search"). Not fixed here because it requires a contract-spec amendment to add `attempted_trials` to `tuning_summary.json`. Worth considering for a future enhancement.
+
+### Branch state
+
+- **Branch**: `feat/contract-tuning-enhancements` (off `main`)
+- **Commits**:
+  - `1ae5567` — contract spec addition
+  - `0be2a3b` — back-fill script + retroactive artifacts for Larger Universe v1
+  - `c0a0a72` — dashboard Tuning-tab rewrite
+- **Push**: pending — awaiting Mike's review before merge.
+- **Merge policy**: per Mike's session-opening instruction, do not merge; surface for review only. Tracker NOT updated (this is a dashboard enhancement, not a study completion event).
