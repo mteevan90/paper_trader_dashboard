@@ -583,3 +583,53 @@ The full Phase 3 results writeup is at `docs/diagnostics/larger_universe_v1_phas
 ### NOT proceeding to Phase 4
 
 Per spec: stop at gate, report, wait for Mike's review.
+
+## 2026-05-12 (morning) — Architectural decision: dashboard contract v1 proposal
+
+**Phase:** Pre-Phase-4 (architectural)
+**Branch:** `feat/larger-universe-v1-study`
+**Commits at this gate:**
+- (this session log entry + the proposal doc committed together as `docs(architecture): propose dashboard contract v1 for studies`)
+**Status:** Proposal written; awaiting Mike + partners' review before Phase 4 spec is finalized.
+
+### Decision (Mike, 2026-05-12)
+
+Investigated how the current Streamlit dashboard ingests study results. Finding: the dashboard is tightly coupled to the legacy SQLite-Optuna lineage and the `dashboard_results/<label>/` file convention. Even if Phase 3 output were dropped into the right paths, the legacy tabs' UI (composite-weight sliders, ATR controls, regime traffic-light) doesn't apply to a score-weighted XGBoost monthly-rebalance study.
+
+Mike chose **Option (b)**: design a generic results contract, build new universal dashboard tabs for contract-conformant studies, keep legacy studies on legacy tabs unchanged. Larger Universe v1 is the first study in the new system. Future studies use the new contract. No backfill of the three promoted studies (deferred indefinitely).
+
+### What was produced this turn
+
+A proposal-only deliverable at `docs/architecture/dashboard_contract_v1.md` (~400 lines) covering:
+
+1. **Current dashboard tab inventory** with universal-vs-family-specific classification of each of the 8 existing tabs
+2. **Recommended new tab structure** (8 tabs, same count, parallel naming for familiarity): Performance, Holdings, Trades, Risk & Behavior, Model Diagnostics (new), Market Context, Tuning History, Glossary. Optional 9th: Sensitivity / Walk-forward when `walk_forward.parquet` is present.
+3. **Data contract v1 specification** — files at `models/studies/<study_name>/contract_v1/`:
+   - meta.json (required) — study identity, family, models, windows, constraints, summary metrics
+   - portfolio.parquet (required) — NAV time series + benchmark NAVs
+   - holdings.parquet (required) — long-format date × model × ticker × weight
+   - trades.parquet (required) — execution log with fees
+   - scores.parquet (ML-required) — per-(date, model, ticker) predictions + ranks
+   - trial_log.parquet (tuning-required) — Optuna trials in tabular form (replaces SQLite for contract studies)
+   - feature_importance.parquet (ML-required)
+   - walk_forward.parquet (optional, Phase 5 produces)
+   - regime_attribution.parquet (optional)
+4. **Schema versioning strategy** — `meta.json.schema_version: "v1"`; additive changes don't bump; breaking changes bump to "v2" with parallel renderers in the dashboard
+5. **Sidebar UX** — split into "Legacy studies" and "Contract-conformant studies" sections; clicking either loads the appropriate tab set
+6. **Implementation phasing** — Phase 4 produces contract_v1/, Phase 4.5 implements the new dashboard tabs, Phase 5 adds walk_forward/regime_attribution to the same contract location, R2 sync gets a parallel walker
+7. **Six open questions** flagged for the review pass
+
+### What's NOT in this turn
+
+- No dashboard code modified
+- No Phase 4 work started
+- No tracker update (per Mike: next tracker update is Phase 4 completion or partners-need-to-know-now, whichever comes first)
+- The legacy three promoted studies are untouched (Mike said no backfill)
+
+### Next steps after the proposal is reviewed/approved
+
+1. Modify the Phase 4 spec to produce contract_v1/ artifacts for Larger Universe v1
+2. Confirm the modified Phase 4 spec
+3. Run Phase 4 (produces contract-conformant artifacts)
+4. Phase 4.5 — implement the new universal dashboard tabs
+5. Phase 5 — walk-forward + OOS; auto-appears on the new dashboard via the same contract location
