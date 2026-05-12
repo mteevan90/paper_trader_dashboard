@@ -945,3 +945,52 @@ Merge to main completed at 2026-05-12T12:52:02-04:00. Commit SHA: `d9e117b31c1e1
 - Branch `feat/larger-universe-v1-study` preserved for traceability (not deleted).
 - Disposition: **COMPLETE, not promoted** per spec. Methodology learnings retained.
 - Post-merge rule: any future revision to landed Phase 5 artifacts (writeup, memo, contract, dashboard) lands on a new feature branch — no amending the merged work.
+
+## 2026-05-12 — Post-merge dashboard bug + fix branch
+
+Post-merge testing surfaced a TypeError in `tab_contract_performance` (src/dashboard_app.py:4001). The fix lives on `feat/dashboard-add-vline-fix` (off `main`), awaiting Mike's review before merge — not auto-merged per branch policy.
+
+### Symptom
+
+Performance tab raised TypeError on the `fig.add_vline(x=oos_start, …)` call where `oos_start` was a raw ISO date string from `meta.json.windows.oos_start`. Because an unhandled exception inside any `with tabs[i]:` block halts the entire Streamlit script for that run, the user observed all subsequent tabs (Holdings, Trades, Alpha Attribution, Diagnostics, Walk-forward, Tuning) failing as well. Overview (tab[0]) rendered fully because Performance is tab[1] and the halt is downstream of it.
+
+### Root cause
+
+Plotly 6.7.0 + pandas 3.0.2: `add_vline` on a datetime axis **with `annotation_text`** raises TypeError for every date-like x type tested — str, `pd.Timestamp`, `datetime`, `np.datetime64` — because the annotation-positioning math adds an integer offset internally and that operation is no longer supported by Timestamp/datetime on pandas 3.0. Only **milliseconds-since-epoch as int** survives the path. Without `annotation_text` the call works for `Timestamp`/`datetime`; with annotation it does not.
+
+### Fix scope
+
+Audit covered every `add_vline` / `add_vrect` / `add_hline` / `add_hrect` call in the Phase 4.5 contract-conformant tab functions only (per the instruction "audit … in the new contract-conformant tab functions"). Exactly one site is affected:
+
+| File:line | Function | Type | Disposition |
+|---|---|---|---|
+| `src/dashboard_app.py:4001` | `tab_contract_performance` | datetime `add_vline` with annotation | **FIXED** — converted `oos_start` to ms-since-epoch via `pd.Timestamp(oos_start).value // 10**6` |
+| `src/dashboard_app.py:4072` | `tab_contract_alpha` | numeric `add_vline` (x=25 percent) | Out of scope — not on a date axis |
+
+All other plotly time-axis primitives in the file (`add_vline`, `add_vrect`, `add_hline`, `add_hrect`) live in pre-Phase-4.5 legacy code and are out of scope for this fix per Mike's "don't touch any other dashboard code" instruction.
+
+### Smoke-test
+
+Two independent passes:
+
+1. **Headless figure-construction test** — manually exercised the figure-build path of every contract tab against the Larger Universe v1 artifacts, force-serializing to JSON (Streamlit's actual render path). All 8 tabs constructed cleanly.
+
+2. **Streamlit AppTest harness** — instantiated `AppTest.from_file`, ran the page, toggled the sidebar "Study type" radio to "Contract-conformant (v1+)", re-ran. Result: **0 exceptions across both runs**, all 8 tab labels rendered (`Overview, Performance, Holdings, Trades, Alpha Attribution, Diagnostics, Walk-forward, Tuning`).
+
+Streamlit was also booted live on port 8543 and confirmed responding 200 OK at root.
+
+### Side observations (NOT fixed in this commit)
+
+Surfaced as future-work items per Mike's "surface as separate findings rather than fixing them in this commit":
+
+- **`use_container_width` deprecation** — Streamlit logs ~40 deprecation warnings per page render: "`use_container_width` will be removed after 2025-12-31. For `use_container_width=True`, use `width='stretch'`." Affects both legacy and new contract code in `dashboard_app.py`. Not blocking; sweep candidate.
+
+### No regression test added
+
+The dashboard module has no existing pytest coverage; adding a contract-tab smoke harness is itself a scope-larger ask than this targeted fix. Documented gap. The Streamlit AppTest harness used here is the pattern future tests should use.
+
+### Branch + commit
+
+- **Branch**: `feat/dashboard-add-vline-fix` (off `main`)
+- **Commit SHA**: (filled at commit time)
+- **Push**: yes; not auto-merged — awaiting Mike's review.

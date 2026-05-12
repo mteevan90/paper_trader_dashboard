@@ -3998,8 +3998,16 @@ def tab_contract_performance(study_name: str) -> None:
     meta = load_contract_meta(study_name)
     oos_start = meta.get("windows", {}).get("oos_start")
     if oos_start:
-        fig.add_vline(x=oos_start, line=dict(color="red", dash="dot", width=1),
-                      annotation_text="OOS start", annotation_position="top right")
+        # Plotly 6.7 + pandas 3.0: add_vline with annotation_text on a
+        # datetime axis raises TypeError for str / Timestamp / datetime
+        # x-values because the annotation-positioning math adds an int
+        # offset. ms-since-epoch is the only x type that survives that
+        # path. https://github.com/plotly/plotly.py/issues/3065 style.
+        oos_ms = int(pd.Timestamp(oos_start).value // 10**6)
+        fig.add_vline(x=oos_ms,
+                      line=dict(color="red", dash="dot", width=1),
+                      annotation_text="OOS start",
+                      annotation_position="top right")
 
     fig.update_layout(
         title="Strategy NAV vs Benchmarks",
