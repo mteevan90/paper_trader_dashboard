@@ -787,3 +787,90 @@ ENet's 81% repeat-rate on DBD (Diebold Nixdorf) is notable — single-name depen
 2. **ENet > XGBoost finding**: Phase 5 deeper investigation (decile-return analysis) to confirm the "macro-timing vs stock-ranking" explanation, OR accept the finding and move on?
 3. **Promotion candidacy**: both models show positive excess CAGR but neither meets the drawdown constraint. Plausible that NEITHER passes the promotion gate even after Phase 5. Worth your call on whether the study still warrants the Phase 4.5 dashboard investment to surface what was learned, OR shelve it.
 4. **Repeat-holding patterns**: ENet's 81%-of-rebalances DBD weight (3.33% individual but persistent) warrants the 25%-of-alpha check in Phase 5. Worth flagging now in case you want to pivot the spec.
+
+## 2026-05-12 (late afternoon) — Phase 5 analytical work complete
+
+**Phase:** Phase 5 (validation + analytics, pre-writeup gate)
+**Branch:** `feat/larger-universe-v1-study`
+**Wall-clock:** ~16 min walk-forward + ~30 sec analytics
+**Status:** Analytical work complete. **Stop at gate before writeup** for Mike's review of validation findings.
+
+### Walk-forward summary (6 rolling 3y train → 1y val windows, locked Phase 3 hyperparameters)
+
+| Window | Val period | XGB excess CAGR | XGB MaxDD | XGB IC | ENet excess CAGR | ENet MaxDD | ENet IC |
+|---|---|---|---|---|---|---|---|
+| W1 | 2020-05→2021-05 | +7.1pp | −45.2% | +0.007 | +17.1pp | −46.3% | +0.030 |
+| W2 | 2021-05→2022-05 | +13.2pp | −37.1% | −0.020 | +7.0pp | −56.0% | −0.044 |
+| W3 | 2022-05→2023-05 | **−3.5pp** | −32.7% | +0.045 | **−7.8pp** | −43.6% | +0.030 |
+| W4 | 2023-05→2024-05 | +23.9pp | −34.3% | +0.037 | +8.7pp | −30.5% | +0.027 |
+| W5 | 2024-05→2025-05 | −2.2pp | −32.7% | +0.002 | +43.0pp | −36.6% | +0.007 |
+| W6 | 2025-05→2026-05 | +59.3pp | −11.7% | −0.008 | +33.7pp | −10.5% | +0.026 |
+
+Both models produce positive excess CAGR in 4/6 (XGB) or 5/6 (ENet) windows. Strategy holds up year-over-year directionally. **Every window has MaxDD ≥ −30% for both models** (except W6); Phase 4's drawdown failure is structural for this strategy class, not a fluke.
+
+### Per-ticker alpha attribution — the smoking gun
+
+**ElasticNet:** DBD contributes **+87.9% of total alpha**. Top 5: 92.1%. Top 10: 94.6%. The 21pp excess CAGR is essentially DBD's run.
+
+**XGBoost:** MXL +33.9%, CLSK +22.1%, LUMN +19.4%, SEZL +19.3%, SNDK +18.8%. More spread but still concentration. Top 5 sums to 113.5% (heavy detractors offset).
+
+**Both fail the 25%-of-alpha success criterion.** ENet fails by 3.5×; XGB by 1.4×.
+
+### Decile-return analysis — confirms "macro-timing vs stock-ranking"
+
+**XGBoost:** D1=+0.357 (outlier-driven, std 2.02), D2-D10 essentially flat (0.008-0.014). **No monotonic relationship between score and forward return.** Model has no ranking power above the bottom decile.
+
+**ElasticNet:** D1=0.008, D2-D9 flat, D10=0.086 (DBD-driven, std 0.347). Cleaner top-of-distribution separation but the magnitude is single-name-driven.
+
+### IC decomposition
+
+| Model | full-IC | top-quintile-IC | Delta |
+|---|---|---|---|
+| XGBoost | **−0.009** | **+0.048** | **+0.057** |
+| ElasticNet | +0.040 | +0.052 | +0.012 |
+
+XGBoost has **negative full-cross-section IC but positive top-quintile IC** — actively wrong on the whole cross-section but correct in the top 20%. Phase 3's +0.028 in-fold IC was in-sample optimism; the held-out Phase 4 test+OOS shows full-IC is essentially noise.
+
+**Methodology insight:** for top-N portfolio strategies, full-cross-section Spearman IC is the wrong optimization target. Future studies should optimize for top-quintile IC or decile spread.
+
+### 12-month rolling win rate vs SPY
+
+| Model | win rate | mean excess | best | worst |
+|---|---|---|---|---|
+| XGBoost | **62.8%** | +5.3pp | +47.1pp | −15.4pp |
+| ElasticNet | **86.7%** | +28.7pp | +175.1pp | −12.1pp |
+
+Both pass the 60% soft criterion. ENet's 86.7% is exceptional but heavily DBD-driven.
+
+### Success criteria — final tally
+
+| Criterion | XGBoost | ElasticNet |
+|---|---|---|
+| Excess CAGR vs SPY > 0 | ✅ +3.5pp test | ✅ +21.2pp test (88% from DBD) |
+| Max DD ≤ 1.5× SPY (−28.5%) | ❌ −33.5% | ❌ −37.5% |
+| No single ticker > 25% of alpha | ❌ MXL +33.9% | ❌ DBD +87.9% |
+| 12-month rolling win rate ≥ 60% (soft) | ✅ 62.8% | ✅ 86.7% |
+
+**Neither model passes all hard success criteria.** Per the spec, this is "not promoted." The methodology framing is "honest mixed results retained for methodology learnings".
+
+### Files produced at this gate
+
+| Path | Content |
+|---|---|
+| `contract_v1/walk_forward.parquet` | 12 rows (6 windows × 2 models) |
+| `contract_v1/per_ticker_attribution.parquet` | 639 rows; pct-of-total-alpha per ticker per model |
+| `contract_v1/decile_returns.parquet` | 20 rows |
+| `contract_v1/ic_decomposition.parquet` | 2 rows |
+| `contract_v1/rolling_win_rate.parquet` | 2 rows |
+| `contract_v1/concentration_summary.json` | per-model concentration stats |
+| `scripts/research/phase5_walk_forward.py` | Walk-forward runner |
+| `scripts/research/phase5_analytics.py` | Attribution + decile + IC + win-rate + concentration runner |
+
+### NOT done (gate)
+
+- `docs/studies/larger_universe_v1/results.md` — full writeup
+- Phase 4.5 dashboard work
+- Tracker update
+- Promotion decision
+
+Awaiting Mike's review of the validation findings before drafting the writeup narrative.
