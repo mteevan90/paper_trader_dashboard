@@ -30,7 +30,7 @@ The spec asked for ~29 features after dropping tenure-in-index; the final count 
 | Drawdown | 1 | `dd_252d` (close / rolling 252d max − 1) |
 | Fundamentals (PIT) | 7 | `pe` (peTTM), `pb`, `ps` (psTTM), `debt_to_equity` (totalDebtToEquity), `roe` (roeTTM), `roa` (roaTTM), `profit_margin` (netMargin) |
 | Fundamentals (derived TTM) | 2 | `revenue_growth`, `eps_growth` (computed as TTM-vs-TTM-year-ago from quarterly series) |
-| Fundamentals (static, point-in-2026) | 2 | `dividend_yield`, `beta` — see disclaimer below |
+| Fundamentals (PIT, computed) | 2 | `dividend_yield` (trailing 12-month dividends / close from /stock/dividend2), `beta` (rolling 36-month OLS slope of ticker daily returns vs SPY daily returns) |
 | Macro | 9 | `yc_slope`, `vix`, `nfci`, `sahm`, `yc_3m`, `baa_spread`, `usd_index`, `unrate`, `wti_oil` (`hy_spread` DROPPED at Phase-1 gate — FRED `BAMLH0A0HYM2` only serves 2023+ data) |
 | Macro derived | 1 | `vix_5d_chg` (5-day diff of VIX) |
 | Categorical | 1 | `sector` (Finnhub `finnhubIndustry` taxonomy; will be one-hot-encoded in Phase 2) |
@@ -68,8 +68,8 @@ The spec asked for ~29 features after dropping tenure-in-index; the final count 
 | roe | 4,005,067 | 92.1% |
 | roa | 4,174,659 | 95.9% |
 | profit_margin | 3,934,067 | 90.4% |
-| **dividend_yield** | **2,936,648** | **67.5%** (mostly non-dividend-paying companies) |
-| beta | 4,252,860 | 97.7% |
+| **dividend_yield (PIT)** | **4,350,932** | **100.0%** (zero for non-dividend-payers; trailing 12-mo dividends / close from /stock/dividend2) |
+| **beta (PIT)** | **2,882,409** | **66.2% overall; 63.0% in train window 2017-05-12→2023-05-11; 96.7% in test 2023-05-12→2025-12-31; 97.8% in OOS 2026+** |
 | sector | 4,350,932 | 100.0% (incl. `sector_unknown`) |
 | log_market_cap | 4,252,965 | 97.7% |
 | in_sp500, in_sp400, in_sp600 | 4,350,932 | 100.0% |
@@ -107,14 +107,20 @@ Used the Finnhub `/stock/metric` raw cache files' `series.quarterly` sub-dict to
 
 **Coverage trade-off:** the static `fundamentals.json` in the snapshot covered 1,919 / 2,122 = 90.4% of tickers. The PIT version covers **1,972 / 2,122 = 92.9%** of tickers — better, because the series field is more comprehensive than the snapshot's metric block. Per-(date, ticker) coverage of any one fundamental field hovers around 77–96% depending on the metric, with the loss attributable to (a) tickers with no quarterly history at all (123 of 2,119 metric JSONs are empty — mostly delisted entities), (b) tickers whose first reportable quarter is after the feature row's date (early-IPO history), and (c) Finnhub data gaps for specific metrics on specific companies.
 
-### Static fundamentals — dividend_yield and beta
+### dividend_yield and beta — point-in-time computations (REPLACED, no static fallback)
 
-`dividend_yield` (Finnhub `currentDividendYieldTTM`) and `beta` are NOT in the quarterly series field. They appear only in the top-level `metric` snapshot — a current-as-of-2026-05-11 reading. We use these AS STATIC FEATURES per-ticker (constant across all dates).
+**dividend_yield.** Trailing 12-month dividend yield computed at each feature date as:
+```
+dividend_yield(D, T) = sum(amount for ex_date in (D-365, D]) / close(D, T)
+```
+Source: `/stock/dividend2` fetched for all 2,122 tickers (1,391 returned at least one dividend event; 731 are non-dividend-payers). Aggregate in `models/features/larger_universe_v1/dividend_history.parquet` (111,143 dividend events). For tickers absent from the history, yield = 0 (not NaN — semantically "no dividend in last 12 months"). **Coverage: 100% of feature rows.**
 
-**This introduces a mild look-ahead.** A company's beta and dividend yield can change over a 10-year window. For mature large-caps the values are reasonably stable but they're not literally point-in-time. **Mitigation:** documented in Phase 5 disclaimer; alternative would be to drop both features for v1. I've kept them because XGBoost should weight them low if they're unhelpful and dropping forces us to lose two of the spec's 11 fundamental features.
+**beta.** Trailing 36-month (756 trading day) rolling cov(ret_T, ret_SPY) / var(ret_SPY), computed at every feature date. Algebraically identical to OLS slope, ~100× faster than running a regression per date. Source for SPY: `models/cache/equities/finnhub/prices/SPY.parquet` fetched specifically for this purpose, 2014-05-12 → 2026-05-11. **Coverage: 66.2% overall, with the structure:**
+- Training (2017-05-12 → 2023-05-11): 63.0% non-null. The snapshot's per-ticker price history starts 2016-05-12 at the earliest, so the rolling 756-day window cannot fill until ~2019-05-12. **The first ~2 years of training (2017-05-12 to 2019-05-11) have NaN beta**, which XGBoost handles natively per Mike's directive.
+- Test (2023-05-12 → 2025-12-31): 96.7% non-null
+- OOS (2026-01-01+): 97.8% non-null
 
-Phase 2 / Phase 5 disclaimer text candidate:
-> "dividend_yield and beta are sourced from a single 2026-05-11 snapshot per ticker and held constant across all training dates. Mature companies' values vary slowly over a 10-year window; emergent growth stocks (e.g., recent IPOs) may have stale-looking values in early training rows. The look-ahead bias from this is bounded and small for most cases but is acknowledged as a known approximation."
+**Trade-off:** the 36-month window with the 2016-onward snapshot data means beta is effectively a 2019-onward feature for the training set. Alternatives considered and rejected: (a) using a shorter window (12-month) — noisier estimate, less standard; (b) re-fetching all tickers' prices back to 2014-05-12 — additional ~30 min Finnhub fetch but the snapshot scope is fixed at 10 years per the v1 design. Per Mike's directive ("If a ticker has insufficient history for the 36-month beta computation, leave NaN and let XGBoost handle it"), the NaN-tolerant approach is what we shipped.
 
 ### Macro signals — extended FRED fetch, 10 columns
 
