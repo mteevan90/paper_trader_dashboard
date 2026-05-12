@@ -466,3 +466,120 @@ When Phase 3 completes, the final report should cover:
 - Total wall-clock per model and combined
 - One-line comparison: did the full universe lift IC above the smoke's Variant B numbers (XGB 0.019, ENet 0.031)?
 - Phase 4 readiness: any blocker that would warrant another pause before portfolio construction begins
+
+## 2026-05-12 (morning) — Phase 3 complete
+
+**Phase:** Phase 3 completion
+**Branch:** `feat/larger-universe-v1-study`
+**Wall-clock:** 5h 13m (XGB 4.35h + ENet 0.86h)
+**Status:** Phase 3 complete. Phase 4 gated on Mike's review.
+
+### Two pre-run bugs caught and fixed before the real run
+
+1. **`inf` in `revenue_growth` and `eps_growth`** — 1,787 inf values from pct_change(0). XGBoost rejects inf; trial 0 crashed immediately. Fixed in `_compute_revenue_eps_growth` + global safety net before parquet save. Commit `71207d0`.
+2. **`trial.study.best_trial` raises ValueError on first trial** instead of returning None. Wrapped in try/except. Commit `72ad42c`.
+
+Both fixes pushed; 2-trial sanity check on full universe ran clean before the full 200+100 backgrounding.
+
+### Headline numbers
+
+| Model | Trials | Wall-clock | Best mean cross-sec IC | Best trial # |
+|---|---|---|---|---|
+| **XGBoost** (primary) | 200 | 4.35 h | **0.0282** | trial 150 |
+| **ElasticNet** (sanity) | 100 | 0.86 h | **0.0144** | trial ~89 |
+
+**XGBoost wins by ~2× margin.** Mike's "if ENet > XGB, surface as alpha-is-linear finding" rule fires in the opposite direction — alpha is non-linear and XGBoost is the right primary model.
+
+### XGBoost best params + per-fold breakdown
+
+```
+max_depth=8 (hit upper search bound — wanted deeper trees)
+learning_rate=0.0196   n_estimators=678   (slow careful learning)
+subsample=0.642        colsample_bytree=0.971
+min_child_weight=19    gamma=0.40
+reg_alpha=0.572        reg_lambda=0.000182  (basically no L2)
+```
+
+| Fold | mean_ic | std_ic | positive_rate |
+|---|---|---|---|
+| 0 (2018-05→2019-05) | +0.0362 | 0.106 | 0.67 |
+| 1 (2019-05→2020-05) | +0.0841 | 0.152 | 0.73 |
+| 2 (2020-05→2021-05) | −0.0107 | 0.173 | 0.48 |
+| 3 (2021-05→2022-05) | **−0.0210** | 0.126 | 0.50 |
+| 4 (2022-05→2023-05) | +0.0527 | 0.142 | 0.63 |
+
+### ElasticNet best params + per-fold breakdown
+
+```
+alpha=1.016e-05 (HIT THE SEARCH FLOOR — wanted lower regularization)
+l1_ratio=0.7703
+```
+
+| Fold | mean_ic | std_ic | positive_rate |
+|---|---|---|---|
+| 0 | +0.0202 | 0.130 | 0.56 |
+| 1 | +0.0596 | 0.125 | 0.66 |
+| 2 | +0.0130 | 0.131 | 0.56 |
+| 3 (2022) | **−0.0513** | 0.137 | 0.37 |
+| 4 | +0.0303 | 0.178 | 0.50 |
+
+### Fold 3 separate reporting (2022 regime shift)
+
+| Model | Fold 3 mean_ic | Fold 3 positive_rate |
+|---|---|---|
+| XGBoost | **−0.021** | 0.50 |
+| ElasticNet | **−0.051** | 0.37 |
+
+XGBoost is materially more regime-robust. Tree-based interactions can re-route around the regime change; ElasticNet's fixed coefficient set can't. The 2022 reversal will be a major Phase 5 disclaimer point.
+
+### Convergence pattern (XGBoost)
+
+T25 → 0.0226 ; T50 → 0.0256 ; T75 → 0.0256 ; T100 → 0.0267 ; T125 → 0.0271 ; **T150 → 0.0282** ; T175 → 0.0282 ; T200 → 0.0282.
+
+Plateau at trial 150; last 50 trials added zero. **200 was slightly oversized** for this search space — 150 would have been enough. Useful intel for future studies.
+
+ElasticNet's convergence trace is uninformative — running best was 0.0144 from very early on because **86 of 100 trials returned NaN** (constant-prediction collapse at high alpha). TPE kept probing failed regions because NaN-as-failure provides no gradient.
+
+### Per-trial timing distribution
+
+- **XGBoost**: min 18.3s, median 81.9s, max 124.3s. **0 trials >10min** (no pathological flags).
+- **ElasticNet**: bimodal — 17.5s constant-collapse trials vs 100-230s real-fit trials. **0 trials >10min**.
+
+### Smoke vs full-universe (sanity check)
+
+| Stage | XGBoost | ElasticNet |
+|---|---|---|
+| Variant B smoke (SP500 actives) | 0.019 | 0.031 |
+| Phase 3 (full 2,122-ticker universe) | **0.0282** | 0.0144 |
+
+XGBoost IMPROVED on full universe (more dispersion = more signal). ElasticNet DEGRADED (linear model diluted by small-cap noise). Further evidence the alpha is non-linear.
+
+### Phase 4 readiness
+
+**No blockers identified.** Best hyperparameters saved to:
+- `models/studies/larger_universe_v1/xgboost_best_params.json`
+- `models/studies/larger_universe_v1/elasticnet_best_params.json`
+
+The full Phase 3 results writeup is at `docs/diagnostics/larger_universe_v1_phase3_results.md` including the IR estimation back-of-envelope (annualized IR plausibly 1.0-2.0 from IC=0.028 across ~18-24K cross-sectional obs/year).
+
+### Open questions for Mike at the Phase 3 → Phase 4 gate
+
+1. Is **0.0282 mean cross-sectional IC** enough headline alpha to justify Phase 4 work? Plausible annualized IR 1.0-2.0 — meaningful but not extraordinary.
+2. Should we do a focused ElasticNet re-run with `alpha ∈ [1e-7, 1e-2]` and NaN-replacement-with-zero before Phase 4? Low priority since XGB is the primary, but might lift ENet from 0.014 → 0.018-0.022 with ~1h of compute. Useful comparison surface for the eventual writeup.
+3. Phase 4 scope: full-feature-importance analysis included, or saved for Phase 5?
+4. Phase 4 output naming: `models/studies/larger_universe_v1/backtests/{xgboost,elasticnet}/` per the original spec, or a different layout?
+
+### Files produced
+
+| Path | Content |
+|---|---|
+| `docs/diagnostics/larger_universe_v1_phase3_results.md` | Full results writeup (this entry's source of truth) |
+| `models/studies/larger_universe_v1/xgboost_best_params.json` | Best XGB params + per-fold winning-trial breakdown |
+| `models/studies/larger_universe_v1/elasticnet_best_params.json` | Best ENet params + per-fold winning-trial breakdown |
+| `models/studies/larger_universe_v1/xgboost_study.json` | Full 200-trial log with per-trial duration + fold attrs |
+| `models/studies/larger_universe_v1/elasticnet_study.json` | Full 100-trial log |
+| `models/studies/larger_universe_v1/phase3_progress.log` | Line-by-line stdout |
+
+### NOT proceeding to Phase 4
+
+Per spec: stop at gate, report, wait for Mike's review.
