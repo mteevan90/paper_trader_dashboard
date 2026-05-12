@@ -684,3 +684,106 @@ Spec includes:
 ### What's pending Mike's review
 
 The modified Phase 4 spec at `docs/studies/larger_universe_v1/phase4_spec.md`. Five specific items flagged in the spec's "Open items for review" section need confirmation before code runs.
+
+## 2026-05-12 (afternoon) — Phase 4 complete
+
+**Phase:** Phase 4 (portfolio construction + backtest)
+**Branch:** `feat/larger-universe-v1-study`
+**Wall-clock:** ~3 minutes (vs the 35-50 min estimate — final-training/backtest is much cheaper than 200-trial tuning)
+**Status:** Phase 4 done. Phase 5 gated on Mike's review. Phase 4.5 (dashboard work) gated separately on Mike's go-ahead.
+
+### Five Phase-4-gate decisions applied (Mike's directives)
+
+1. **Score-to-weights: rank_top_n=30, individual cap 7.5%, sector cap 30%.** Locked into `meta.json.portfolio_construction`. No softmax. Reasoning: at IC ~0.028, score-magnitude differences within the top decile carry more noise than signal; rank-based is more robust ex-ante.
+2. **EW-SP1500 active-on-date**: `status=="active"` OR (`status=="removed"` AND `removed_at > D`). Includes historically-active-but-since-delisted in their active periods. Confirmed.
+3. **SHAP feature importance with gain fallback**: ran cleanly in 9.8s on 10K sample via `xgboost.Booster.predict(pred_contribs=True)`. `meta.json.feature_importance_method = "shap_tree"`.
+4. **Forced-exit accounting**: ticker delists mid-month → close at delisting-day close, weight → cash until next rebalance. 58 forced exits for XGB, 41 for ENet in trades.parquet (rows with `reason="delisting_truncation"`).
+5. **OOS slice handling**: Phase 4 produces NAV through snapshot end. Phase 5 evaluates OOS separately. Explicit date ranges in `meta.json.windows`.
+
+### Headline results
+
+**Test period (2023-05-12 → 2025-12-31, 650 trading days):**
+
+| Model | Total return | CAGR | Excess vs SPY | Max DD | SPY Max DD |
+|---|---|---|---|---|---|
+| **XGBoost** (primary) | **+78.3%** | **+25.14%** | **+3.52pp** | **−33.5%** | −19.0% |
+| **ElasticNet** (sanity) | **+150.9%** | **+42.85%** | **+21.23pp** | **−37.5%** | −19.0% |
+
+**OOS slice (2026-01-01 → 2026-05-11, 89 trading days):**
+
+| Model | Total return | CAGR (annualized) | Excess vs SPY | Max DD | SPY Max DD |
+|---|---|---|---|---|---|
+| XGBoost | +16.1% | +52.6% | +27.6pp | −12.2% | −9.1% |
+| ElasticNet | +59.7% | +276.7% | +251.6pp | −9.8% | −9.1% |
+
+OOS CAGRs are statistically thin (only ~4 months) — the annualization extrapolation makes them eye-popping but the absolute returns and drawdowns are the meaningful numbers there.
+
+### Success criteria check (preliminary — full evaluation in Phase 5)
+
+| Criterion | XGBoost (test) | ElasticNet (test) |
+|---|---|---|
+| Excess CAGR vs SPY > 0 | ✅ +3.52pp | ✅ +21.23pp |
+| Max DD ≤ 1.5× SPY's DD (= −28.5%) | **❌ −33.5%** | **❌ −37.5%** |
+| No single ticker > 25% of total alpha | TBD Phase 5 (requires attribution analysis) | TBD Phase 5 |
+| Soft: 12-month rolling win rate ≥ 60% | TBD Phase 5 | TBD Phase 5 |
+
+**Both models fail the drawdown constraint in the test window.** The 2022-style market regime risk identified in Phase 3's fold-3 analysis materialized in real backtest drawdowns. Mike's review will weigh: is the excess CAGR signal real enough to redesign for tighter risk control in v2, or is this a "study didn't pass success criteria — pause and rethink" moment?
+
+### Critical finding to surface: ElasticNet > XGBoost despite lower CV IC
+
+Mike's standing rule: "If ElasticNet at 100 trials produces a meaningfully better mean cross-sectional IC than XGBoost at 200 trials, treat that as a finding to surface." The original finding was the opposite (XGB IC 0.0282 vs ENet 0.0144). **But in the actual portfolio backtest, ElasticNet vastly outperforms XGBoost** (+21pp vs +3.5pp excess CAGR in test).
+
+Feature importance explains the gap:
+- **XGBoost's top features are macro-dominant**: SAHM (recession indicator), NFCI (credit conditions), VIX, BAA spread, USD index. These vary by DATE, not by TICKER. XGBoost is essentially doing market-timing — predicting that returns will be uniformly higher/lower based on the macro state — which doesn't translate to stock-ranking within a date.
+- **ElasticNet's top features are price/trend-dominant**: price_vs_ma200, ma50_vs_ma200, price_vs_ma50, vol_63d. These vary by TICKER on a given date. Stock-ranking signal.
+- ElasticNet's #7 feature is `beta_missing` (the imputer's missingness indicator) — a binary flag for "ticker has insufficient history for 36mo beta". This is a legitimate informational signal (tickers with short history often recent IPOs) that ENet correctly exploited.
+
+**Implication for cross-sectional alpha measurement**: high overall Spearman IC doesn't translate to good top-N portfolio picks if the model's edge is at the middle/bottom of the distribution rather than the top. The IC measures the slope of rank correlation across the whole cross-section; the top-N strategy specifically exploits the top end. A linear model with strong tail discrimination can beat a tree model with smoother middle-of-distribution signal.
+
+**Worth Phase 5 deeper investigation**: rank-by-decile return analysis would show whether each model's score signal is monotonic across deciles or concentrated at the extremes.
+
+### Contract v1 artifacts produced
+
+All at `models/studies/larger_universe_v1/contract_v1/`:
+
+| File | Size | Rows |
+|---|---|---|
+| `meta.json` | 4.1 KB | — |
+| `portfolio.parquet` | 29 KB | 1,478 (daily × 2 models) |
+| `benchmarks.parquet` | 39 KB | 2,992 (daily × 4 benchmarks) |
+| `holdings.parquet` | 14 KB | 2,220 (37 rebalances × ~30 positions × 2 models) |
+| `trades.parquet` | 99 KB | 3,411 |
+| `scores.parquet` | 2.0 MB | 118,464 |
+| `trial_log.parquet` | 30 KB | 300 |
+| `feature_importance.parquet` | 7.0 KB | 144 |
+
+Stays well under the 1M-row scores cap.
+
+### Concentration check (informal — full Phase 5 attribution still needed)
+
+**Sector cap working**: max sector weight on latest rebalance is 20.0% (XGB Food Products) and 23.3% (ENet Health Care). Both well under the 30% cap.
+
+**Repeat-holding patterns**:
+- XGBoost most-held tickers: SEDG (54% of rebalances), CLSK (51%), BHF (49%)
+- ElasticNet most-held: DBD (81% of rebalances), CLSK (68%), FTRE (59%)
+- ElasticNet shows more "favorite stocks" persistence; XGBoost rotates more
+
+ENet's 81% repeat-rate on DBD (Diebold Nixdorf) is notable — single-name dependency risk worth checking against the "25% of total alpha" constraint when Phase 5 runs.
+
+### What's NOT done in Phase 4 (per spec)
+
+- Walk-forward analysis (Phase 5)
+- Regime attribution (Phase 5)
+- Per-ticker alpha attribution / 25% constraint check (Phase 5)
+- 12-month rolling win rate check (Phase 5)
+- Final OOS reporting / disclaimers (Phase 5)
+- Tracker update (next natural is Phase 4.5 transition per Mike's standing rule)
+- Dashboard code modifications (Phase 4.5)
+- Promotion decision
+
+### Open questions for Mike at the Phase 4 → Phase 5 gate
+
+1. **Drawdown constraint failure**: do we proceed to Phase 5 (full validation + writeup) accepting that this v1 study doesn't pass the drawdown criterion, OR pause and redesign portfolio construction (smaller N, vol-targeting, etc.) before continuing?
+2. **ENet > XGBoost finding**: Phase 5 deeper investigation (decile-return analysis) to confirm the "macro-timing vs stock-ranking" explanation, OR accept the finding and move on?
+3. **Promotion candidacy**: both models show positive excess CAGR but neither meets the drawdown constraint. Plausible that NEITHER passes the promotion gate even after Phase 5. Worth your call on whether the study still warrants the Phase 4.5 dashboard investment to surface what was learned, OR shelve it.
+4. **Repeat-holding patterns**: ENet's 81%-of-rebalances DBD weight (3.33% individual but persistent) warrants the 25%-of-alpha check in Phase 5. Worth flagging now in case you want to pivot the spec.
