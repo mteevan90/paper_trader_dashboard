@@ -936,3 +936,12 @@ Awaiting Mike's review of the validation findings before drafting the writeup na
 - Mike's review of the coherent unit (memo + contract update + writeup + dashboard + figures + tracker + session log + commit). Either approve as merge-ready or request specific revisions.
 - After approval: merge via PR (Mike handles, per branch policy).
 - After merge: any tracker rework, v2-study design conversation, or other forward-looking work.
+
+## 2026-05-12 — Merge to main
+
+Merge to main completed at 2026-05-12T12:52:02-04:00. Commit SHA: `d9e117b31c1e1e5807867a8434a926508406ac41`. Larger Universe v1 study fully landed.
+
+- Merge type: `--no-ff` merge commit, multi-commit history preserved.
+- Branch `feat/larger-universe-v1-study` preserved for traceability (not deleted).
+- Disposition: **COMPLETE, not promoted** per spec. Methodology learnings retained.
+- Post-merge rule: any future revision to landed Phase 5 artifacts (writeup, memo, contract, dashboard) lands on a new feature branch — no amending the merged work.
