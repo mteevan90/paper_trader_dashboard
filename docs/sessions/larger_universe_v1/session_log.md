@@ -403,3 +403,66 @@ This is slightly over Mike's 10-hour budget threshold. Surfacing in the report f
 - Phase 4 (portfolio construction + backtest) gated on Mike's review of Phase 3 results
 - Phase 5 (validation + reporting) gated on Phase 4
 - No tracker re-update during Phase 3 run; the pre-run tracker update reflects "Phase 3 running with revised spec"
+
+## 2026-05-11 (final evening) — Phase 3 trial budget locked + backgrounded
+
+**Phase:** Phase 3 backgrounding
+**Branch:** `feat/larger-universe-v1-study`
+**Commits at this gate:**
+- `d690a5f` — docs(tracker): Phase 3 authorized — revised spec + Phase 3 runner
+- Trial-budget tracker follow-up + session-log entry committed before backgrounding (this entry)
+**Status:** Phase 3 backgrounded; expected completion ~7.5h.
+
+### Decision: Option 2 — XGBoost 200 + ElasticNet 100, sequential
+
+Mike approved the asymmetric trial budget after I surfaced the ~11.5h estimate for symmetric 200+200. The reasoning to lock in for the eventual writeup:
+
+> Trial counts reflect search-space dimensionality, not equal budgets. XGBoost has 9 hyperparameters and benefits from 200 trials of TPE exploration. ElasticNet has 2 hyperparameters (alpha + l1_ratio) and TPE typically plateaus by trial 50-80 on a search space that small — trials 100-200 mostly resample near the best with diminishing information return. The complexity-asymmetric budget is methodologically defensible and reads cleanly in the eventual writeup.
+
+Sequential execution (XGBoost first, then ElasticNet) rather than parallel — avoids the CPU-contention issue I flagged in the original Option 5. Wall-clock ~7.5h: XGB ~4h, ENet ~3.5h sequentially.
+
+### Seven refinements baked into the Phase 3 runner
+
+1. **Trial counts**: `--xgb-trials 200`, `--enet-trials 100` (separated CLI args)
+2. **Sequential execution**: ENet runs only after XGB completes
+3. **Surface "ENet > XGB" finding if it happens**: don't suppress as anomalous. If ENet at 100 trials beats XGB at 200, that's a signal the underlying alpha is mostly linear and Phase 5 should consider extended ENet exploration. Captured in the per-model best-IC comparison in the Phase 3 final report.
+4. **Fold 3 separate reporting** (val 2021-05-10 → 2022-05-05): the 2022 bear-market regime reversal. Even if aggregate mean IC looks good, report Fold 3 separately for both models so we can see regime sensitivity magnitude.
+5. **Convergence checkpoint every 25 trials**: log running-best mean IC at trials 25/50/75/.../200 so the Phase 3 report can show whether the search plateaued or was still finding improvements. If XGB is still actively improving at trial 175, 200 was undersized; if it plateaued by trial 80, 200 was generous.
+6. **Fixed TPE sampler seed**: `seed=42` for both studies — full reproducibility of the trial sequence given the same code + features.parquet. Documented in best-params JSON output.
+7. **Pathological-trial warning**: if any trial elapsed time exceeds 600 seconds (10 minutes — way out of the expected 4-25 s/trial range), log a WARNING with the trial number and params. Signals a hyperparameter region that caused a pathological convergence problem.
+
+### Tracker update for the trial budget
+
+A small follow-up commit updates the Phase 3 status paragraph in `docs/Project_State_Tracker.docx` to include:
+- Trial counts (200 XGB + 100 ENet)
+- Sequential execution rationale
+- Backgrounded timestamp (2026-05-12 02:20 UTC)
+- Expected completion timestamp (~2026-05-12 09:50 UTC)
+- Seed for reproducibility
+
+This means partners checking in mid-run see exact run state, not just "Phase 3 running".
+
+### Expected outputs at completion
+
+| Path | Content |
+|---|---|
+| `models/studies/larger_universe_v1/xgboost_best_params.json` | best params + best mean IC + per-fold breakdown for the winning XGB trial |
+| `models/studies/larger_universe_v1/elasticnet_best_params.json` | same for ENet |
+| `models/studies/larger_universe_v1/xgboost_study.json` | full trial-by-trial log with per-trial duration, fold stats, and Optuna state |
+| `models/studies/larger_universe_v1/elasticnet_study.json` | same for ENet |
+| `models/studies/larger_universe_v1/phase3_progress.log` | line-by-line stdout (tail this for live status) |
+
+Intermediate persistence every 10 trials so a kill+resume is recoverable if needed.
+
+### Phase 3 final report requirements (for the next session log entry)
+
+When Phase 3 completes, the final report should cover:
+- Best hyperparameters per model (full param set, not just the headline IC)
+- Full per-fold breakdown: n_dates, mean_ic, std_ic, positive_rate for the winning trial of each model
+- Fold 3 separate reporting for both models (regime sensitivity)
+- Convergence pattern: running-best IC at 25-trial intervals; plateau vs still-improving
+- Per-trial timing distribution: min, median, max, count of >10min trials
+- Any pathological-trial flags surfaced during the run
+- Total wall-clock per model and combined
+- One-line comparison: did the full universe lift IC above the smoke's Variant B numbers (XGB 0.019, ENet 0.031)?
+- Phase 4 readiness: any blocker that would warrant another pause before portfolio construction begins

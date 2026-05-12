@@ -65,8 +65,18 @@ def _fold_attrs(fold_results):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--n-trials", type=int, default=200)
+    parser.add_argument("--xgb-trials", type=int, default=200)
+    parser.add_argument("--enet-trials", type=int, default=100,
+                        help="ElasticNet trial count — smaller because the search "
+                             "space (alpha + l1_ratio) is 2-D and TPE typically "
+                             "plateaus by trial 50-80 on this dimensionality")
     parser.add_argument("--n-folds", type=int, default=5)
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Optuna TPE sampler seed for reproducibility")
+    parser.add_argument("--convergence-interval", type=int, default=25,
+                        help="Log running-best IC every N trials")
+    parser.add_argument("--slow-trial-threshold-s", type=float, default=600.0,
+                        help="Per-trial elapsed > threshold triggers a WARNING")
     parser.add_argument("--skip-xgb", action="store_true")
     parser.add_argument("--skip-enet", action="store_true")
     args = parser.parse_args()
@@ -74,8 +84,10 @@ def main() -> int:
     logger = _setup_logging()
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     logger.info("=== Phase 3 tuning — Larger Universe v1 ===")
-    logger.info("config: n_trials=%d, n_folds=%d, horizon=%d, embargo=%d",
-                args.n_trials, args.n_folds, LABEL_HORIZON_TRADING_DAYS, EMBARGO_TRADING_DAYS)
+    logger.info("config: xgb_trials=%d, enet_trials=%d, n_folds=%d, "
+                "horizon=%d, embargo=%d, seed=%d",
+                args.xgb_trials, args.enet_trials, args.n_folds,
+                LABEL_HORIZON_TRADING_DAYS, EMBARGO_TRADING_DAYS, args.seed)
 
     # Universe — FULL (not the SP500 actives subset)
     u = json.loads(UNIVERSE_PATH.read_text(encoding="utf-8"))
@@ -154,7 +166,8 @@ def main() -> int:
 
     # XGBoost
     if not args.skip_xgb:
-        logger.info("=== XGBoost (%d trials, %d folds) ===", args.n_trials, args.n_folds)
+        logger.info("=== XGBoost (%d trials, %d folds, seed=%d) ===",
+                    args.xgb_trials, args.n_folds, args.seed)
         t0 = time.time()
 
         def xgb_objective(trial: optuna.Trial) -> float:
@@ -163,18 +176,31 @@ def main() -> int:
             overall_mean_ic, fold_results = cv_score(train_xgb_single_fold, merged, folds, params)
             trial.set_user_attr("folds", _fold_attrs(fold_results))
             elapsed = time.time() - t_start
+            trial.set_user_attr("duration_s", elapsed)
             best_so_far = trial.study.best_value if trial.study.best_trial else float("nan")
             logger.info("  XGB trial %d/%d  ic=%.4f  (best so far %.4f)  %.1fs",
-                        trial.number + 1, args.n_trials, overall_mean_ic,
+                        trial.number + 1, args.xgb_trials, overall_mean_ic,
                         best_so_far, elapsed)
+            # Pathological-trial warning
+            if elapsed > args.slow_trial_threshold_s:
+                logger.warning("  XGB trial %d slow: %.1fs > %.0fs threshold. "
+                               "Params: %s", trial.number + 1, elapsed,
+                               args.slow_trial_threshold_s, trial.params)
+            # Convergence checkpoint
+            if (trial.number + 1) % args.convergence_interval == 0:
+                logger.info("  XGB convergence @ trial %d: running_best=%.4f",
+                            trial.number + 1, best_so_far)
             # Persist progress every 10 trials for safety
             if (trial.number + 1) % 10 == 0:
                 _save_study(trial.study, "xgboost")
             return overall_mean_ic
 
-        xgb_study = optuna.create_study(direction="maximize",
-                                          study_name="larger_universe_v1_phase3_xgb")
-        xgb_study.optimize(xgb_objective, n_trials=args.n_trials, show_progress_bar=False)
+        xgb_study = optuna.create_study(
+            direction="maximize",
+            study_name="larger_universe_v1_phase3_xgb",
+            sampler=optuna.samplers.TPESampler(seed=args.seed),
+        )
+        xgb_study.optimize(xgb_objective, n_trials=args.xgb_trials, show_progress_bar=False)
         logger.info("XGBoost done in %.1fs (%.2fh)", time.time() - t0, (time.time() - t0) / 3600)
         _save_study(xgb_study, "xgboost")
         logger.info("  best mean cross-sec IC = %.4f", xgb_study.best_value)
@@ -185,7 +211,8 @@ def main() -> int:
 
     # ElasticNet
     if not args.skip_enet:
-        logger.info("=== ElasticNet (%d trials, %d folds) ===", args.n_trials, args.n_folds)
+        logger.info("=== ElasticNet (%d trials, %d folds, seed=%d) ===",
+                    args.enet_trials, args.n_folds, args.seed)
         t0 = time.time()
 
         def enet_objective(trial: optuna.Trial) -> float:
@@ -197,17 +224,28 @@ def main() -> int:
             overall_mean_ic, fold_results = cv_score(train_enet_single_fold, merged, folds, params)
             trial.set_user_attr("folds", _fold_attrs(fold_results))
             elapsed = time.time() - t_start
+            trial.set_user_attr("duration_s", elapsed)
             best_so_far = trial.study.best_value if trial.study.best_trial else float("nan")
             logger.info("  ENet trial %d/%d  ic=%.4f  (best so far %.4f)  %.1fs",
-                        trial.number + 1, args.n_trials, overall_mean_ic,
+                        trial.number + 1, args.enet_trials, overall_mean_ic,
                         best_so_far, elapsed)
+            if elapsed > args.slow_trial_threshold_s:
+                logger.warning("  ENet trial %d slow: %.1fs > %.0fs threshold. "
+                               "Params: %s", trial.number + 1, elapsed,
+                               args.slow_trial_threshold_s, trial.params)
+            if (trial.number + 1) % args.convergence_interval == 0:
+                logger.info("  ENet convergence @ trial %d: running_best=%.4f",
+                            trial.number + 1, best_so_far)
             if (trial.number + 1) % 10 == 0:
                 _save_study(trial.study, "elasticnet")
             return overall_mean_ic
 
-        enet_study = optuna.create_study(direction="maximize",
-                                           study_name="larger_universe_v1_phase3_enet")
-        enet_study.optimize(enet_objective, n_trials=args.n_trials, show_progress_bar=False)
+        enet_study = optuna.create_study(
+            direction="maximize",
+            study_name="larger_universe_v1_phase3_enet",
+            sampler=optuna.samplers.TPESampler(seed=args.seed),
+        )
+        enet_study.optimize(enet_objective, n_trials=args.enet_trials, show_progress_bar=False)
         logger.info("ElasticNet done in %.1fs (%.2fh)",
                     time.time() - t0, (time.time() - t0) / 3600)
         _save_study(enet_study, "elasticnet")
