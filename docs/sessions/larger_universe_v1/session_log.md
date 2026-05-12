@@ -992,5 +992,34 @@ The dashboard module has no existing pytest coverage; adding a contract-tab smok
 ### Branch + commit
 
 - **Branch**: `feat/dashboard-add-vline-fix` (off `main`)
-- **Commit SHA**: (filled at commit time)
+- **Commit SHA**: `2621d93af3a1e90925ea4f8f14253b267e37818e`
 - **Push**: yes; not auto-merged — awaiting Mike's review.
+
+## 2026-05-12 — Merge fix branch to main
+
+Fix-branch merge to main completed at 2026-05-12T13:15:46-04:00. Merge commit SHA: `727bc0d0e169f18d751d47370740b4026dbc7b60`. Larger Universe v1 dashboard is now functional on main for partners to review.
+
+- Merge type: `--no-ff` merge commit, fix-branch history preserved.
+- Branch `feat/dashboard-add-vline-fix` preserved for traceability (not deleted).
+- Post-merge smoke-test on `main`: Streamlit AppTest harness toggled the sidebar to "Contract-conformant (v1+)" and re-ran — **0 exceptions, all 8 tabs render** (`Overview, Performance, Holdings, Trades, Alpha Attribution, Diagnostics, Walk-forward, Tuning`).
+
+### Institutional knowledge worth preserving
+
+Two findings from this fix that future dashboard work should know without re-deriving:
+
+1. **Plotly 6.7.0 + pandas 3.0.2 — date-axis `add_vline` with annotation.** When `add_vline(x=<date>, annotation_text=..., ...)` is called on a Plotly axis with datetime data, Plotly's annotation-positioning math internally adds an integer offset to the x-value. On pandas 3.0 that integer-plus-Timestamp / integer-plus-datetime / integer-plus-`np.datetime64` operation raises TypeError. Even passing a raw ISO string fails (it tries `int + str`). **The only x type that survives the path is milliseconds-since-epoch as int.** Fix pattern:
+   ```python
+   x_ms = int(pd.Timestamp(date_value).value // 10**6)
+   fig.add_vline(x=x_ms, ..., annotation_text=...)
+   ```
+   Without `annotation_text` the call works for `Timestamp` / `datetime` natively — the annotation path is what triggers the integer arithmetic. Future dashboard work touching date-marker primitives on this library stack should use the same ms-since-epoch pattern.
+
+2. **Streamlit cascade failure mode.** An unhandled exception inside any `with tabs[i]:` block halts the *entire script run*, not just that tab's content. The user sees the error in the failing tab, but every subsequent tab in the same `st.tabs(...)` call simply never executes, so they appear empty / broken too. **Symptom: tab[0] renders fully, tab[k] shows an error, tabs[k+1..n] are blank or also show an error.** Diagnostic shortcut: when "every tab fails", look for one unhandled exception in the earliest non-rendering tab rather than assuming wide-scope breakage. The other tabs are usually fine.
+
+### Known follow-ups (not actioned this session)
+
+Tracked for future-Mike to decide if/when to address. Not creating branches or work for them in this session.
+
+1. **`use_container_width` deprecation sweep.** Streamlit logs ~40 deprecation warnings per page render: `use_container_width` will be removed after 2025-12-31; replace with `width='stretch'` / `width='content'`. Affects both legacy and Phase 4.5 contract-conformant code in `src/dashboard_app.py`. Not blocking; mechanical sweep candidate when convenient.
+
+2. **Dashboard pytest coverage via `streamlit.testing.v1.AppTest`.** No existing pytest coverage for the dashboard module. The AppTest harness pattern used to smoke-test this fix (instantiate `AppTest.from_file`, toggle sidebar widgets via `.set_value(...).run()`, inspect `.exception` and `.main.tabs`) is the right shape for future tests. Worth considering as a focused follow-up effort; not blocking. Sample fixture: Larger Universe v1 contract artifacts already in-repo at `models/studies/larger_universe_v1/contract_v1/`.
