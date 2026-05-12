@@ -135,6 +135,11 @@ def _compute_revenue_eps_growth(fund_pit: pd.DataFrame) -> pd.DataFrame:
     # YoY growth (4 quarters back)
     df["revenue_growth"] = df.groupby("ticker")["sales_ttm"].pct_change(4)
     df["eps_growth"] = df.groupby("ticker")["eps_ttm"].pct_change(4)
+    # pct_change produces inf when the prior TTM value is 0 (~1.8k rows
+    # across the training window). XGBoost rejects inf inputs, so we
+    # coerce to NaN which XGBoost handles natively as "missing".
+    df["revenue_growth"] = df["revenue_growth"].replace([np.inf, -np.inf], np.nan)
+    df["eps_growth"] = df["eps_growth"].replace([np.inf, -np.inf], np.nan)
     return df[["ticker", "period_end", "reported_date", "revenue_growth", "eps_growth",
                *FUND_PIT_MAP.values()]]
 
@@ -316,9 +321,11 @@ def main() -> int:
 
     # ---- Save ----
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # Trim to training-window-and-beyond (drop pre-2016-05-12 rows since features need 252d lookback)
-    # Keep all dates >= 2017-05-12 to ensure the 252d lookback is well-formed
-    # Actually keep all rows — let downstream filter; we want the full record
+    # Defense in depth: replace any remaining inf with NaN so XGBoost
+    # (which rejects inf inputs) doesn't fail at train time. Catches edge
+    # cases like a zero-prior in some other pct-change-like derivation that
+    # might slip through individual feature computations.
+    features = features.replace([np.inf, -np.inf], np.nan)
     features.to_parquet(OUT_PATH)
     logger.info("wrote %s, shape=%s", OUT_PATH, features.shape)
     logger.info("date range: %s -> %s", features["date"].min(), features["date"].max())
