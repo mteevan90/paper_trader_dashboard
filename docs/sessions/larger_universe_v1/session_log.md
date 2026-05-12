@@ -272,3 +272,63 @@ Options I'd recommend offering Mike at the gate:
 | `scripts/research/smoke_phase2.py` | Per-fold structured output (n_dates, mean_ic, std_ic, positive_rate) |
 | `docs/diagnostics/larger_universe_v1_cv_design.md` | Replaced "Scoring metric" section + smoke results section + TL;DR with corrected story |
 | `models/features/larger_universe_v1/phase2_smoke/smoke_results.json` | Re-run results with cross-sectional metric |
+
+## 2026-05-11 (later evening) — horizon/feature diagnostic + Phase 3 deferred
+
+**Phase:** Phase 2 gate diagnostic (between Phase 2 and Phase 3)
+**Branch:** `feat/larger-universe-v1-study`
+**Commits at this gate:**
+- `fe4cacb` — diag(study): Phase 2 horizon diagnostic — 21d horizon rescues signal
+- (this log entry + tracker update committed separately)
+**Status:** Phase 3 deferred to tomorrow. Diagnostic results in hand; Mike decides path forward on review.
+
+### Why this gate happened
+
+The IC bug fix surfaced a real concern: cross-sectional IC near zero on the price+macro-only smoke. Three causes were plausible — feature set, horizon, or model architecture. Mike commissioned a 15-min diagnostic with two variants to isolate which is binding before burning 6-7h on Phase 3.
+
+### Diagnostic configurations
+
+Two smoke variants on SP500-actives subset, 10 Optuna trials per model, full per-fold reporting (n_dates, mean_ic, std_ic, positive_rate):
+
+| Variant | Features | Horizon | Embargo |
+|---|---|---|---|
+| Original | 22 (price+macro only) | 5d | 5d |
+| A | 38 (full incl. fundamentals/sector/log_mc) | 5d | 5d |
+| B | 38 (full) | 21d | 21d |
+
+### Headline numbers (best-trial honest mean cross-sectional IC, across all 5 folds)
+
+| Variant | XGBoost | ElasticNet | Notes |
+|---|---|---|---|
+| Original | ~0.000 (well-covered trials) | 0.013 | Best XGB trial was degenerate (constant predictions on most folds) |
+| A | 0.009 (still degenerate F0+F1) | 0.020 | Fundamentals helped marginally; XGB still collapses on early folds |
+| **B** | **0.019 (all folds covered)** | **0.031** | **No degeneracy. Real signal across all 5 folds for both models.** |
+
+XGBoost at 21d horizon is the first configuration with no constant-prediction degeneracy — every fold scored on 251 dates. Variant B ElasticNet on fold 1 reaches mean_ic=0.116 with positive_rate=0.75.
+
+### Common pattern flagged for Phase 5
+
+**Fold 3 (val 2021-05-10 → 2022-05-05) is hostile for both models, both variants.** Mean IC negative (XGB-21d −0.063, ENet-21d −0.046, positive_rate ~0.4). This is the 2022 bear-market regime shift that reversed growth/momentum patterns from 2017-2021 training data. Not a bug; a real regime change. Worth disclaiming when Phase 5 writes up backtest performance — strategies that rode growth/momentum factors got hit industry-wide in 2022.
+
+### Binding constraint identified: horizon, not feature set
+
+At 5-day horizon, the SP500-actives cross-section doesn't have enough signal-to-noise on ticker-level features. XGBoost collapses to learning macro features only. Adding fundamentals at 5d gave ENet +0.007 (0.013 → 0.020); switching to 21d gave another +0.011 (0.020 → 0.031). The horizon shift is roughly the same magnitude lift as adding all the fundamentals — and additionally it eliminated the XGBoost constant-prediction degeneracy.
+
+This is consistent with the academic factor-research literature: most cross-sectional alpha studies use monthly horizons. Daily/weekly cross-sectional alpha is feasible but typically needs short-horizon-tuned features (momentum, technical), not the slow-moving fundamentals the v1 spec emphasizes.
+
+### Three options surfaced for Phase 3
+
+1. **Change label horizon to 21d, keep weekly rebalance.** Model predicts 21-day forward return; portfolio rebalances weekly using the most recent prediction. Each prediction informs ~4 rebalances before becoming stale. Clean fix — uses signal where it lives, preserves the spec's weekly cadence. **Recommended.**
+2. **Keep 5d label, run Phase 3 anyway, accept low IC.** Phase 3 burns 6-7h to tune on a near-zero signal landscape. Expected outcome: similar to Variant A. Phase 5 study disclaimer would need to acknowledge minimal cross-sectional alpha.
+3. **Pivot to monthly rebalance + monthly label.** Cleanest factor-research design but violates the spec's weekly cadence. Larger architectural change.
+
+### Code changes from this gate
+
+- `src/equities/study/labels.py:build_labels` accepts `horizon` parameter; emits column named `target` (was `target_fwd_5d`)
+- `src/equities/study/training.py` — `target_fwd_5d` references replaced with `target` everywhere
+- `scripts/research/smoke_phase2_variant.py` — new parameterized runner with `--horizon` / `--features` / `--variant` CLI args
+- `docs/diagnostics/larger_universe_v1_horizon_diagnostic.md` — full diagnostic writeup with per-fold tables for all three configurations
+
+### What's next
+
+Phase 3 paused until Mike reviews the diagnostic and chooses an option. The tracker update (separate commit, this gate's standing process) reflects the paused state so partners who check in have current context. Phase 5 still gated on Phase 3 + 4; tracker stays partial until the study completes.
