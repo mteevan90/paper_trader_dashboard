@@ -196,3 +196,79 @@ python scripts/research/smoke_phase2.py    # ~6 min total
 ### Next: Phase 3 — full Optuna hyperparameter tuning
 
 Run XGBoost and ElasticNet against the full feature set + full universe for 100-300 trials each. Surface convergence behavior, top hyperparameter combinations, and any overfitting red flags (IC > 0.20 would be one). Background-run since wall-clock is multi-hour. Standing process at the Phase 3 gate: commit + push + session log + report.
+
+## 2026-05-11 (post-gate) — cross-sectional IC bug fix + re-smoke
+
+**Phase:** Phase 2 gate review (between Phase 2 and Phase 3)
+**Branch:** `feat/larger-universe-v1-study`
+**Commits at this gate:**
+- `8eb57f2` — fix(study): replace panel-wise IC with cross-sectional IC + report fold stats
+- (this log entry added in a follow-up commit)
+**Status:** Phase 3 paused. Awaiting Mike's decision on the path forward given the corrected smoke results.
+
+### The bug
+
+Phase 2's `_safe_spearman` computed a single Spearman across all (date, ticker) rows in the validation fold — **panel-wise IC**, not cross-sectional. The cv_design.md doc claimed cross-sectional. Mike's gate review specifically asked to verify the implementation matched the claim; I re-read my own code and surfaced the discrepancy.
+
+Panel-wise IC conflates stock-ranking signal (what the portfolio uses) with market-timing signal (what it doesn't). For a 5-day weekly cross-sectional portfolio, only the former matters.
+
+### The fix
+
+Replaced `_safe_spearman` with `cross_sectional_ic_stats(preds, val_df, min_tickers=30)` in `src/equities/study/training.py`:
+
+```
+for each unique date D in val_fold with >= 30 valid rows:
+    rho_D = spearmanr(preds_on_D, realized_returns_on_D)
+    if rho_D is finite: per_date.append(rho_D)
+return {
+    mean_ic       : average across qualifying dates,
+    std_ic        : std across qualifying dates,
+    positive_rate : (per_date > 0).mean(),
+    n_dates_scored: count of qualifying dates,
+}
+```
+
+Both trainers (`train_xgb_single_fold`, `train_enet_single_fold`) return the stats dict instead of a single float. `cv_score`'s `FoldResult` gains four columns. Optuna objective is `mean_ic` aggregated across folds; std and positive-rate are surfaced but not optimized.
+
+Also tightened `max_depth` from 3-10 to 3-8 (Mike's small suggestion at the Phase 2 gate — financial tabular data rarely needs deeper trees).
+
+### Corrected smoke results
+
+Same smoke setup as before (SP500 actives, 22 price+macro features, 10 trials each):
+
+**XGBoost — degenerate "winner" trial obscures a near-zero real signal.** Best mean IC of 0.2177 came from a trial with constant predictions on 3 of 5 folds (n_dates_scored=0); the 2 surviving folds totaled 74 dates of which one fold contributed mean_ic=0.415 over just 4 dates. Well-covered XGBoost trials cluster at **-0.01 to +0.01 mean cross-sectional IC**.
+
+**ElasticNet — clean coverage but near-zero signal.** Best mean IC 0.0131. Per-fold ICs span -0.02 to +0.03 with positive-rate ~0.50 (coin-flip per date). Every fold covered ~251 dates (no constant-prediction collapse).
+
+Verified by direct prediction inspection: XGBoost's fold-0 model produces nunique=1 predictions per date (every ticker on a given date gets the same value), nunique~15 across dates. **The model learned a market-timing signal from macro features and ignored ticker-level price features.** Panel-wise Spearman picks up that date-level signal; cross-sectional Spearman correctly reports zero stock-ranking content.
+
+### Decision matrix from the agreed framework
+
+| Smoke result | Action |
+|---|---|
+| Corrected IC 0.05-0.08 | Real signal, proceed to Phase 3 |
+| 0.02-0.04 | Weaker than panel suggested but proceed |
+| **Near zero or negative** | **PAUSE — decision needed** |
+
+We are in the "pause" zone. The smoke deliberately used a 22-feature subset (no fundamentals, no sector, no log_market_cap, no index-membership flags). The features designed to provide cross-sectional differentiation were all excluded.
+
+### Open question for Mike at this gate
+
+The smoke result says either:
+1. **Price + macro features have no cross-sectional alpha at 5-day horizon for SP500 actives, but the full feature set will rescue it.** Reasonable expectation — fundamentals (P/E, P/B, ROE, growth metrics) and sector are the canonical cross-sectional alpha sources in factor research.
+2. **The 5-day horizon is too short for the feature set we have, full stop.** Weekly cross-sectional alpha is genuinely difficult; many academic factor studies use monthly horizons.
+3. **The model architecture needs to change** (e.g., predict ranks rather than returns, or use a cross-sectional loss like LambdaRank instead of MSE).
+
+Options I'd recommend offering Mike at the gate:
+- (a) Re-smoke with the full 38-feature set (still SP500-actives subset, ~6 min wall-clock) and re-evaluate — directly tests hypothesis 1
+- (b) Proceed to Phase 3 anyway with the full feature set; Phase 3 is the proper test and its results will tell us definitively
+- (c) Pause Phase 3 and reconsider feature set + horizon design before any further compute
+
+### Files modified
+
+| Path | Change |
+|---|---|
+| `src/equities/study/training.py` | Added `cross_sectional_ic_stats`; replaced `_safe_spearman`; updated trainers + cv_score; tightened max_depth 3-10 → 3-8 |
+| `scripts/research/smoke_phase2.py` | Per-fold structured output (n_dates, mean_ic, std_ic, positive_rate) |
+| `docs/diagnostics/larger_universe_v1_cv_design.md` | Replaced "Scoring metric" section + smoke results section + TL;DR with corrected story |
+| `models/features/larger_universe_v1/phase2_smoke/smoke_results.json` | Re-run results with cross-sectional metric |
