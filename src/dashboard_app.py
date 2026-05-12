@@ -4224,6 +4224,19 @@ def tab_contract_diagnostics(study_name: str) -> None:
         st.dataframe(rw, use_container_width=True, hide_index=True)
 
 
+_WALK_FORWARD_REGIME_LABELS = {
+    # Keyed by val_start (YYYY-MM-DD). Descriptive only — factual market
+    # events, not editorial framing. Extend when future studies push the
+    # walk-forward into earlier or later windows.
+    "2020-05-12": "COVID crash + recovery",
+    "2021-05-12": "Late COVID recovery",
+    "2022-05-12": "2022 bear market + reversal",
+    "2023-05-12": "AI rally year 1",
+    "2024-05-12": "AI rally year 2 + rate environment",
+    "2025-05-12": "Most recent 12 months",
+}
+
+
 def tab_contract_walk_forward(study_name: str) -> None:
     wf = load_contract_parquet(study_name, "walk_forward.parquet")
     if wf.empty:
@@ -4234,22 +4247,151 @@ def tab_contract_walk_forward(study_name: str) -> None:
         "1-year-validation window. excess_cagr_vs_spy < 0 in some windows is "
         "expected; what matters is sign and magnitude consistency."
     )
+
+    models = sorted(wf["model"].unique())
+
+    # === Summary statistics panel — per model ===
+    st.markdown("### Window-level summary")
+    cols = st.columns(len(models))
+    for col, model in zip(cols, models):
+        m = (wf[wf["model"] == model]
+             .sort_values("val_start").reset_index(drop=True))
+        excess = m["excess_cagr_vs_spy"]
+        n_total = len(m)
+        n_positive = int((excess > 0).sum())
+        n_strong = int((excess >= 0.05).sum())
+        median_excess = excess.median()
+        std_excess = excess.std(ddof=1) if n_total > 1 else 0.0
+        best_pos = int(excess.idxmax())
+        worst_pos = int(excess.idxmin())
+        best_w = best_pos + 1
+        worst_w = worst_pos + 1
+        best_val = float(excess.iloc[best_pos])
+        worst_val = float(excess.iloc[worst_pos])
+
+        with col:
+            st.markdown(f"**{model}**")
+            st.metric("Windows positive", f"{n_positive} of {n_total}")
+            st.metric("Median excess CAGR",
+                      f"{median_excess * 100:+.1f}pp")
+            st.metric("Best window",
+                      f"W{best_w}  ({best_val * 100:+.1f}pp)")
+            st.metric("Worst window",
+                      f"W{worst_w}  ({worst_val * 100:+.1f}pp)")
+            st.metric("Std dev (excess CAGR)",
+                      f"{std_excess * 100:.1f}pp")
+            st.metric("Strong outperformance (≥ +5pp)",
+                      f"{n_strong} of {n_total}")
+
+    st.caption(
+        "Windows are numbered W1–W6 in chronological order of validation "
+        "start. \"Strong outperformance\" counts windows where the model "
+        "beat SPY by ≥ 5pp CAGR in that window."
+    )
+
+    # === Bar chart with regime annotations ===
     fig = go.Figure()
-    for model in sorted(wf["model"].unique()):
-        m = wf[wf["model"] == model].sort_values("val_start")
+    for model in models:
+        m = (wf[wf["model"] == model]
+             .sort_values("val_start").reset_index(drop=True))
+        # Two-line tick label: year on top, regime label in smaller grey
+        # text underneath. Hover tooltips also carry the regime explicitly.
+        x_labels = []
+        regimes = []
+        for v in m["val_start"]:
+            v_str = str(v)[:10]
+            year = v_str[:4]
+            regime = _WALK_FORWARD_REGIME_LABELS.get(v_str, "")
+            regimes.append(regime)
+            if regime:
+                x_labels.append(
+                    f"{year}<br>"
+                    f"<span style='font-size:10px;color:#94a3b8'>"
+                    f"{regime}</span>"
+                )
+            else:
+                x_labels.append(year)
         fig.add_trace(go.Bar(
-            x=[str(v)[:7] for v in m["val_start"]],
+            x=x_labels,
             y=m["excess_cagr_vs_spy"] * 100,
             name=model,
+            customdata=regimes,
+            hovertemplate=(
+                "<b>%{fullData.name}</b><br>"
+                "Val start year: %{x}<br>"
+                "Excess CAGR: %{y:+.2f}pp<br>"
+                "Regime: %{customdata}"
+                "<extra></extra>"
+            ),
         ))
     fig.update_layout(
         barmode="group",
         title="Per-window excess CAGR vs SPY",
-        xaxis_title="Validation window start",
+        xaxis_title="Validation window (year + regime context)",
         yaxis_title="Excess CAGR vs SPY (pp)",
-        height=420,
+        height=480,
+        margin=dict(b=80),
     )
     st.plotly_chart(fig, use_container_width=True)
+
+    # === Synthetic compounded growth curve ===
+    st.markdown("### Synthetic compounded growth across windows")
+    st.caption(
+        "What $1 would grow to if each window's annualized CAGR held for "
+        "one year, compounded across the six non-overlapping 1-year "
+        "validation windows. **Different from the Overview NAV chart**, "
+        "which shows the actual deployed portfolio NAV under locked Phase 3 "
+        "hyperparameters over test + OOS; this view assumes per-window "
+        "retrains and treats each window's CAGR as that year's realized "
+        "growth. Useful for visualizing the cumulative effect of the "
+        "per-window excess CAGRs in the bar chart above."
+    )
+
+    line_fig = go.Figure()
+
+    # SPY is identical across model rows for the same window — take it
+    # from either subset.
+    spy_subset = (wf[wf["model"] == models[0]]
+                  .sort_values("val_start").reset_index(drop=True))
+    spy_growth = (1 + spy_subset["spy_cagr"]).cumprod()
+    x_period_labels = [
+        f"After W{i+1} ({str(v)[:7]})"
+        for i, v in enumerate(spy_subset["val_end"])
+    ]
+    x_with_start = ["Start"] + x_period_labels
+    line_fig.add_trace(go.Scatter(
+        x=x_with_start,
+        y=[1.0] + list(spy_growth),
+        mode="lines+markers",
+        name="SPY",
+        line=dict(width=1.6, dash="dash", color="#888888"),
+        marker=dict(size=7),
+    ))
+    for model in models:
+        m = (wf[wf["model"] == model]
+             .sort_values("val_start").reset_index(drop=True))
+        growth = (1 + m["cagr"]).cumprod()
+        line_fig.add_trace(go.Scatter(
+            x=x_with_start,
+            y=[1.0] + list(growth),
+            mode="lines+markers",
+            name=model,
+            line=dict(width=2.5),
+            marker=dict(size=8),
+        ))
+    line_fig.update_layout(
+        title="Synthetic compounded growth — $1 invested across "
+              "walk-forward windows",
+        xaxis_title="Window endpoint",
+        yaxis_title="Cumulative NAV multiplier",
+        height=420,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1),
+    )
+    st.plotly_chart(line_fig, use_container_width=True)
+
+    # === Full window-level data table ===
+    st.markdown("### Full window-level data")
     st.dataframe(wf, use_container_width=True, hide_index=True)
 
 

@@ -1282,6 +1282,7 @@ All tracked, none urgent.
 3. `attempted_trials` enhancement to `tuning_summary.json`
 4. Convergence-pattern methodology memo (pending third Optuna data point)
 
+
 ### Additions on this branch (per post-review request)
 
 After the initial review of Change 1 + Change 2, Mike confirmed both judgment calls (preserve locked planning artifacts; preserve the self-referential "OOS" quote in the contract spec's rationale) and added two follow-ups to land on the same branch.
@@ -1316,3 +1317,83 @@ The update qualifies as a natural stable point per the standing rule: a structur
 #### Smoke-test (post-additions)
 
 Re-ran AppTest after the additions to confirm nothing accidentally broke. Operations doc shouldn't affect rendering (markdown file, never read by the dashboard) — verified. Tracker update is `.docx` only — not read by the dashboard. All previously-validated assertions still pass: 7 tabs in order, Performance absent, all 5 selectors default to xgboost, new UI labels render, 0 exceptions.
+
+## 2026-05-12 — Walk-forward tab enhancements
+
+Branch: `feat/dashboard-walkforward-enhancements` off `main`. Three additions to the Walk-forward tab landed as one commit; pre-merge, awaiting review. "More views first, prune later" framing — Mike will evaluate which of the three views add unique analytical value vs duplicate existing views, with a follow-up commit to prune as needed.
+
+### Three additions
+
+1. **Summary statistics panel — above the bar chart, per model.**
+
+   Two `st.columns(2)` rendering side-by-side cards for xgboost and elasticnet. Each card stacks six `st.metric` rows: windows positive / total, median excess CAGR, best window with its excess CAGR, worst window with its excess CAGR, std dev of excess CAGR, count of "strong outperformance" windows (excess CAGR ≥ +5pp).
+
+   For Larger Universe v1 the cards report (XGB / ENet): windows positive 4/6 vs 5/6; median excess CAGR +10.1pp vs +12.9pp; best W6 (+59.3pp) vs W5 (+43.0pp); worst W3 (-3.5pp) vs W3 (-7.8pp); std 23.4pp vs 18.6pp; strong-outperformance 4/6 vs 5/6.
+
+2. **Factual regime annotations — labeled on the bar chart.**
+
+   Module-level `_WALK_FORWARD_REGIME_LABELS` dict keyed by `val_start` (YYYY-MM-DD). Labels are factual market-event descriptions: "COVID crash + recovery", "Late COVID recovery", "2022 bear market + reversal", "AI rally year 1", "AI rally year 2 + rate environment", "Most recent 12 months". No editorial framing.
+
+   **Display choice — both, not either-or.** The x-axis tick labels use two lines: year (e.g., "2023") on top, regime label in smaller grey text underneath (Plotly `<br>` + `<span style='font-size:10px;color:#94a3b8'>...</span>`). Hover tooltips also carry the regime label via `customdata` + `hovertemplate`. The dual-display is intentional — the tick-label is for casual scanning, the hover is for engaged inspection. Either alone left context on the table.
+
+   Falls back to year-only if a window's val_start isn't in the labels dict; future studies extending the walk-forward into earlier or later windows just add entries to the dict.
+
+3. **Cumulative outperformance curve — below the bar chart, above the data table.**
+
+   Line chart titled "Synthetic compounded growth across windows" showing $1 compounded across the six 1-year validation windows for each model (xgboost, elasticnet) plus SPY (dashed grey). After 6 windows: XGB 5.50x, ENet 5.83x, SPY 2.78x.
+
+### Design rationale + a flagged-for-review interpretation
+
+The cumulative-outperformance curve required a design judgment call. The `walk_forward.parquet` schema has `total_return` and `cagr` columns where `cagr` is annualized per-window growth. But `n_days` ranges from 1495 (W1) down to 238 (W6), meaning `total_return` measures growth from `val_start` through end-of-data, not within the 1-year validation window. So `total_return` directly isn't useful for "compound across non-overlapping windows."
+
+Three implementation options:
+
+- **A. Compound `(1 + total_return)`** across windows — wrong because `total_return` represents different time spans per window.
+- **B. Compound `(1 + cagr)`** across windows — interprets each window's CAGR as that year's realized 1-year growth and chains them. Synthetic but well-defined.
+- **C. Re-extract 1-year returns from raw `portfolio.parquet`** — most accurate but requires walking through portfolio data; out of scope for a dashboard render.
+
+Picked **B**. The chart's caption labels the interpretation explicitly: "What \$1 would grow to if each window's annualized CAGR held for one year, compounded across the six non-overlapping 1-year validation windows." Also notes the distinction from the Overview NAV chart: "Different from the Overview NAV chart, which shows the actual deployed portfolio NAV under locked Phase 3 hyperparameters over test + OOS; this view assumes per-window retrains and treats each window's CAGR as that year's realized growth."
+
+Mike flagged exactly this concern in the spec: "If during implementation you find the curve is mechanically identical to the Overview NAV chart filtered to the walk-forward dates, flag that — it might be redundant." It's **not** identical — Overview shows actual locked-Phase-3 NAV from 2023-05 onward (~3 years, one continuous backtest); this chart shows per-window-retrain synthetic compounded growth from 2020-05 onward (~6 years, six retrains). Different time spans, different methodology, different story. Both worth keeping in my opinion, but the "prune later" review is Mike's call.
+
+### Layout summary (visual flow)
+
+Top-to-bottom in the Walk-forward tab:
+
+1. Existing intro caption ("Walk-forward stability: each row is one rolling 3-year-train / 1-year-validation window…").
+2. **NEW: Window-level summary** — h3 header, two side-by-side columns of 6 `st.metric` cards each, then a small caption explaining W-numbering and the "≥ +5pp" threshold for strong outperformance.
+3. Existing bar chart — title "Per-window excess CAGR vs SPY". Now with two-line x-axis labels (year + regime) and regime in hover tooltips.
+4. **NEW: Synthetic compounded growth across windows** — h3 header + caption explaining the synthetic interpretation and the distinction from Overview NAV + Plotly line chart with 3 lines (SPY dashed grey, xgboost, elasticnet), x-axis ["Start", "After W1 (2021-05)", …, "After W6 (2026-05)"], y-axis cumulative NAV multiplier.
+5. Existing data table — h3 header "Full window-level data" + the full 12-row × 17-column dataframe. (Moved under an explicit h3 for visual consistency with the new sections.)
+
+### Smoke-test (AppTest)
+
+- Initial render + Contract-conformant switch: **0 exceptions**.
+- All 8 tabs render (note: this branch is off main pre-Overview-merge, so Performance tab is still present here; the Overview-merge branch removes it independently).
+- All 12 `st.metric` cards present (6 per model × 2 models) with correct values matching standalone pandas computation.
+- All 3 new h3 section headers render: "Window-level summary", "Synthetic compounded growth across windows", "Full window-level data".
+
+### Branch + commit
+
+- **Branch**: `feat/dashboard-walkforward-enhancements` (off `main`)
+- **Commit SHA**: (filled at commit time)
+- **Push**: yes; not auto-merged — awaiting Mike's review with the prune-later framing.
+- **Tracker**: NOT updated (dashboard enhancement, follow-up to the Overview-merge branch that just landed; not a study-level event).
+
+### Note on branch sequencing
+
+This branch is off `main` per Mike's spec, NOT off `feat/dashboard-overview-merge-and-terminology`. The two branches modify different parts of `src/dashboard_app.py` (Overview-merge changes `tab_contract_overview` + `main_contract()` + terminology; this branch only changes `tab_contract_walk_forward`), so a clean merge to main should be possible in either order. If Mike merges Overview-merge first, this branch's eventual merge will land cleanly. If this lands first, Overview-merge's eventual merge will land cleanly. The reverse-conflict risk is low.
+
+### Standing follow-up added
+
+The standing-follow-ups list (tracked across earlier entries) gains one item from this branch's work, per Mike's instruction:
+
+5. **Synthetic compounded growth curve on Walk-forward tab — revisit prune decision after partner review.** Cut if partners find the synthetic-vs-actual framing confusing; keep if it adds analytical value in their reading. The other three views on the Walk-forward tab (summary stats panel, regime-annotated bar chart, full data table) are kept unconditionally; only the synthetic compounded growth curve is up for prune review.
+
+Full standing-follow-up list as of this entry (no order, none urgent):
+
+1. `use_container_width` deprecation sweep
+2. Dashboard pytest coverage via `streamlit.testing.v1.AppTest`
+3. `attempted_trials` enhancement to `tuning_summary.json`
+4. Convergence-pattern methodology memo (pending third Optuna data point)
+5. Synthetic compounded growth curve prune review (above)
