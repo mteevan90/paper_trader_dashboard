@@ -1071,3 +1071,30 @@ Streamlit AppTest harness, same pattern as the prior fix:
   - `c0a0a72` — dashboard Tuning-tab rewrite
 - **Push**: pending — awaiting Mike's review before merge.
 - **Merge policy**: per Mike's session-opening instruction, do not merge; surface for review only. Tracker NOT updated (this is a dashboard enhancement, not a study completion event).
+
+## 2026-05-12 — Merge tuning-enhancements branch to main
+
+Branch merge to main completed at 2026-05-12T13:57:46-04:00. Merge commit SHA: `b486e6528c535574c1f8ecf87e0d97b38ab7ebd7`. Closes the dashboard parity gap surfaced post-Phase-5-merge. The contract Tuning tab is now functionally on par with the legacy version, with the added benefit of working for any future contract-conformant study without per-study customization.
+
+- Merge type: `--no-ff` merge commit, all 4 fix-branch commits preserved (`1ae5567`, `0be2a3b`, `c0a0a72`, `0101e0e`).
+- Branch `feat/contract-tuning-enhancements` preserved for traceability (not deleted).
+- Post-merge smoke-test on `main`: Streamlit AppTest toggled to "Contract-conformant (v1+)" then through both Tuning models. **0 exceptions** for xgboost and elasticnet; all 8 tabs render. Narrative box content verified ("tested 14 configurations for elasticnet…").
+
+### Forward-looking observations (Mike, post-merge)
+
+Two observations from Mike worth carrying forward as candidate future work — not actioning now, flagged for when conditions are right:
+
+1. **Empirical Optuna search-budget data points.** XGBoost on Larger Universe v1 plateaus at 61% of trials (122 of 200). The legacy v1 study's plateau was reported at ~33% of 1000 trials. With two data points across different hyperparameter spaces in this project, the convergence pattern is becoming visible. **If a future study produces a third data point**, the observation crosses the threshold for a forward-looking methodology memo at `docs/architecture/` (the same pattern as `ml_study_cv_objectives_v1.md`). Until then, the data is logged in this session entry and `tuning_summary.json` for each study; no memo yet.
+
+2. **ENet "14 configurations, plateau at 21%" framing is technically correct but potentially misleading.** Under the contract's COMPLETE-only convention, `total_trials=14` and `pct_trials_to_plateau=0.21`. The actual Optuna run attempted 100 trials — 86 hit constant-prediction regions at high alpha and FAILed. A reader of the narrative might infer "only 3 trials were needed to find a near-winner", which understates the search effort. The deferred enhancement (add `attempted_trials` to `tuning_summary.json` and surface the attempted-vs-complete split in the narrative) is the right fix when convenient. Revisit when another study produces similarly-high failure rates.
+
+### Known follow-ups (consolidated tracker)
+
+All tracked, none urgent. Mike decides when/whether to action.
+
+1. **`use_container_width` deprecation sweep** (from 2026-05-12 add_vline fix entry above). ~40 warnings per page render; mechanical sweep.
+2. **Dashboard pytest coverage via `streamlit.testing.v1.AppTest`** (from same prior entry). Sample fixture: Larger Universe v1 contract artifacts in-repo.
+3. **`attempted_trials` enhancement to `tuning_summary.json`** (this entry, item 2 above). Surfaces failed-trial count alongside COMPLETE count in the narrative.
+4. **Convergence-pattern methodology memo** (this entry, item 1 above). Pending a third Optuna data point.
+
+After this merge, the Larger Universe v1 dashboard is functionally complete with parity-plus to legacy. Phase 5 closure plus this enhancement land the full deliverable.
