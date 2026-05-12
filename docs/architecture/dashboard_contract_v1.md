@@ -72,6 +72,8 @@ models/studies/<study_name>/
 │   ├── trades.parquet                 (required)
 │   ├── scores.parquet                 (optional; required for ML studies)
 │   ├── trial_log.parquet              (optional; required for tuned studies)
+│   ├── tuning_convergence.parquet     (optional; recommended for tuned studies)
+│   ├── tuning_summary.json            (optional; recommended for tuned studies)
 │   ├── feature_importance.parquet     (optional; required for ML studies)
 │   ├── walk_forward.parquet           (optional; rendered if present)
 │   └── regime_attribution.parquet     (optional; rendered if present)
@@ -267,6 +269,58 @@ Optuna trial-by-trial log in tabular form. One row per trial per tuning study (X
 | `param_<name>` | float64/int/string | varies | one column per hyperparameter searched |
 
 Used by Tuning History tab. Replaces the SQLite Optuna integration for contract-conformant studies.
+
+### tuning_convergence.parquet (optional; recommended for tuned studies)
+
+Per-trial running-best convergence trace. One row per trial per tuning study. Derivable from `trial_log.parquet` but pre-computed at study time so the dashboard renders without re-deriving on every page load.
+
+| Column | Type | Required | Notes |
+|---|---|---|---|
+| `model` | string | yes | matches the names declared in `meta.json.models[].name` (renamed from `trial_log.tuning_study` to align with the cross-artifact `model` convention) |
+| `trial_number` | int32 | yes | 0-indexed |
+| `score` | float64 | yes | the trial's CV objective score (NaN for non-COMPLETE trials) |
+| `running_best_score` | float64 | yes | max score seen up to and including this trial |
+| `best_so_far_trial` | int32 | yes | trial number that achieved the current running best |
+| `ms_since_start` | int64 | yes | cumulative wall-clock from trial 0 to this trial's completion, in milliseconds (`duration_s.cumsum() * 1000`) |
+
+Used by Tuning tab's convergence-curve section. Skipping non-COMPLETE trials when computing running-best is the recommended convention so the curve reflects the optimizer's actual best-known state.
+
+### tuning_summary.json (optional; recommended for tuned studies)
+
+Per-model tuning summary — single JSON object keyed by model name. Headline numbers the Tuning tab's narrative summary box quotes directly.
+
+```json
+{
+  "<model_name>": {
+    "total_trials": 200,
+    "winning_trial": 150,
+    "winning_score": 0.0282,
+    "mean_score": 0.0213,
+    "std_score": 0.0055,
+    "winner_zscore": 1.26,
+    "trials_to_95pct_winning": 18,
+    "pct_trials_to_plateau": 0.09
+  },
+  ...
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `total_trials` | int | yes | count of COMPLETE trials in the model's tuning study |
+| `winning_trial` | int | yes | trial number with max score |
+| `winning_score` | float | yes | max score |
+| `mean_score` | float | yes | mean across COMPLETE trials |
+| `std_score` | float | yes | sample std across COMPLETE trials (`ddof=1`) |
+| `winner_zscore` | float | yes | `(winning_score - mean_score) / std_score`; NaN if `std_score == 0` |
+| `trials_to_95pct_winning` | int | yes | first trial number where `running_best >= 0.95 * winning_score`; convergence-plateau measurement |
+| `pct_trials_to_plateau` | float | yes | `trials_to_95pct_winning / total_trials`; convenient for narrative copy |
+
+Used by Tuning tab's narrative summary box. The narrative format reads:
+
+> The optimizer tested {total_trials} configurations for {model_name}. The winner was Trial #{winning_trial} with score {winning_score}. 95% of the winning score was reached after about {pct_trials_to_plateau:.0%} of the trials — the curve plateaus early, then refinement happens at the margin. Optuna is search, not proof.
+
+**Schema versioning note.** Both `tuning_convergence.parquet` and `tuning_summary.json` are **additive v1 changes** — the contract `schema_version` stays at `"v1"`. Dashboards must treat both files as optional and render the prior `trial_log`-only Tuning view (with a graceful "convergence data not pre-computed" caption) when they're absent. Future studies should produce them as part of Phase 3; Larger Universe v1 receives them via a one-time back-fill from `trial_log.parquet`.
 
 ### feature_importance.parquet (optional; required for ML studies)
 
