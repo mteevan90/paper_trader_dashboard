@@ -1282,3 +1282,17 @@ Top-to-bottom in the Walk-forward tab:
 ### Note on branch sequencing
 
 This branch is off `main` per Mike's spec, NOT off `feat/dashboard-overview-merge-and-terminology`. The two branches modify different parts of `src/dashboard_app.py` (Overview-merge changes `tab_contract_overview` + `main_contract()` + terminology; this branch only changes `tab_contract_walk_forward`), so a clean merge to main should be possible in either order. If Mike merges Overview-merge first, this branch's eventual merge will land cleanly. If this lands first, Overview-merge's eventual merge will land cleanly. The reverse-conflict risk is low.
+
+### Standing follow-up added
+
+The standing-follow-ups list (tracked across earlier entries) gains one item from this branch's work, per Mike's instruction:
+
+5. **Synthetic compounded growth curve on Walk-forward tab — revisit prune decision after partner review.** Cut if partners find the synthetic-vs-actual framing confusing; keep if it adds analytical value in their reading. The other three views on the Walk-forward tab (summary stats panel, regime-annotated bar chart, full data table) are kept unconditionally; only the synthetic compounded growth curve is up for prune review.
+
+Full standing-follow-up list as of this entry (no order, none urgent):
+
+1. `use_container_width` deprecation sweep
+2. Dashboard pytest coverage via `streamlit.testing.v1.AppTest`
+3. `attempted_trials` enhancement to `tuning_summary.json`
+4. Convergence-pattern methodology memo (pending third Optuna data point)
+5. Synthetic compounded growth curve prune review (above)
