@@ -1191,3 +1191,28 @@ All tracked, none urgent.
 2. Dashboard pytest coverage via `streamlit.testing.v1.AppTest`
 3. `attempted_trials` enhancement to `tuning_summary.json`
 4. Convergence-pattern methodology memo (pending third Optuna data point)
+
+## 2026-05-12 — Merge sanity-check memo to main; Larger Universe v1 chapter closes
+
+Memo merge to main completed at 2026-05-12T14:24:53-04:00. Merge commit SHA: `19f30f19817bb396c8f593073d5d95ec20f74607`. The memo lives on `main` at `docs/architecture/sanity_check_methodology_v1.md`.
+
+- Merge type: `--no-ff` merge commit, memo-branch commit preserved.
+- Branch `feat/sanity-check-methodology-memo` preserved for traceability (not deleted).
+- Tracker NOT updated — derived methodology artifact from a closed study.
+
+### Full closure set — Larger Universe v1
+
+The chapter closes with the following landed artifacts on `main`:
+
+1. **Study data and infrastructure** — `models/snapshots/equities/larger_universe_v1_20260511/` snapshot; feature, fundamentals, macro pipelines; survivorship-bias mitigation. Branch `feat/larger-universe-v1-study` preserved.
+2. **Study results** — `docs/studies/larger_universe_v1/results.md` writeup with six embedded figures, the DBD case study, the success-criteria pass/fail table, and the forward-looking findings. Dashboard rendering at the Contract-conformant route.
+3. **Architectural memo on CV objectives** — `docs/architecture/ml_study_cv_objectives_v1.md`. Top-quintile Spearman IC recommended for top-N portfolio strategies; dual-reporting required.
+4. **Architectural memo on sanity-check methodology** — `docs/architecture/sanity_check_methodology_v1.md` (this merge). On-demand sanity checks triggered by strong claims; discipline guardrail against confirmation bias.
+5. **Dashboard contract v1 with universal tabs** — `docs/architecture/dashboard_contract_v1.md` plus `src/dashboard_app.py` Phase 4.5 contract-conformant tabs (Overview, Performance, Holdings, Trades, Alpha Attribution, Diagnostics, Walk-forward, Tuning). Plus `tuning_convergence.parquet` + `tuning_summary.json` additive v1 extensions.
+6. **Post-merge dashboard fixes** — Plotly `add_vline` ms-since-epoch pattern (commit `727bc0d` merge), Tuning-tab parity enhancements (commit `b486e65` merge), primary-model defaulting across all 5 contract-tab selectors (commit `235c8a6` merge).
+
+### Closing note
+
+No follow-up tasks authorized in this session. The standing follow-up list (`use_container_width` sweep, AppTest coverage, `attempted_trials` enhancement, convergence-pattern memo pending third data point) remains tracked here for future-Mike. v2 study scoping, a new project workstream, or partner feedback will be the next genuinely study-level milestones; tracker updates wait for those.
+
+Larger Universe v1 chapter closes.
