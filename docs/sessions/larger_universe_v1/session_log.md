@@ -9,7 +9,7 @@ Summary of work that preceded this log (sessions before 2026-05-11 evening). Cap
 - **Larger Universe v1 snapshot creation.** Mike subscribed to Finnhub Basic ($49.99/mo, 150 req/min for candles, 60 req/min for fundamentals, 10y daily OHLC). Built a 2,122-ticker universe via Wikipedia S&P 500 + 400 + 600 component-change tables (current actives + last-decade removed names) with SEC CIK disambiguation for ticker-reuse. Snapshot at `models/snapshots/equities/larger_universe_v1_20260511/`. Coverage: 92.5% prices, 90.4% fundamentals. `earnings_dates` dropped per yfinance sanity-gate fire at 23.6% — Finnhub Basic is forward-only for earnings.
 - **Truncation bug found and fixed during smoke.** The OTC-tail-truncation clip applied to the returned DataFrame but not the on-disk parquet — SIVB/BBBY/SBNY/FRC cache files contained months-to-years of post-bankruptcy pink-sheet candles. Fixed cache-side (clip-before-write); added 5 regression tests in `tests/equities/test_finnhub_fetcher.py`; re-fetched the affected tickers and verified on disk. All four OTC-tail cases now end at or before their Wikipedia removed_at date.
 - **Polygon piggyback analysis marked OBSOLETE in tracker.** Chris's Polygon subscription is options-only with 2-year history; cannot be repurposed for stocks. Tracker Section 3 superseded by Finnhub Basic. Tracker Appendix A updated to reference both equity snapshots (legacy `pre_v2_20260505` and new `larger_universe_v1_20260511`).
-- **Larger Universe v1 study spec locked.** XGBoost primary + ElasticNet sanity check, objective = excess CAGR vs SPY. Constraints: 7.5% max single position, 30% sector cap, 95-100% invested (long-only). Weekly rebalance with 1.5pp threshold-based execution. Train 2017-05-12 → 2023-05-11 (revised from 2016-05-12 at Phase 1 gate), test 2023-05-12 → 2025-12-31, OOS holdout 2026-01-01 onward. Four benchmarks (SPY, RSP, IWM, equal-weight SP1500). FeeModel matches the three promoted studies: 0.05% flat per trade leg (frequency-agnostic).
+- **Larger Universe v1 study spec locked.** XGBoost primary + ElasticNet sanity check, objective = excess CAGR vs SPY. Constraints: 7.5% max single position, 30% sector cap, 95-100% invested (long-only). Weekly rebalance with 1.5pp threshold-based execution. Train 2017-05-12 → 2023-05-11 (revised from 2016-05-12 at Phase 1 gate), test 2023-05-12 → 2025-12-31, reserved-validation holdout 2026-01-01 onward. Four benchmarks (SPY, RSP, IWM, equal-weight SP1500). FeeModel matches the three promoted studies: 0.05% flat per trade leg (frequency-agnostic).
 - **Phase 1 pre-work surfaced five issues; resolutions captured in this log.** Phase 1 entry below documents the design decisions executed at the gate.
 
 ## 2026-05-11 — Phase 1: feature engineering pipeline
@@ -58,13 +58,13 @@ After the first Phase 1 build completed, the coverage report surfaced four addit
 
 1. **`hy_spread` (FRED `BAMLH0A0HYM2`) only serves 2023+ data.** 27.9% coverage in the full matrix. **DROPPED** from features. `baa_spread` (BAA10Y, 100% coverage) is the credit-spread feature for Phase 2.
 
-2. **Training window:** spec said 2016-05-12, but long-lookback features (252d return, 200d MA) need ~1y warmup. **Trimmed to 2017-05-12 → 2023-05-11** (6 years). Test and OOS unchanged. Implemented at modeling time, not at feature-matrix time; `features.parquet` retains the full 2016-05-12 → 2026-05-11 range for completeness.
+2. **Training window:** spec said 2016-05-12, but long-lookback features (252d return, 200d MA) need ~1y warmup. **Trimmed to 2017-05-12 → 2023-05-11** (6 years). Test and reserved-validation windows unchanged. Implemented at modeling time, not at feature-matrix time; `features.parquet` retains the full 2016-05-12 → 2026-05-11 range for completeness.
 
 3. **`sector_unknown` handling:** confirmed treated as a single normal sector by both XGBoost (native categorical) and ElasticNet (one-hot column). 30% sector concentration cap (Phase 4) treats it as one bucket — collective cap, no within-bucket limit.
 
 4. **Static `dividend_yield` and `beta` were a look-ahead bias.** Initial build sourced these from the current `fundamentals.json` snapshot. **Replaced with PIT computations** in commit `1ea6667`:
    - `dividend_yield(D, T) = sum(amount for ex_date in (D-365, D]) / close(D, T)` from `/stock/dividend2` (1,391 of 2,122 tickers had history; 731 are non-payers and get 0, not NaN). Coverage 100%.
-   - `beta(D, T) = cov(ret_T, ret_SPY) / var(ret_SPY)` over rolling 756 trading days. Coverage 63% in train, 96.7% in test, 97.8% in OOS. The 63% in train is because per-ticker snapshot prices start 2016-05-12, so the rolling 756-day window cannot fill until ~2019-05-12. Per Mike's directive ("leave NaN and let XGBoost handle it"), we accept the NaN and let XGBoost route observations through its missing-value handling.
+   - `beta(D, T) = cov(ret_T, ret_SPY) / var(ret_SPY)` over rolling 756 trading days. Coverage 63% in train, 96.7% in test, 97.8% in reserved validation. The 63% in train is because per-ticker snapshot prices start 2016-05-12, so the rolling 756-day window cannot fill until ~2019-05-12. Per Mike's directive ("leave NaN and let XGBoost handle it"), we accept the NaN and let XGBoost route observations through its missing-value handling.
 
 5. **Snapshot README:** added an architectural note explaining that historical fundamentals live in the raw cache at `models/cache/equities/finnhub/metrics/<SYM>.json` (not in the snapshot's `fundamentals.json` which is current-only by design). Data files unchanged.
 
@@ -136,7 +136,7 @@ Standing process rule from this gate forward: at each phase gate, (1) commit Pha
 Training scaffolding for two parallel pipelines on identical features and identical folds:
 
 - `src/equities/study/labels.py` — forward 5-trading-day return label per (date, ticker), matching the weekly rebalance cadence
-- `src/equities/study/cv.py` — 5-fold expanding-window TimeSeriesSplit over 2017-05-12 → 2023-05-11 with a 5-trading-day embargo (= label horizon, prevents the leakage between training rows whose labels reference prices inside the validation window). Date-window filters for train/test/OOS also live here so Phase 4 can reuse them without re-deriving constants.
+- `src/equities/study/cv.py` — 5-fold expanding-window TimeSeriesSplit over 2017-05-12 → 2023-05-11 with a 5-trading-day embargo (= label horizon, prevents the leakage between training rows whose labels reference prices inside the validation window). Date-window filters for train/test/reserved-validation also live here so Phase 4 can reuse them without re-deriving constants.
 - `src/equities/study/training.py` — single-fold trainers for XGBoost (native NaN + categorical sector) and ElasticNet (SimpleImputer with add_indicator + StandardScaler + ElasticNet pipeline, sector one-hot encoded). Plus `cv_score` driver that runs a hyperparameter combo across all folds and returns mean Spearman IC.
 - `scripts/research/smoke_phase2.py` — 10-trial smoke runner per model
 
@@ -358,7 +358,7 @@ Reasoning summary: monthly rebalance + monthly label is internally consistent (t
 | CV embargo | 5 days | **21 days** (= label horizon) |
 | Execution attribution | (unspecified) | **Close-to-close at next trading day after rebalance** |
 
-Everything else unchanged: train/test/OOS splits, 5-fold expanding-window CV, XGBoost primary + ElasticNet sanity, 7.5% position cap, 30% sector cap, four benchmarks, 0.05% flat FeeModel, score-weighted continuous sizing, long-only.
+Everything else unchanged: train/test/reserved-validation splits, 5-fold expanding-window CV, XGBoost primary + ElasticNet sanity, 7.5% position cap, 30% sector cap, four benchmarks, 0.05% flat FeeModel, score-weighted continuous sizing, long-only.
 
 Canonical spec doc at `docs/studies/larger_universe_v1/spec.md` (newly created).
 
@@ -632,7 +632,7 @@ A proposal-only deliverable at `docs/architecture/dashboard_contract_v1.md` (~40
 2. Confirm the modified Phase 4 spec
 3. Run Phase 4 (produces contract-conformant artifacts)
 4. Phase 4.5 — implement the new universal dashboard tabs
-5. Phase 5 — walk-forward + OOS; auto-appears on the new dashboard via the same contract location
+5. Phase 5 — walk-forward + reserved validation; auto-appears on the new dashboard via the same contract location
 
 ## 2026-05-12 (mid-morning) — Contract approved + Phase 4 spec drafted
 
@@ -671,7 +671,7 @@ Spec includes:
 - Backtest execution flow (monthly rebalance loop with forced-exit on delisting)
 - Benchmark construction (SPY/RSP/IWM via Finnhub fetch; EW-SP1500 custom monthly-rebalanced equal-weight)
 - Estimated wall-clock: ~35-50 minutes (no backgrounding needed; most compute happened in Phase 3)
-- 5 open items for Mike's review (softmax T=0.1, EW-SP1500 active-on-date definition, SHAP sample size, forced-exit accounting, OOS slice handling)
+- 5 open items for Mike's review (softmax T=0.1, EW-SP1500 active-on-date definition, SHAP sample size, forced-exit accounting, reserved-validation slice handling)
 
 ### What this turn did NOT do
 
@@ -698,7 +698,7 @@ The modified Phase 4 spec at `docs/studies/larger_universe_v1/phase4_spec.md`. F
 2. **EW-SP1500 active-on-date**: `status=="active"` OR (`status=="removed"` AND `removed_at > D`). Includes historically-active-but-since-delisted in their active periods. Confirmed.
 3. **SHAP feature importance with gain fallback**: ran cleanly in 9.8s on 10K sample via `xgboost.Booster.predict(pred_contribs=True)`. `meta.json.feature_importance_method = "shap_tree"`.
 4. **Forced-exit accounting**: ticker delists mid-month → close at delisting-day close, weight → cash until next rebalance. 58 forced exits for XGB, 41 for ENet in trades.parquet (rows with `reason="delisting_truncation"`).
-5. **OOS slice handling**: Phase 4 produces NAV through snapshot end. Phase 5 evaluates OOS separately. Explicit date ranges in `meta.json.windows`.
+5. **Reserved-validation slice handling**: Phase 4 produces NAV through snapshot end. Phase 5 evaluates the reserved-validation slice separately. Explicit date ranges in `meta.json.windows`.
 
 ### Headline results
 
@@ -709,14 +709,14 @@ The modified Phase 4 spec at `docs/studies/larger_universe_v1/phase4_spec.md`. F
 | **XGBoost** (primary) | **+78.3%** | **+25.14%** | **+3.52pp** | **−33.5%** | −19.0% |
 | **ElasticNet** (sanity) | **+150.9%** | **+42.85%** | **+21.23pp** | **−37.5%** | −19.0% |
 
-**OOS slice (2026-01-01 → 2026-05-11, 89 trading days):**
+**Reserved validation slice (2026-01-01 → 2026-05-11, 89 trading days):**
 
 | Model | Total return | CAGR (annualized) | Excess vs SPY | Max DD | SPY Max DD |
 |---|---|---|---|---|---|
 | XGBoost | +16.1% | +52.6% | +27.6pp | −12.2% | −9.1% |
 | ElasticNet | +59.7% | +276.7% | +251.6pp | −9.8% | −9.1% |
 
-OOS CAGRs are statistically thin (only ~4 months) — the annualization extrapolation makes them eye-popping but the absolute returns and drawdowns are the meaningful numbers there.
+Reserved-validation CAGRs are statistically thin (only ~4 months) — the annualization extrapolation makes them eye-popping but the absolute returns and drawdowns are the meaningful numbers there.
 
 ### Success criteria check (preliminary — full evaluation in Phase 5)
 
@@ -776,7 +776,7 @@ ENet's 81% repeat-rate on DBD (Diebold Nixdorf) is notable — single-name depen
 - Regime attribution (Phase 5)
 - Per-ticker alpha attribution / 25% constraint check (Phase 5)
 - 12-month rolling win rate check (Phase 5)
-- Final OOS reporting / disclaimers (Phase 5)
+- Final reserved-validation reporting / disclaimers (Phase 5)
 - Tracker update (next natural is Phase 4.5 transition per Mike's standing rule)
 - Dashboard code modifications (Phase 4.5)
 - Promotion decision
@@ -829,7 +829,7 @@ Both models produce positive excess CAGR in 4/6 (XGB) or 5/6 (ENet) windows. Str
 | XGBoost | **−0.009** | **+0.048** | **+0.057** |
 | ElasticNet | +0.040 | +0.052 | +0.012 |
 
-XGBoost has **negative full-cross-section IC but positive top-quintile IC** — actively wrong on the whole cross-section but correct in the top 20%. Phase 3's +0.028 in-fold IC was in-sample optimism; the held-out Phase 4 test+OOS shows full-IC is essentially noise.
+XGBoost has **negative full-cross-section IC but positive top-quintile IC** — actively wrong on the whole cross-section but correct in the top 20%. Phase 3's +0.028 in-fold IC was in-sample optimism; the held-out Phase 4 combined test + reserved-validation window shows full-IC is essentially noise.
 
 **Methodology insight:** for top-N portfolio strategies, full-cross-section Spearman IC is the wrong optimization target. Future studies should optimize for top-quintile IC or decile spread.
 
@@ -892,8 +892,8 @@ Awaiting Mike's review of the validation findings before drafting the writeup na
 4. **`scripts/research/phase5_generate_figures.py`** + 6 PNGs under `docs/studies/larger_universe_v1/figures/`: equity_curves, year_by_year, decile_returns, alpha_attribution, walk_forward, ic_decomposition. Static figures for the writeup; dashboard does its own interactive rendering.
 
 5. **Phase 4.5 dashboard work** — `src/dashboard_app.py`. Added a sidebar separator radio "Study type: Legacy (Optuna v1) / Contract-conformant (v1+)" with Legacy as default (existing workflows untouched). The Contract-conformant branch renders 8 universal tabs from `models/studies/<name>/contract_v1/` artifacts:
-   - **Overview**: meta.json display, headline test/OOS metrics per model, success-criteria-relevant concentration check (top-contributor + ≤25% pass/fail), repeat-holding profile (max single-ticker weight, max sector weight, top-5 repeat holdings), objective + construction summary
-   - **Performance**: NAV vs benchmarks Plotly chart with OOS-start marker
+   - **Overview**: meta.json display, headline test / reserved-validation metrics per model, success-criteria-relevant concentration check (top-contributor + ≤25% pass/fail), repeat-holding profile (max single-ticker weight, max sector weight, top-5 repeat holdings), objective + construction summary
+   - **Performance**: NAV vs benchmarks Plotly chart with reserved-validation-start marker
    - **Holdings**: model + rebalance-date selector → positions table
    - **Trades**: model selector → round-trip trades table
    - **Alpha Attribution**: model selector → horizontal-bar top-25 contributors with 25% constraint line
@@ -1216,3 +1216,103 @@ The chapter closes with the following landed artifacts on `main`:
 No follow-up tasks authorized in this session. The standing follow-up list (`use_container_width` sweep, AppTest coverage, `attempted_trials` enhancement, convergence-pattern memo pending third data point) remains tracked here for future-Mike. v2 study scoping, a new project workstream, or partner feedback will be the next genuinely study-level milestones; tracker updates wait for those.
 
 Larger Universe v1 chapter closes.
+
+## 2026-05-12 — Overview-merge + terminology cleanup
+
+Branch: `feat/dashboard-overview-merge-and-terminology` off `main`. Two coupled changes plus a docs sweep; pre-merge, awaiting Mike's review.
+
+### Change 1 — Collapse Performance tab into Overview (8 → 7 tabs)
+
+The Performance tab held only the Strategy NAV vs Benchmarks chart. Moved that chart into Overview, positioned directly under the date-range header and above Headline Metrics — giving visual context for the metrics that follow. Removed `tab_contract_performance` entirely and re-indexed `main_contract()`'s `st.tabs([…])` list and dispatch block from 8 tabs to 7.
+
+Realized tab order after this change: **Overview, Holdings, Trades, Alpha Attribution, Diagnostics, Walk-forward, Tuning.**
+
+### Change 2 — "OOS" → "Reserved validation period" across human-facing artifacts
+
+Replaces the OOS jargon with partner-readable phrasing wherever a non-developer reads the term. The phrase "out-of-sample" remains correct when the surrounding context distinguishes model-level out-of-sample from analyst-level analysis discretion; the new explanatory note on Overview uses it deliberately for that contrast.
+
+UI changes in `src/dashboard_app.py`:
+- Vertical-line annotation on the NAV chart: `"OOS start"` → `"Reserved validation period →"`
+- Date-range header column 3: `"OOS window"` → `"Reserved validation window"`
+- Headline-metrics section label: `"OOS slice"` → `"RESERVED VALIDATION slice"`
+- Concentration check caption: `"test+OOS window"` → `"combined test + reserved-validation window"`
+- New explanatory paragraph at the bottom of Overview describing what the reserved validation period means and why it matters.
+
+Documentation updates (human-facing prose only):
+- `docs/studies/larger_universe_v1/results.md` — 3 occurrences updated
+- `docs/architecture/ml_study_cv_objectives_v1.md` — 1 occurrence updated
+- `docs/architecture/dashboard_contract_v1.md` — narrative updated; **schema field names unchanged**; new "Terminology convention" section documents the schema-vs-UI distinction; tab structure section rewritten to reflect the realized 7-tab Overview-led structure
+- `docs/architecture/sanity_check_methodology_v1.md` — no occurrences, unchanged
+- This session log file — historical narrative entries updated, no direct quotes from prior outputs were rewritten
+
+The remaining `OOS` reference in `dashboard_contract_v1.md` is deliberate: the terminology-convention section quotes "OOS" as the term being replaced. Diagnostic and spec docs (`larger_universe_v1_features.md`, `larger_universe_v1_cv_design.md`, `spec.md`, `phase4_spec.md`) were not in the listed sweep scope and remain unchanged as historical record of locked planning artifacts.
+
+### Schema fields unchanged (deliberate)
+
+- `meta.json.windows.oos_start` and `oos_end` retain their names
+- Python code variables like `oos_start` and `oos_ms` retain their names
+- `summary_metrics.oos` block name unchanged
+- The contract spec's terminology section formalizes this: schema field names are short, technical, and developer-facing; UI labels are partner-facing. Renaming the schema would lengthen field names and break compatibility with already-shipped artifacts (Larger Universe v1's contract_v1 directory).
+
+### Smoke-test
+
+Streamlit AppTest harness, same pattern as prior fixes:
+- 7 tab labels render in order (`Overview, Holdings, Trades, Alpha Attribution, Diagnostics, Walk-forward, Tuning`).
+- `Performance` tab confirmed absent.
+- All 5 model selectors continue to default to `xgboost`.
+- "Reserved validation window" appears in the date-range header.
+- The explanatory note about analyst-level selection bias renders on Overview.
+- "RESERVED VALIDATION slice" appears in Headline Metrics.
+- Concentration caption uses the new phrasing.
+- 0 exceptions across initial render and the Contract-conformant switch.
+
+### Branch + commit
+
+- **Branch**: `feat/dashboard-overview-merge-and-terminology` (off `main`)
+- **Commit SHA**: (filled at commit time)
+- **Push**: yes; not auto-merged — awaiting Mike's review.
+- **Tracker**: NOT updated — dashboard UX + terminology cleanup, not a study-level event.
+
+### Standing follow-ups (unchanged)
+
+All tracked, none urgent.
+
+1. `use_container_width` deprecation sweep
+2. Dashboard pytest coverage via `streamlit.testing.v1.AppTest`
+3. `attempted_trials` enhancement to `tuning_summary.json`
+4. Convergence-pattern methodology memo (pending third Optuna data point)
+
+### Additions on this branch (per post-review request)
+
+After the initial review of Change 1 + Change 2, Mike confirmed both judgment calls (preserve locked planning artifacts; preserve the self-referential "OOS" quote in the contract spec's rationale) and added two follow-ups to land on the same branch.
+
+#### Addition 1 — `docs/architecture/dashboard_operations_v1.md`
+
+A "how to work on the dashboard" reference doc. Part tutorial, part architecture overview. Adapts the architectural-memo shape (TL;DR + sections + caveats) for an operations reference rather than a methodology finding.
+
+Sections covered:
+- Architecture overview — two parallel worlds (legacy vs contract-conformant), auto-discovery, cached loaders, the `_default_model_index` helper convention.
+- The data contract as the canonical input spec — the schema-vs-UI distinction formalized in `dashboard_contract_v1.md`.
+- How studies feed the dashboard — no registration step, drop artifacts at `models/studies/<name>/contract_v1/`, the dashboard auto-discovers.
+- **Four recipes** — fix a render bug; add a chart to an existing tab; add a new optional contract artifact + section; add a whole new tab. Each grounded in concrete examples from this project's history.
+- Process rules — feature branches, AppTest smoke-tests, session-log entries for material changes, tracker updates only at natural stable points.
+- Caveats — reliability + scope split, matching the memo convention.
+- Sourced from — links to the contract spec, both methodology memos, the session log, and the implementation.
+
+Concrete examples cited inline:
+- `feat/dashboard-add-vline-fix` — Plotly 6.7 + pandas 3.0 datetime annotation bug; ms-since-epoch workaround. Used to illustrate recipe 1 (fix a render bug) and the institutional-knowledge entry about Streamlit cascade failure.
+- `feat/dashboard-primary-model-default` — role-aware model selector defaults. Used to illustrate the `_default_model_index` convention.
+- `feat/contract-tuning-enhancements` — `tuning_convergence.parquet` + `tuning_summary.json` additive change. Used as the worked example for recipe 3 (add a new optional contract artifact + section), with the back-fill script convention.
+- `feat/dashboard-overview-merge-and-terminology` — this branch's work. Used to illustrate the "tab merge vs new tab" sizing question and the terminology-convention payoff.
+
+#### Addition 2 — Project_State_Tracker.docx update
+
+Additive insertion of a new H1 section "Post-LU-v1 dashboard refinements — 2026-05-12" between the existing LU-v1 closure section (paragraph 17) and the "1. Top 5 Most Important Findings" section (which moves from paragraph 46 to 78 after the insert).
+
+Content: new 7-tab structure with brief tab-by-tab descriptions, terminology convention with schema-fields-vs-UI-labels distinction, new architectural reference pointer, standing follow-ups list (unchanged), merge SHAs for traceability (727bc0d, b486e65, 235c8a6, plus this branch's merge SHA to be added post-merge).
+
+The update qualifies as a natural stable point per the standing rule: a structural change to dashboard semantics (7-tab + terminology) plus a new operations doc is more than routine fixing. Generated via `scripts/maintenance/update_tracker_post_lu_v1_dashboard.py` following the same pattern as `update_tracker_phase5.py`.
+
+#### Smoke-test (post-additions)
+
+Re-ran AppTest after the additions to confirm nothing accidentally broke. Operations doc shouldn't affect rendering (markdown file, never read by the dashboard) — verified. Tracker update is `.docx` only — not read by the dashboard. All previously-validated assertions still pass: 7 tabs in order, Performance absent, all 5 selectors default to xgboost, new UI labels render, 0 exceptions.
