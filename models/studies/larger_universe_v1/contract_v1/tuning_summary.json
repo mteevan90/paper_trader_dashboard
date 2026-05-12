@@ -1,0 +1,22 @@
+{
+  "elasticnet": {
+    "total_trials": 14,
+    "winning_trial": 93,
+    "winning_score": 0.014366624586357808,
+    "mean_score": 0.007051706241485821,
+    "std_score": 0.020903302651911003,
+    "winner_zscore": 0.34994079484388313,
+    "trials_to_95pct_winning": 2,
+    "pct_trials_to_plateau": 0.21428571428571427
+  },
+  "xgboost": {
+    "total_trials": 200,
+    "winning_trial": 142,
+    "winning_score": 0.028232284528850272,
+    "mean_score": 0.02126116197623904,
+    "std_score": 0.005495709301895809,
+    "winner_zscore": 1.268466392537622,
+    "trials_to_95pct_winning": 121,
+    "pct_trials_to_plateau": 0.61
+  }
+}
