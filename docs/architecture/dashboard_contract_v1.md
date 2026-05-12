@@ -1,6 +1,6 @@
 # Dashboard contract v1 — design proposal
 
-**Status:** PROPOSAL (2026-05-12). Awaiting Mike + partners' review before implementation.
+**Status:** APPROVED 2026-05-12. Six review questions resolved (see "Decisions" section). Larger Universe v1 Phase 4 spec to be modified to produce contract-conformant artifacts; spec at `docs/studies/larger_universe_v1/phase4_spec.md`.
 **Scope:** Define the universal data contract that contract-conformant studies write, and the dashboard tab structure that renders them. Larger Universe v1 is the first study under this contract; future studies use the same contract; the three promoted legacy studies stay on their existing tabs unchanged.
 **Branch:** `feat/larger-universe-v1-study`
 
@@ -165,19 +165,30 @@ Single JSON file with the study's identity, family classification, and headline 
 
 ### portfolio.parquet (required)
 
-NAV time series for the backtest, with benchmarks alongside. One row per trading day per model.
+Strategy NAV time series, **long format** on model — one row per (date, model). The wide-with-benchmark-columns variant was rejected in review; benchmarks live in their own file (below) so portfolio.parquet stays clean per-model and additional benchmarks don't require schema changes.
 
 | Column | Type | Required | Notes |
 |---|---|---|---|
 | `date` | datetime64[ns] | yes | daily, sorted ascending |
 | `model` | string | yes | model identifier matching `meta.json.models[].name` |
-| `nav` | float64 | yes | normalized to 1.0 at start |
+| `nav` | float64 | yes | normalized to 1.0 at start of evaluation window |
 | `cash_pct` | float64 | yes | fraction in cash on this date |
 | `n_positions` | int32 | yes | count of open positions |
 | `gross_exposure` | float64 | yes | total long exposure as fraction of portfolio |
-| `nav_SPY`, `nav_RSP`, `nav_IWM`, `nav_<EW-SP1500>` | float64 | yes | benchmark NAV starting from 1.0 on the study's start date |
 
-For studies with multiple models (e.g., Larger Universe v1 has XGB and ENet), each model gets its own rows. The dashboard renders one model at a time selected via the sidebar; "compare models" overlay is a future enhancement.
+For studies with multiple models (e.g., Larger Universe v1 has XGB primary + ENet sanity), each model gets its own rows. The dashboard renders the `meta.json.models[].role == "primary"` model by default; other models reachable via a sidebar dropdown.
+
+### benchmarks.parquet (required)
+
+Benchmark NAV time series, long format on benchmark.
+
+| Column | Type | Required | Notes |
+|---|---|---|---|
+| `date` | datetime64[ns] | yes | daily, sorted ascending; aligned with portfolio.parquet dates |
+| `benchmark` | string | yes | matches one of `meta.json.benchmarks` entries |
+| `nav` | float64 | yes | normalized to 1.0 at start of evaluation window (same as portfolio.parquet) |
+
+The dashboard strictly renders only the benchmarks listed in `meta.json.benchmarks`. No auto-add of SPY or any default.
 
 ### holdings.parquet (required)
 
@@ -225,6 +236,8 @@ Per-(date, model, ticker) model predictions, with realized labels attached for r
 | `target_realized` | float64 | no | actual realized forward return (for retrospective IC); null until the realization window passes |
 
 Used by Model Diagnostics tab to plot IC over time, rank-stability, and prediction-vs-realized scatter.
+
+**Size cap.** Soft default of 1M rows. When `scores.parquet` exceeds 1M rows, the study MUST also write `scores_sampled.parquet` with the same schema but only every Nth rebalance date (sampling rule documented in `meta.json.notes`). The dashboard reads `scores_sampled.parquet` if present and falls back to `scores.parquet` otherwise. Larger Universe v1 produces ~120K rows (~32 monthly rebalances × ~1,900 tickers × 2 models) and stays well under the cap; future daily-rebalance studies will need the sampled variant.
 
 ### trial_log.parquet (optional; required for tuned studies)
 
@@ -338,13 +351,21 @@ Deliberately excluded to keep the contract narrow:
 - **Comparative tabs across studies** — "compare Larger Universe v1 vs regime_dependent_v1 on the same period" is a separate feature. v1 contract renders one study at a time.
 - **Live alerts / monitoring** — out of scope.
 
-## Open questions for review
+## Decisions (resolved 2026-05-12)
 
-1. **`scores.parquet` size.** Larger Universe v1 will produce ~32 monthly rebalance dates × ~1,900 tickers × 2 models = ~120K rows. Manageable in parquet. But for daily-rebalance future studies × 10y × multiple models, could grow to millions of rows. Worth a soft size cap (e.g., 100MB per file) and a "sampling" alternative for high-frequency studies?
-2. **`benchmarks` declaration.** The contract requires `meta.json.benchmarks` list. Should the dashboard auto-add SPY if missing? Or be strict that the study declares its benchmarks explicitly?
-3. **`promoted` flag.** Should contract-conformant studies use the same `meta.json.promoted: true/false` semantics as the legacy `dashboard_results/<label>/meta.json`? Probably yes for consistency with the existing snapshot_for_cloud.py promotion-vs-experimental rendering, but worth confirming.
-4. **What goes in the "Holdings" tab for non-current-position studies** — for a backtest that doesn't have "current holdings" (just historical), the tab shows the most recent date's holdings. Should there be a date-picker, or always-show-latest? Mike has a preference?
-5. **Model Diagnostics tab for non-ML studies** — render a placeholder vs hide the tab? Placeholder is recommended for visual consistency, but happy to flip if preferred.
-6. **Optional `model_role` column in portfolio.parquet** — for studies with multiple models, should "primary" be the default render and "sanity_check" require explicit selection? Probably yes — primary is the headline.
+The six review questions are answered. The decisions are now part of the contract.
 
-Awaiting Mike + partners' review. Will not implement anything until the proposal is approved or iterated.
+1. **`scores.parquet` size cap: 1M rows.** Studies producing more must also write `scores_sampled.parquet` (every Nth rebalance) per the rule documented under that file's schema. Dashboard prefers the sampled variant when present. Larger Universe v1 stays under the cap.
+2. **Benchmarks declaration: strict.** Dashboard renders exactly what's in `meta.json.benchmarks` — no auto-add of SPY. Studies declare their benchmark list explicitly. Larger Universe v1 declares `["SPY", "RSP", "IWM", "EW-SP1500"]`.
+3. **`promoted` flag: match legacy semantics.** Default `false`; manually flipped to `true` after explicit promotion review. Larger Universe v1 stays `promoted: false` through Phase 5; promotion is a separate decision based on the success-criteria evaluation in Phase 5.
+4. **Holdings tab default: always-show-latest, with date picker.** "Latest" is computed dynamically from the holdings.parquet's max date — advances naturally as Phase 5 adds OOS data, no hard-coded sentinel.
+5. **Model Diagnostics tab visibility: data-driven, no flag.** The tab renders iff BOTH `scores.parquet` AND `feature_importance.parquet` exist for the selected study. Hidden otherwise. The contract is "files determine UI"; no `has_model_diagnostics` boolean.
+6. **Multi-model studies: default to primary.** `meta.json.models[].role` controls. Dashboard renders the role=`"primary"` model by default; sidebar dropdown selects others. **No overlay of multiple models in default views** — clutters the headline and forces the user into compare-mode they didn't ask for. Compare-mode is a future feature.
+
+## Next steps post-approval
+
+1. Modify Phase 4 spec to produce contract-conformant output at `models/studies/larger_universe_v1/contract_v1/`. Spec doc lives separately at `docs/studies/larger_universe_v1/phase4_spec.md`.
+2. Run Phase 4. Produces contract-conformant artifacts.
+3. Phase 4.5 — implement the new universal dashboard tabs reading from the contract location.
+4. Phase 5 — walk-forward + OOS + writeup. Adds `walk_forward.parquet` and `regime_attribution.parquet` to the same contract directory; Sensitivity tab auto-appears.
+5. `snapshot_for_cloud.py` — extend with parallel walker for `models/studies/*/contract_v1/`. Small modification.

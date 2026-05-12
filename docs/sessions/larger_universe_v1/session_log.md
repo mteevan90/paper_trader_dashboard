@@ -633,3 +633,54 @@ A proposal-only deliverable at `docs/architecture/dashboard_contract_v1.md` (~40
 3. Run Phase 4 (produces contract-conformant artifacts)
 4. Phase 4.5 — implement the new universal dashboard tabs
 5. Phase 5 — walk-forward + OOS; auto-appears on the new dashboard via the same contract location
+
+## 2026-05-12 (mid-morning) — Contract approved + Phase 4 spec drafted
+
+**Phase:** Contract v1 approval → Phase 4 spec drafting
+**Branch:** `feat/larger-universe-v1-study`
+**Status:** Contract approved, Phase 4 spec drafted. Awaiting Mike's review of the modified Phase 4 spec before any Phase 4 code runs.
+
+### Contract v1 — approved with answers to the six open questions
+
+Mike's review resolved each question:
+
+1. **scores.parquet size cap: 1M rows**, with `scores_sampled.parquet` required above that. Larger Universe v1 ~140K rows, under cap.
+2. **Benchmarks: strict declaration via `meta.json.benchmarks`** — no auto-add.
+3. **`promoted` flag: match legacy semantics** — default false, manual flip after explicit promotion decision.
+4. **Holdings tab default: always-show-latest with date picker** — "latest" computed dynamically.
+5. **Model Diagnostics tab visibility: data-driven** — render iff both `scores.parquet` AND `feature_importance.parquet` exist for the study. No explicit flag.
+6. **Multi-model studies: render primary by default**, sanity_check via sidebar dropdown. No automatic compare overlay.
+
+Plus: **portfolio.parquet switches to long-format**, with benchmarks split into their own `benchmarks.parquet`. This was a contract-level decision (not Larger-Universe-v1-specific) since it affects all future studies' schema.
+
+Contract doc updated at `docs/architecture/dashboard_contract_v1.md` with status `APPROVED 2026-05-12`. Open questions section replaced with "Decisions (resolved 2026-05-12)".
+
+### Phase 4 spec drafted at `docs/studies/larger_universe_v1/phase4_spec.md`
+
+Three Larger-Universe-v1-specific implementation decisions locked into the spec:
+
+1. **Long-format portfolio.parquet** (one row per (date, model)) + separate `benchmarks.parquet` (one row per (date, benchmark))
+2. **SHAP feature importance with gain-based fallback.** Use `xgboost.Booster.predict(pred_contribs=True)` for fast tree-SHAP on a 10K-row sample of the test window. If SHAP wall-clock exceeds 10 minutes, abort and use gain-based, document the fallback in `meta.json.notes`.
+3. **Per-rebalance-date holdings only** — no daily interpolation. Dashboard handles inter-rebalance constancy on its own.
+
+Spec includes:
+
+- Full input/output table (Phase 3 outputs → contract_v1/ outputs)
+- Concrete meta.json content (model roles, benchmarks list, schema_version, promoted:false)
+- Score-to-weights algorithm (softmax with temperature T=0.1, iterative 7.5%/30% cap enforcement, normalize to sum=1.0)
+- Backtest execution flow (monthly rebalance loop with forced-exit on delisting)
+- Benchmark construction (SPY/RSP/IWM via Finnhub fetch; EW-SP1500 custom monthly-rebalanced equal-weight)
+- Estimated wall-clock: ~35-50 minutes (no backgrounding needed; most compute happened in Phase 3)
+- 5 open items for Mike's review (softmax T=0.1, EW-SP1500 active-on-date definition, SHAP sample size, forced-exit accounting, OOS slice handling)
+
+### What this turn did NOT do
+
+- No dashboard code modified
+- No Phase 4 implementation started
+- No tracker update (next is Phase 4 completion)
+- No Phase 4.5 dashboard work
+- No legacy study backfill
+
+### What's pending Mike's review
+
+The modified Phase 4 spec at `docs/studies/larger_universe_v1/phase4_spec.md`. Five specific items flagged in the spec's "Open items for review" section need confirmation before code runs.
