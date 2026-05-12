@@ -332,3 +332,74 @@ This is consistent with the academic factor-research literature: most cross-sect
 ### What's next
 
 Phase 3 paused until Mike reviews the diagnostic and chooses an option. The tracker update (separate commit, this gate's standing process) reflects the paused state so partners who check in have current context. Phase 5 still gated on Phase 3 + 4; tracker stays partial until the study completes.
+
+## 2026-05-11 (late evening) — Phase 3 authorized with revised spec (Option 3)
+
+**Phase:** Phase 3 (Optuna hyperparameter tuning) authorized
+**Branch:** `feat/larger-universe-v1-study`
+**Commits at this gate:**
+- `419a2eb` — spec(study): Phase 3 spec revision — 21d label, monthly rebalance, 21d embargo
+- (session log + tracker committed separately as part of standing process)
+**Status:** Spec revised. Phase 3 backgrounding next, after runtime sanity check.
+
+### Option chosen
+
+Mike authorized **Option 3** from the diagnostic — monthly rebalance + monthly label horizon. This pivots the spec to where the data shows signal lives. The earlier "Option 1: 21d label, weekly rebalance" was on the table but Mike chose the cleaner factor-research design.
+
+Reasoning summary: monthly rebalance + monthly label is internally consistent (the model predicts what the portfolio actually realizes between rebalances), eliminates the threshold-based execution layer (no longer needed at monthly turnover), and matches academic factor-research convention. Tradeoff vs Option 1 is responsiveness (monthly vs weekly action on new information), but at the 21-day signal horizon this gap is small and the simpler architecture wins.
+
+### Spec changes locked
+
+| Parameter | Original | Revised |
+|---|---|---|
+| Label horizon | 5 trading days | **21 trading days** |
+| Rebalance cadence | Weekly (Fri close) | **Monthly (last trading day)** |
+| Rebalance threshold | 1.5pp | **REMOVED (full rebalance each month)** |
+| CV embargo | 5 days | **21 days** (= label horizon) |
+| Execution attribution | (unspecified) | **Close-to-close at next trading day after rebalance** |
+
+Everything else unchanged: train/test/OOS splits, 5-fold expanding-window CV, XGBoost primary + ElasticNet sanity, 7.5% position cap, 30% sector cap, four benchmarks, 0.05% flat FeeModel, score-weighted continuous sizing, long-only.
+
+Canonical spec doc at `docs/studies/larger_universe_v1/spec.md` (newly created).
+
+### Phase 3 execution plan
+
+- Full universe (1,963 tickers, not the smoke's 503 SP500 actives)
+- All 38 features (full feature set)
+- 200 Optuna trials per model (XGBoost and ElasticNet)
+- 5-fold expanding-window CV with 21d embargo
+- Cross-sectional Spearman IC as objective (mean across folds)
+- Save best hyperparameters to `models/studies/larger_universe_v1/{xgboost,elasticnet}_best_params.json`
+- Save full trial logs
+
+### Runtime estimate (pre-background)
+
+Variant B smoke timings (10 trials × 5 folds × 503 tickers × 38 features):
+- XGBoost: 187 s = 18.7 s per trial = 3.7 s per fit
+- ElasticNet: 348 s = 34.8 s per trial = 7.0 s per fit
+
+Scaling to Phase 3 (200 trials × 5 folds × 1,963 tickers × 38 features):
+- Row count scales ~3.9× (1963/503)
+- Trial count scales 20× (200/10)
+- Total compute scales ~78×
+
+Rough estimates:
+- XGBoost: 78 × 187s = 14,586s ≈ **4.0 hours**
+- ElasticNet: 78 × 348s = 27,144s ≈ **7.5 hours**
+- Sequential total: **~11.5 hours**
+
+This is slightly over Mike's 10-hour budget threshold. Surfacing in the report for explicit go/no-go before backgrounding. If reduction is needed, options: drop ElasticNet to 100 trials (saves ~3.5h), or drop XGBoost to 150 trials (saves ~1h), or stagger the runs across two sessions.
+
+### What to look for in Phase 3 results
+
+- **Convergence pattern**: did the search plateau (good — confident best), or was it still exploring at trial 200 (signal could be higher with more trials)?
+- **Fold 3 (val 2021-05 → 2022-05)**: the 2022 bear-market reversal. A robust strategy should still show some signal here even if reduced; a fragile one will be strongly negative. Report fold 3 separately for both models.
+- **Std_ic per fold**: high std (>0.25 per fold) means the mean is driven by outlier dates, not a steady signal. A robust strategy should show std_ic 0.15-0.20 with consistent positive sign across folds.
+- **Per-fold positive_rate**: aim for ≥0.55 ("wins" more than half the dates) on at least 4 of 5 folds.
+- **Smoke vs full-universe IC**: smoke variant B was 0.019 (XGB) / 0.031 (ENet) on SP500 actives. Full universe should produce different numbers — likely higher due to increased cross-sectional dispersion, possibly messier on small caps. Don't anchor on smoke numbers.
+
+### What's NOT happening tonight beyond Phase 3 backgrounding
+
+- Phase 4 (portfolio construction + backtest) gated on Mike's review of Phase 3 results
+- Phase 5 (validation + reporting) gated on Phase 4
+- No tracker re-update during Phase 3 run; the pre-run tracker update reflects "Phase 3 running with revised spec"
