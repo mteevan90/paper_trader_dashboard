@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 
 # Columns that are NOT features (used to identify the feature set vs metadata)
-NON_FEATURE_COLS = ("date", "ticker", "target_fwd_5d")
+NON_FEATURE_COLS = ("date", "ticker", "target")
 
 # Categorical columns — handled differently in the two pipelines
 CATEGORICAL_COLS = ("sector",)
@@ -56,13 +56,13 @@ def _split_features_target(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     """Drop date/ticker/target columns; return (X, y)."""
     feature_cols = [c for c in df.columns if c not in NON_FEATURE_COLS]
     X = df[feature_cols]
-    y = df["target_fwd_5d"]
+    y = df["target"]
     return X, y
 
 
 def _drop_no_target_rows(df: pd.DataFrame) -> pd.DataFrame:
     """Drop rows where the target is NaN (last 5 days per ticker)."""
-    return df[df["target_fwd_5d"].notnull()].copy()
+    return df[df["target"].notnull()].copy()
 
 
 # -------- XGBoost --------
@@ -188,7 +188,7 @@ def cross_sectional_ic_stats(preds: np.ndarray, val_df: pd.DataFrame,
     """
     df = pd.DataFrame({
         "pred": np.asarray(preds, dtype=float),
-        "y": val_df["target_fwd_5d"].to_numpy(dtype=float),
+        "y": val_df["target"].to_numpy(dtype=float),
         "date": val_df["date"].to_numpy(),
     }).dropna()
     per_date: list[float] = []

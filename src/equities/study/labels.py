@@ -35,8 +35,14 @@ def compute_forward_return(close: pd.Series, horizon: int = LABEL_HORIZON_TRADIN
     return close.shift(-horizon) / close - 1.0
 
 
-def build_labels(tickers: list[str]) -> pd.DataFrame:
-    """Return a long DataFrame keyed on (date, ticker) with column `target_fwd_5d`."""
+def build_labels(tickers: list[str],
+                  horizon: int = LABEL_HORIZON_TRADING_DAYS) -> pd.DataFrame:
+    """Return a long DataFrame keyed on (date, ticker) with column ``target``.
+
+    The column name is horizon-agnostic so downstream training code works
+    against any horizon. The label horizon is captured in the caller's
+    diagnostic context (smoke configs, fold embargo, etc.).
+    """
     pieces = []
     for sym in tickers:
         p = SNAPSHOT_PRICE_DIR / f"{sym}.parquet"
@@ -46,11 +52,11 @@ def build_labels(tickers: list[str]) -> pd.DataFrame:
         if df.empty:
             continue
         df.index = pd.to_datetime(df.index)
-        fwd = compute_forward_return(df["close"])
+        fwd = compute_forward_return(df["close"], horizon=horizon)
         piece = pd.DataFrame({
             "date": df.index,
             "ticker": sym,
-            "target_fwd_5d": fwd.values,
+            "target": fwd.values,
         })
         pieces.append(piece)
     out = pd.concat(pieces, ignore_index=True)
