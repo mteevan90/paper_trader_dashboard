@@ -121,3 +121,78 @@ Each script is idempotent against its existing outputs. Total fresh-rebuild wall
 ### Next: Phase 2 — model training infrastructure + CV design
 
 Standing process rule from this gate forward: at each phase gate, (1) commit Phase N work, (2) write a session_log entry for it, (3) commit + push the log, (4) report. The Phase 2 entry will cover the CV design (time-series with embargo per spec), the smoke run results, and any open items for Phase 3 tuning.
+
+## 2026-05-11 — Phase 2: training pipelines + CV design
+
+**Phase:** Phase 2 (model training infrastructure + CV design)
+**Branch:** `feat/larger-universe-v1-study`
+**Commits at this gate:**
+- `1e449f8` — feat(study): Larger Universe v1 Phase 2 — training pipelines + CV design
+- (this log entry added in a follow-up commit)
+**Status:** Phase 2 complete. CV scaffolding + 10-trial smoke landed. Ready for Phase 3.
+
+### What was built
+
+Training scaffolding for two parallel pipelines on identical features and identical folds:
+
+- `src/equities/study/labels.py` — forward 5-trading-day return label per (date, ticker), matching the weekly rebalance cadence
+- `src/equities/study/cv.py` — 5-fold expanding-window TimeSeriesSplit over 2017-05-12 → 2023-05-11 with a 5-trading-day embargo (= label horizon, prevents the leakage between training rows whose labels reference prices inside the validation window). Date-window filters for train/test/OOS also live here so Phase 4 can reuse them without re-deriving constants.
+- `src/equities/study/training.py` — single-fold trainers for XGBoost (native NaN + categorical sector) and ElasticNet (SimpleImputer with add_indicator + StandardScaler + ElasticNet pipeline, sector one-hot encoded). Plus `cv_score` driver that runs a hyperparameter combo across all folds and returns mean Spearman IC.
+- `scripts/research/smoke_phase2.py` — 10-trial smoke runner per model
+
+Smoke ran on a deliberate subset (SP500 actives only, 22 price+macro features, 503 tickers, 734,646 training rows) in ~6 minutes total. Phase 3 full-universe runs are expected to take 6-7 hours.
+
+### Smoke results — both models produce positive cross-sectional IC
+
+| Model | Best mean IC (5-fold) | Best params |
+|---|---|---|
+| XGBoost | **0.0854** | max_depth=3, lr=0.20, n_est=437, subsample=0.85, colsample=0.86, min_child_weight=15, gamma=0.80, reg_alpha=4.48, reg_lambda=1.06 |
+| ElasticNet | **0.0711** | alpha=0.00119, l1_ratio=0.433 |
+
+Both fall in the 0.05-0.10 range typical for daily/weekly cross-sectional alpha in liquid US equities. Not suspiciously high (we'd flag IC > 0.20). Spearman ~0.085 ≈ correctly ranking 54.25% of pairwise comparisons (Spearman 0 = 50%, 1 = 100%) — modest but enough to drive non-trivial allocation decisions in Phase 4.
+
+XGBoost's slight edge over ElasticNet is consistent with its ability to capture non-linear interactions. Both produced NaN on some trials/folds (constant predictions in high-regularization regions for ElasticNet, narrow training windows for low-tree-count XGBoost) — Optuna's TPE sampler avoids these regions in Phase 3 by learning from failed trials.
+
+### Decisions made in Phase 2
+
+- **Label horizon = rebalance cadence = 5 trading days.** Predictions at date D inform the portfolio held over (D, D+5]. Embargo equal to label horizon prevents leakage.
+- **Scoring metric: cross-sectional Spearman IC** averaged across 5 folds. Picked over MSE because portfolio construction (Phase 4) is rank-driven; over Pearson because rank-correlation is robust to outliers (one ticker that triples in a week shouldn't dominate the loss).
+- **5-fold expanding-window CV.** Standard for time-series finance. Each fold validates on ~1/6 of the training window (~12 months); training set grows fold-by-fold (2017-05 only → through 2022-04). Initial training-only block (1/6) is part of every fold's train set.
+- **XGBoost native categorical for sector**, no one-hot. `enable_categorical=True` + `pd.Categorical` dtype.
+- **ElasticNet imputation fits on train fold only** — sklearn Pipeline ensures the column mean is computed on the training rows and applied to the validation rows (no cross-fold leakage). The `add_indicator=True` flag produces the binary missingness indicator per imputed column that the spec asked for.
+- **Convergence warnings suppressed** in the ElasticNet trainer — high-alpha trials don't converge to a non-constant solution and produce ConvergenceWarning + ConstantInputWarning, both expected and informative.
+
+### Open items carried into Phase 3
+
+1. **ElasticNet NaN-on-constant-prediction.** 5 of 10 smoke trials failed for this reason. Optuna treats NaN as a failure; the TPE sampler still adapts but it's noisy. If >40% of Phase 3 ENet trials fail, switch to returning IC=0 on constant predictions so all trials inform the surrogate. Easy 2-line change in `_safe_spearman`.
+2. **Fold 0 has the narrowest training window** (1/6 of total) and the most NaN-IC trials. Phase 3's 200+ trials will fill the space densely enough that this is rare; no design change needed.
+3. **Phase 3 wall-clock estimate: 6-7 hours.** XGBoost dominates: ~6h for 200 trials on full universe + features. ElasticNet ~30 min. Plan to background-run; will surface progress at the 1h mark.
+4. **Beta NaN in the 2017-2019 portion of training (~37% of train rows).** Both pipelines handle this — XGBoost natively, ElasticNet via mean-impute+indicator — but the practical effect is that beta is a feature available primarily in the second half of training. Phase 5 will spot-check the feature-importance for beta to see if it's load-bearing or noise.
+
+### Files produced this gate
+
+| Path | Notes |
+|---|---|
+| `src/equities/study/__init__.py` | Namespace marker |
+| `src/equities/study/labels.py` | Forward 5-day return label |
+| `src/equities/study/cv.py` | TimeSeriesSplit + window filters |
+| `src/equities/study/training.py` | XGBoost + ElasticNet trainers + cv_score driver + safe Spearman |
+| `scripts/research/smoke_phase2.py` | 10-trial smoke runner |
+| `models/features/larger_universe_v1/phase2_smoke/smoke_results.json` | Per-trial fold ICs + best params (force-added; gitignored path) |
+| `docs/diagnostics/larger_universe_v1_cv_design.md` | Full CV design doc + smoke results table |
+
+### Reproducibility — smoke
+
+```
+python scripts/research/smoke_phase2.py    # ~6 min total
+```
+
+### What's deferred
+
+- Phase 3 full tuning (200 trials per model on full universe + features)
+- Final hyperparameter persistence at `models/studies/larger_universe_v1/{xgboost,elasticnet}_best_params.json`
+- `Project_State_Tracker.docx` update (Phase 5 per standing rule)
+
+### Next: Phase 3 — full Optuna hyperparameter tuning
+
+Run XGBoost and ElasticNet against the full feature set + full universe for 100-300 trials each. Surface convergence behavior, top hyperparameter combinations, and any overfitting red flags (IC > 0.20 would be one). Background-run since wall-clock is multi-hour. Standing process at the Phase 3 gate: commit + push + session log + report.
