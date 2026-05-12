@@ -177,7 +177,11 @@ def main() -> int:
             trial.set_user_attr("folds", _fold_attrs(fold_results))
             elapsed = time.time() - t_start
             trial.set_user_attr("duration_s", elapsed)
-            best_so_far = trial.study.best_value if trial.study.best_trial else float("nan")
+            try:
+                best_so_far = trial.study.best_value
+            except ValueError:
+                # No trials completed yet (this is the first one)
+                best_so_far = float("nan")
             logger.info("  XGB trial %d/%d  ic=%.4f  (best so far %.4f)  %.1fs",
                         trial.number + 1, args.xgb_trials, overall_mean_ic,
                         best_so_far, elapsed)
@@ -225,7 +229,11 @@ def main() -> int:
             trial.set_user_attr("folds", _fold_attrs(fold_results))
             elapsed = time.time() - t_start
             trial.set_user_attr("duration_s", elapsed)
-            best_so_far = trial.study.best_value if trial.study.best_trial else float("nan")
+            try:
+                best_so_far = trial.study.best_value
+            except ValueError:
+                # No trials completed yet (this is the first one)
+                best_so_far = float("nan")
             logger.info("  ENet trial %d/%d  ic=%.4f  (best so far %.4f)  %.1fs",
                         trial.number + 1, args.enet_trials, overall_mean_ic,
                         best_so_far, elapsed)
