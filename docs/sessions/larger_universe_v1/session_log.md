@@ -874,3 +874,65 @@ Both pass the 60% soft criterion. ENet's 86.7% is exceptional but heavily DBD-dr
 - Promotion decision
 
 Awaiting Mike's review of the validation findings before drafting the writeup narrative.
+
+## 2026-05-12 — Phase 5 close: memo + contract + writeup + dashboard + figures
+
+**Phase:** Phase 5 close (architectural memo, dashboard contract update, results writeup, Phase 4.5 dashboard tabs, static figures)
+**Branch:** `feat/larger-universe-v1-study` (unmerged; pre-review)
+**Status:** Phase 5 complete pending review. Larger Universe v1 study complete. Not promoted (criteria fail per gate above).
+
+### What was built this session
+
+1. **`docs/architecture/ml_study_cv_objectives_v1.md`** — architectural memo distilling the Phase 5 finding that full-cross-section Spearman IC was the wrong CV objective for top-N portfolio strategies. TL;DR adopts Option A wording: XGBoost selected for cross-sectional skill it didn't possess in deployment, while overlooking the top-quintile skill it did possess. Contains empirical evidence table, two mechanistic interpretations (B supported by SHAP showing 6 of 10 top features are date-level macro), three CV objective options (A: top-quintile-IC recommended, B: decile-spread, C: top-K-IC), implementation pattern (code-level + contract-level), dual-reporting requirement, 5 caveats. Status APPROVED 2026-05-12.
+
+2. **`docs/architecture/dashboard_contract_v1.md`** — updated with `objective.training_cv` field requirement under `meta.json.objective`. Controlled vocabulary added: `top_quintile_spearman_ic` (recommended for top-N strategies), `mean_cross_sectional_spearman_ic`, `decile_spread`, `top_k_spearman_ic`, `<other>` with rationale. Dual-reporting requirement added: training_cv objective must be reported alongside the alternative metric in held-out evaluation so future studies can validate or revise the memo's recommendation. Example meta.json updated.
+
+3. **`docs/studies/larger_universe_v1/results.md`** — full study writeup. Sections: executive summary, what we set out to test, universe + data infrastructure, methodology (Phase 1-5 with gate findings inlined), results (six embedded figures), DBD case study deriving the feature/model/construction interaction mechanism, success criteria pass/fail (4-row table), forward-looking findings (CV objective misalignment + interaction lesson), future work candidates (no endorsement), methodology limitations, acknowledgments.
+
+4. **`scripts/research/phase5_generate_figures.py`** + 6 PNGs under `docs/studies/larger_universe_v1/figures/`: equity_curves, year_by_year, decile_returns, alpha_attribution, walk_forward, ic_decomposition. Static figures for the writeup; dashboard does its own interactive rendering.
+
+5. **Phase 4.5 dashboard work** — `src/dashboard_app.py`. Added a sidebar separator radio "Study type: Legacy (Optuna v1) / Contract-conformant (v1+)" with Legacy as default (existing workflows untouched). The Contract-conformant branch renders 8 universal tabs from `models/studies/<name>/contract_v1/` artifacts:
+   - **Overview**: meta.json display, headline test/OOS metrics per model, success-criteria-relevant concentration check (top-contributor + ≤25% pass/fail), repeat-holding profile (max single-ticker weight, max sector weight, top-5 repeat holdings), objective + construction summary
+   - **Performance**: NAV vs benchmarks Plotly chart with OOS-start marker
+   - **Holdings**: model + rebalance-date selector → positions table
+   - **Trades**: model selector → round-trip trades table
+   - **Alpha Attribution**: model selector → horizontal-bar top-25 contributors with 25% constraint line
+   - **Diagnostics**: IC decomposition table, decile-return grouped-bar with error bars, rolling win rate table
+   - **Walk-forward**: per-window excess-CAGR grouped bars + table
+   - **Tuning**: trial-log table (head 200) + feature importance top-20 bars
+   
+   New helpers: `list_contract_v1_studies()`, `_contract_dir()`, `load_contract_meta()` (cached), `load_contract_concentration()` (cached), `load_contract_parquet()` (cached), `sidebar_contract_picker()`, `main_contract()`.
+
+### Decisions made this session
+
+- **Dual-reporting pattern over hard mandate.** The memo recommends top-quintile-IC for top-N strategies but the contract requires reporting *both* training_cv objective and the alternative metric on held-out data. After ~3 more studies the recommendation hardens (memo bumps to v2) or revises. Picked over a hard mandate because the recommendation is based on n=1 (one study, one model class).
+- **Caveats split into reliability vs scope subheads.** Two caveats are about evidence reliability (single study, dataset-specific); three are about scope (single model class, single horizon, single CV split structure). Memo organizes them this way to make the "where the finding applies" boundary explicit rather than implicit.
+- **Phase 4.5 sidebar separator vs full tab integration.** Picked a clean Legacy / Contract-conformant radio so legacy studies remain on the existing live-fallback compute path (which is meaningfully different from the contract-conformant pre-computed-parquet path) and contract studies don't need to plumb their artifacts through the legacy compute helpers. Avoids retrofitting the legacy tabs and avoids forcing the contract tabs into the legacy shape. Future contract-conformant studies inherit the dashboard infrastructure rather than each retrofitting.
+- **Dashboard contract concentration tab uses per_ticker_attribution.parquet for the 25%-constraint pass/fail** rather than concentration_summary.json (which doesn't carry that field). concentration_summary.json carries weight-based stats (max_single_ticker_weight, sector caps, repeat-holding counts) which are surfaced separately.
+- **No new automated tests for the dashboard branch.** Streamlit code path is data-driven from existing parquet artifacts; manual run-through is the validation. Test infrastructure for Streamlit pages is out of scope for Phase 4.5.
+
+### Files produced this session
+
+| Path | Notes |
+|---|---|
+| `docs/architecture/ml_study_cv_objectives_v1.md` | New — architectural memo |
+| `docs/architecture/dashboard_contract_v1.md` | Updated — objective.training_cv field |
+| `docs/studies/larger_universe_v1/results.md` | New — full writeup |
+| `docs/studies/larger_universe_v1/figures/*.png` | New — 6 static figures |
+| `scripts/research/phase5_generate_figures.py` | New — figure-generation script |
+| `src/dashboard_app.py` | Updated — Phase 4.5 contract-conformant tabs |
+| `docs/sessions/larger_universe_v1/session_log.md` | Updated — this entry |
+| `docs/Project_State_Tracker.docx` | Updated — covering full Larger Universe v1 completion |
+
+### NOT done (intentionally)
+
+- **No merge to main.** Branch stays `feat/larger-universe-v1-study` for review. Merge decision after Mike's review of the coherent unit.
+- **No promotion.** Neither model met all hard success criteria (drawdown and concentration both failed). Per the spec: "not promoted, methodology retained."
+- **No v2 study spec.** v2 design conversation deferred until after Larger Universe v1 has settled.
+- **No legacy dashboard changes.** Legacy tabs remain bit-identical to pre-Phase-4.5 state; only the new Contract-conformant branch reads from contract_v1/.
+
+### Open items for the next session
+
+- Mike's review of the coherent unit (memo + contract update + writeup + dashboard + figures + tracker + session log + commit). Either approve as merge-ready or request specific revisions.
+- After approval: merge via PR (Mike handles, per branch policy).
+- After merge: any tracker rework, v2-study design conversation, or other forward-looking work.

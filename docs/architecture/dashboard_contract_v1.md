@@ -1,6 +1,6 @@
 # Dashboard contract v1 — design proposal
 
-**Status:** APPROVED 2026-05-12. Six review questions resolved (see "Decisions" section). Larger Universe v1 Phase 4 spec to be modified to produce contract-conformant artifacts; spec at `docs/studies/larger_universe_v1/phase4_spec.md`.
+**Status:** APPROVED 2026-05-12. Six review questions resolved (see "Decisions" section). Updated post-Phase-5 to require `objective.training_cv` in meta.json — see the "objective" subsection under meta.json (required) below and the companion memo `ml_study_cv_objectives_v1.md`. Larger Universe v1 Phase 4 produced the first contract-conformant artifacts; spec at `docs/studies/larger_universe_v1/phase4_spec.md`.
 **Scope:** Define the universal data contract that contract-conformant studies write, and the dashboard tab structure that renders them. Larger Universe v1 is the first study under this contract; future studies use the same contract; the three promoted legacy studies stay on their existing tabs unchanged.
 **Branch:** `feat/larger-universe-v1-study`
 
@@ -136,7 +136,7 @@ Single JSON file with the study's identity, family classification, and headline 
   },
   "benchmarks": ["SPY", "RSP", "IWM", "EW-SP1500"],
   "objective": {
-    "training": "mean_cross_sectional_spearman_ic",
+    "training_cv": "top_quintile_spearman_ic",
     "headline": "excess_cagr_vs_spy"
   },
   "promoted": false,
@@ -160,6 +160,20 @@ Single JSON file with the study's identity, family classification, and headline 
 - `composite_weighted` — the three legacy studies (if backfilled later)
 - `rule_based` — purely deterministic strategies
 - `hybrid` — combines multiple
+
+**`objective.training_cv` values** (controlled vocabulary, added 2026-05-12 post-Phase-5):
+
+Every contract-conformant ML study must declare which CV objective it optimized against. Allowed values:
+
+| Value | When to use |
+|---|---|
+| `top_quintile_spearman_ic` | **Recommended default for top-N portfolio strategies** per `ml_study_cv_objectives_v1.md`. Per-date Spearman IC restricted to top 20% of predictions, averaged across dates. |
+| `mean_cross_sectional_spearman_ic` | Legacy / explicit deviation. Per-date Spearman across the full eligible universe. Larger Universe v1 used this and surfaced the misalignment that produced the recommendation. |
+| `decile_spread` | Alternative top-N-relevant metric. Mean(top decile forward return) − mean(bottom decile forward return), averaged across dates. |
+| `top_k_spearman_ic` | Restrict the per-date IC to exactly the top K positions the strategy holds. Aligned with deployment but noisy at small K. |
+| `<other>` | Study-specific. Requires a rationale in `meta.json.notes` explaining why the standard options weren't used. |
+
+**Dual-reporting requirement** (post-Phase-5 contract update): every ML study using a top-N construction MUST compute and persist BOTH the chosen `objective.training_cv` metric AND `mean_cross_sectional_spearman_ic` for the held-out evaluation. Both go into `meta.json.summary_metrics` (or the trial log). The CV optimizes against the chosen objective; the other metric is logged for comparison so empirical evidence accumulates over future studies. See `ml_study_cv_objectives_v1.md` for the rationale and the dual-reporting pattern.
 
 **schema_version:** the dashboard reads this and routes to the appropriate renderer; `"v1"` is the only allowed value at this contract version. Future breaking changes bump to `"v2"`.
 

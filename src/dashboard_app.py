@@ -3795,6 +3795,449 @@ def _risk_behavior_detailed_diagnostics(
 
 
 # ---------------------------------------------------------------------------
+# Phase 4.5 — Contract-conformant studies (dashboard_contract_v1).
+#
+# Renders studies that publish artifacts under
+# `models/studies/<name>/contract_v1/`. Universal tabs read directly from
+# the parquet/json artifacts; no live-fallback path. Legacy Optuna v1
+# studies remain on the legacy sidebar branch unchanged.
+# ---------------------------------------------------------------------------
+
+CONTRACT_V1_DIR = Path(MODELS_DIR) / "studies"
+
+
+def list_contract_v1_studies() -> list[str]:
+    """Return contract-v1 study names found under models/studies/."""
+    if not CONTRACT_V1_DIR.exists():
+        return []
+    out = []
+    for child in sorted(CONTRACT_V1_DIR.iterdir()):
+        if not child.is_dir():
+            continue
+        if (child / "contract_v1" / "meta.json").exists():
+            out.append(child.name)
+    return out
+
+
+def _contract_dir(study_name: str) -> Path:
+    return CONTRACT_V1_DIR / study_name / "contract_v1"
+
+
+@st.cache_data(show_spinner=False)
+def load_contract_meta(study_name: str) -> dict:
+    p = _contract_dir(study_name) / "meta.json"
+    with open(p) as f:
+        return json.load(f)
+
+
+@st.cache_data(show_spinner=False)
+def load_contract_concentration(study_name: str) -> dict | None:
+    p = _contract_dir(study_name) / "concentration_summary.json"
+    if not p.exists():
+        return None
+    with open(p) as f:
+        return json.load(f)
+
+
+@st.cache_data(show_spinner=False)
+def load_contract_parquet(study_name: str, name: str) -> pd.DataFrame:
+    p = _contract_dir(study_name) / name
+    if not p.exists():
+        return pd.DataFrame()
+    return pd.read_parquet(p)
+
+
+def sidebar_contract_picker() -> str | None:
+    """Render the contract-conformant study picker; returns study_name or None."""
+    studies = list_contract_v1_studies()
+    if not studies:
+        st.sidebar.warning(
+            "No contract-conformant studies found under "
+            "models/studies/<name>/contract_v1/."
+        )
+        return None
+    return st.sidebar.selectbox(
+        "Study", studies, index=0, key="contract_study_selector",
+        format_func=lambda s: load_contract_meta(s).get("display_name", s),
+    )
+
+
+def tab_contract_overview(study_name: str) -> None:
+    meta = load_contract_meta(study_name)
+    st.subheader(meta.get("display_name", study_name))
+    st.caption(meta.get("description", ""))
+
+    cols = st.columns(4)
+    win = meta.get("windows", {})
+    cols[0].metric("Train window", f"{win.get('train_start', '?')} →\n"
+                                    f"{win.get('train_end', '?')}")
+    cols[1].metric("Test window", f"{win.get('test_start', '?')} →\n"
+                                   f"{win.get('test_end', '?')}")
+    cols[2].metric("OOS window", f"{win.get('oos_start', '?')} →\n"
+                                  f"{win.get('oos_end', '?')}")
+    cols[3].metric(
+        "Promoted",
+        "Yes" if meta.get("promoted") else "No",
+    )
+
+    st.markdown("### Headline metrics")
+    sm = meta.get("summary_metrics", {})
+    for slice_name in ("test", "oos"):
+        slice_data = sm.get(slice_name, {})
+        if not slice_data:
+            continue
+        st.markdown(f"**{slice_name.upper()} slice**")
+        rows = []
+        for model, m in slice_data.items():
+            rows.append({
+                "model": model,
+                "CAGR": f"{m.get('cagr', 0) * 100:.1f}%",
+                "SPY CAGR": f"{m.get('spy_cagr', 0) * 100:.1f}%",
+                "Excess vs SPY": f"{m.get('excess_cagr', 0) * 100:+.1f}pp",
+                "Max DD": f"{m.get('max_drawdown', 0) * 100:.1f}%",
+                "SPY Max DD": f"{m.get('spy_max_drawdown', 0) * 100:.1f}%",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                     hide_index=True)
+
+    st.markdown("### Concentration check (success criterion: ≤ 25% per ticker)")
+    st.caption(
+        "Per-ticker contribution to total excess return on the test+OOS "
+        "window. The contract's hard success criterion is no single ticker "
+        "contributing > 25% of total alpha."
+    )
+    attr = load_contract_parquet(study_name, "per_ticker_attribution.parquet")
+    if not attr.empty:
+        rows = []
+        for model in sorted(attr["model"].unique()):
+            top = attr[attr["model"] == model].nlargest(1, "pct_of_total_alpha")
+            if top.empty:
+                continue
+            ticker = top["ticker"].iloc[0]
+            pct = float(top["pct_of_total_alpha"].iloc[0])
+            rows.append({
+                "model": model,
+                "Top contributor": ticker,
+                "% of total alpha": f"{pct:.1f}%",
+                "≤ 25% constraint": "✅ Pass" if pct <= 25 else "❌ Fail",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                     hide_index=True)
+
+    conc = load_contract_concentration(study_name)
+    if conc:
+        st.markdown("### Repeat-holding profile")
+        st.caption(
+            "How often each top-ranked ticker was selected across rebalance "
+            "dates. Persistent single-name presence is the structural "
+            "driver of concentration even when per-rebalance weights stay "
+            "below the individual cap."
+        )
+        rows = []
+        for model, payload in conc.items():
+            if not isinstance(payload, dict):
+                continue
+            top_holds = payload.get("top_10_repeat_holdings", {}) or {}
+            top_str = ", ".join(f"{t}×{n}" for t, n in
+                                list(top_holds.items())[:5])
+            rows.append({
+                "model": model,
+                "Rebalances": payload.get("rebalance_dates", "—"),
+                "Unique tickers": payload.get("unique_tickers_held", "—"),
+                "Avg positions / rebalance":
+                    f"{payload.get('avg_positions_per_rebalance', 0):.1f}",
+                "Max single-ticker weight":
+                    f"{payload.get('max_single_ticker_weight', 0) * 100:.2f}%",
+                "Max sector weight (any date)":
+                    f"{payload.get('max_sector_weight_across_dates', 0) * 100:.1f}%",
+                "Top repeat holdings (×N)": top_str,
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                     hide_index=True)
+
+    st.markdown("### Objective + construction")
+    obj = meta.get("objective", {})
+    pc = meta.get("portfolio_construction", {})
+    st.markdown(
+        f"- **Training CV objective**: `{obj.get('training_cv', '—')}` "
+        f"(see [memo](../../docs/architecture/ml_study_cv_objectives_v1.md))\n"
+        f"- **Headline objective**: `{obj.get('headline', '—')}`\n"
+        f"- **Construction**: `{pc.get('method', '—')}` "
+        f"n={pc.get('n', '—')}, "
+        f"individual_cap={pc.get('individual_cap', '—')}, "
+        f"sector_cap={pc.get('sector_cap', '—')}"
+    )
+
+
+def tab_contract_performance(study_name: str) -> None:
+    port = load_contract_parquet(study_name, "portfolio.parquet")
+    bench = load_contract_parquet(study_name, "benchmarks.parquet")
+    if port.empty:
+        st.warning("No portfolio.parquet found in contract artifacts.")
+        return
+    port["date"] = pd.to_datetime(port["date"])
+    if not bench.empty:
+        bench["date"] = pd.to_datetime(bench["date"])
+
+    fig = go.Figure()
+    for model in port["model"].unique():
+        m = port[port["model"] == model]
+        fig.add_trace(go.Scatter(
+            x=m["date"], y=m["nav"], mode="lines", name=model,
+            line=dict(width=2.5),
+        ))
+    if not bench.empty:
+        for b in bench["benchmark"].unique():
+            bb = bench[bench["benchmark"] == b]
+            fig.add_trace(go.Scatter(
+                x=bb["date"], y=bb["nav"], mode="lines", name=b,
+                line=dict(width=1.2, dash="dash"),
+                opacity=0.65,
+            ))
+
+    meta = load_contract_meta(study_name)
+    oos_start = meta.get("windows", {}).get("oos_start")
+    if oos_start:
+        fig.add_vline(x=oos_start, line=dict(color="red", dash="dot", width=1),
+                      annotation_text="OOS start", annotation_position="top right")
+
+    fig.update_layout(
+        title="Strategy NAV vs Benchmarks",
+        yaxis_title="NAV (starts at 1.0)",
+        xaxis_title="Date",
+        height=520,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def tab_contract_holdings(study_name: str) -> None:
+    holdings = load_contract_parquet(study_name, "holdings.parquet")
+    if holdings.empty:
+        st.warning("No holdings.parquet found.")
+        return
+    holdings["date"] = pd.to_datetime(holdings["date"])
+    models = sorted(holdings["model"].unique())
+    model = st.selectbox("Model", models, index=0, key="contract_hold_model")
+    dates = sorted(holdings[holdings["model"] == model]["date"].unique(),
+                   reverse=True)
+    date_pick = st.selectbox(
+        "Rebalance date", dates,
+        format_func=lambda d: pd.Timestamp(d).strftime("%Y-%m-%d"),
+        key="contract_hold_date",
+    )
+    sub = holdings[(holdings["model"] == model) &
+                   (holdings["date"] == date_pick)].copy()
+    if "weight" in sub.columns:
+        sub = sub.sort_values("weight", ascending=False)
+        sub["weight"] = sub["weight"].apply(lambda v: f"{v * 100:.2f}%")
+    st.dataframe(sub, use_container_width=True, hide_index=True)
+    st.caption(f"{len(sub)} positions held on "
+               f"{pd.Timestamp(date_pick).strftime('%Y-%m-%d')}.")
+
+
+def tab_contract_trades(study_name: str) -> None:
+    trades = load_contract_parquet(study_name, "trades.parquet")
+    if trades.empty:
+        st.warning("No trades.parquet found.")
+        return
+    for c in ("date", "exit_date"):
+        if c in trades.columns:
+            trades[c] = pd.to_datetime(trades[c])
+    models = sorted(trades["model"].unique())
+    model = st.selectbox("Model", models, index=0, key="contract_trade_model")
+    sub = trades[trades["model"] == model].copy()
+    st.caption(f"{len(sub)} round-trip trades — {model}")
+    st.dataframe(sub, use_container_width=True, hide_index=True)
+
+
+def tab_contract_alpha(study_name: str) -> None:
+    df = load_contract_parquet(study_name, "per_ticker_attribution.parquet")
+    if df.empty:
+        st.warning("No per_ticker_attribution.parquet found.")
+        return
+    models = sorted(df["model"].unique())
+    model = st.selectbox("Model", models, index=0, key="contract_alpha_model")
+    sub = df[df["model"] == model].nlargest(25, "pct_of_total_alpha").copy()
+    fig = go.Figure(go.Bar(
+        x=sub["pct_of_total_alpha"],
+        y=sub["ticker"],
+        orientation="h",
+        marker=dict(
+            color=[
+                "#c0392b" if v > 25 else "#1f4e79"
+                for v in sub["pct_of_total_alpha"]
+            ],
+        ),
+    ))
+    fig.add_vline(x=25, line=dict(color="red", dash="dash", width=1.2),
+                  annotation_text="25% constraint")
+    fig.update_layout(
+        title=f"{model} — top 25 alpha contributors (% of total excess return)",
+        xaxis_title="% of total alpha",
+        height=620,
+        yaxis=dict(autorange="reversed"),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(sub, use_container_width=True, hide_index=True)
+
+
+def tab_contract_diagnostics(study_name: str) -> None:
+    st.markdown("### IC decomposition")
+    ic = load_contract_parquet(study_name, "ic_decomposition.parquet")
+    if not ic.empty:
+        st.caption(
+            "Full-cross-section IC is the standard Spearman IC across all "
+            "scored tickers per date, averaged. Top-quintile IC restricts "
+            "to the top 20% of scores per date. For top-N portfolio "
+            "strategies the top-quintile IC is the more deployment-aligned "
+            "signal — see `docs/architecture/ml_study_cv_objectives_v1.md`."
+        )
+        st.dataframe(ic, use_container_width=True, hide_index=True)
+
+    st.markdown("### Decile returns")
+    dr = load_contract_parquet(study_name, "decile_returns.parquet")
+    if not dr.empty:
+        fig = go.Figure()
+        for model in sorted(dr["model"].unique()):
+            m = dr[dr["model"] == model].sort_values("decile")
+            fig.add_trace(go.Bar(
+                x=m["decile"].astype(int),
+                y=m["mean_fwd_return"] * 100,
+                name=model,
+                error_y=dict(
+                    type="data",
+                    array=m["std_fwd_return"] * 100,
+                    visible=True,
+                    thickness=0.8,
+                    width=0,
+                ),
+            ))
+        fig.update_layout(
+            barmode="group",
+            title="Mean forward 21d return per score decile",
+            xaxis_title="Decile (1 = lowest, 10 = highest)",
+            yaxis_title="Mean fwd 21d return (%)",
+            height=420,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Rolling 12-month win rate")
+    rw = load_contract_parquet(study_name, "rolling_win_rate.parquet")
+    if not rw.empty:
+        st.dataframe(rw, use_container_width=True, hide_index=True)
+
+
+def tab_contract_walk_forward(study_name: str) -> None:
+    wf = load_contract_parquet(study_name, "walk_forward.parquet")
+    if wf.empty:
+        st.warning("No walk_forward.parquet found.")
+        return
+    st.caption(
+        "Walk-forward stability: each row is one rolling 3-year-train / "
+        "1-year-validation window. excess_cagr_vs_spy < 0 in some windows is "
+        "expected; what matters is sign and magnitude consistency."
+    )
+    fig = go.Figure()
+    for model in sorted(wf["model"].unique()):
+        m = wf[wf["model"] == model].sort_values("val_start")
+        fig.add_trace(go.Bar(
+            x=[str(v)[:7] for v in m["val_start"]],
+            y=m["excess_cagr_vs_spy"] * 100,
+            name=model,
+        ))
+    fig.update_layout(
+        barmode="group",
+        title="Per-window excess CAGR vs SPY",
+        xaxis_title="Validation window start",
+        yaxis_title="Excess CAGR vs SPY (pp)",
+        height=420,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(wf, use_container_width=True, hide_index=True)
+
+
+def tab_contract_tuning(study_name: str) -> None:
+    tl = load_contract_parquet(study_name, "trial_log.parquet")
+    if not tl.empty:
+        st.markdown("### Trial log")
+        st.caption(
+            f"{len(tl)} trials. CV objective is "
+            f"`{load_contract_meta(study_name).get('objective', {}).get('training_cv', '?')}`."
+        )
+        st.dataframe(tl.head(200), use_container_width=True, hide_index=True)
+
+    fi = load_contract_parquet(study_name, "feature_importance.parquet")
+    if not fi.empty:
+        st.markdown("### Feature importance")
+        method = load_contract_meta(study_name).get(
+            "feature_importance_method", "?",
+        )
+        st.caption(f"Method: `{method}`")
+        models = sorted(fi["model"].unique())
+        model = st.selectbox("Model", models, index=0,
+                             key="contract_tune_model")
+        sub = fi[fi["model"] == model].nlargest(20, "importance").copy()
+        fig = go.Figure(go.Bar(
+            x=sub["importance"], y=sub["feature"],
+            orientation="h",
+        ))
+        fig.update_layout(
+            title=f"{model} — top 20 features by importance",
+            xaxis_title="Importance",
+            height=540,
+            yaxis=dict(autorange="reversed"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def main_contract() -> None:
+    """Renders contract-conformant studies (dashboard_contract_v1)."""
+    st.sidebar.title("📊 Contract-conformant study")
+    study_name = sidebar_contract_picker()
+    if study_name is None:
+        st.info(
+            "No contract-conformant studies are available yet. The first "
+            "such study lands as part of feat/larger-universe-v1-study. "
+            "Switch to **Legacy studies** in the sidebar to explore promoted "
+            "Optuna v1 studies."
+        )
+        return
+    meta = load_contract_meta(study_name)
+    st.caption(
+        f"Spec: `{meta.get('spec_doc', '—')}` • "
+        f"Schema: `{meta.get('schema_version', '—')}` • "
+        f"Created: {meta.get('created_at', '?')[:10]}"
+    )
+
+    tabs = st.tabs([
+        "Overview",
+        "Performance",
+        "Holdings",
+        "Trades",
+        "Alpha Attribution",
+        "Diagnostics",
+        "Walk-forward",
+        "Tuning",
+    ])
+    with tabs[0]:
+        tab_contract_overview(study_name)
+    with tabs[1]:
+        tab_contract_performance(study_name)
+    with tabs[2]:
+        tab_contract_holdings(study_name)
+    with tabs[3]:
+        tab_contract_trades(study_name)
+    with tabs[4]:
+        tab_contract_alpha(study_name)
+    with tabs[5]:
+        tab_contract_diagnostics(study_name)
+    with tabs[6]:
+        tab_contract_walk_forward(study_name)
+    with tabs[7]:
+        tab_contract_tuning(study_name)
+
+
+# ---------------------------------------------------------------------------
 # Main app
 # ---------------------------------------------------------------------------
 
@@ -3821,6 +4264,23 @@ def main() -> None:
     elif asset_class_label == "Options":
         st.info("Options module — Phase 2 in progress. "
                 "See `docs/Options_Extension_Decisions.md`.")
+        return
+
+    # Phase 4.5 — sidebar separator between legacy (Optuna v1) and
+    # contract-conformant studies. Legacy stays the default so existing
+    # workflows are untouched. Contract-conformant studies render from
+    # models/studies/<name>/contract_v1/ artifacts via main_contract().
+    study_type = st.sidebar.radio(
+        "Study type",
+        options=["Legacy (Optuna v1)", "Contract-conformant (v1+)"],
+        index=0,
+        key="study_type_selector",
+        help="Legacy renders promoted Optuna v1 studies via the live-fallback "
+             "compute path. Contract-conformant reads pre-computed artifacts "
+             "from models/studies/<name>/contract_v1/.",
+    )
+    if study_type == "Contract-conformant (v1+)":
+        main_contract()
         return
 
     # Header strip with model/macro provenance for orientation
