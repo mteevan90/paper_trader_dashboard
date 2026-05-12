@@ -1281,3 +1281,38 @@ All tracked, none urgent.
 2. Dashboard pytest coverage via `streamlit.testing.v1.AppTest`
 3. `attempted_trials` enhancement to `tuning_summary.json`
 4. Convergence-pattern methodology memo (pending third Optuna data point)
+
+### Additions on this branch (per post-review request)
+
+After the initial review of Change 1 + Change 2, Mike confirmed both judgment calls (preserve locked planning artifacts; preserve the self-referential "OOS" quote in the contract spec's rationale) and added two follow-ups to land on the same branch.
+
+#### Addition 1 — `docs/architecture/dashboard_operations_v1.md`
+
+A "how to work on the dashboard" reference doc. Part tutorial, part architecture overview. Adapts the architectural-memo shape (TL;DR + sections + caveats) for an operations reference rather than a methodology finding.
+
+Sections covered:
+- Architecture overview — two parallel worlds (legacy vs contract-conformant), auto-discovery, cached loaders, the `_default_model_index` helper convention.
+- The data contract as the canonical input spec — the schema-vs-UI distinction formalized in `dashboard_contract_v1.md`.
+- How studies feed the dashboard — no registration step, drop artifacts at `models/studies/<name>/contract_v1/`, the dashboard auto-discovers.
+- **Four recipes** — fix a render bug; add a chart to an existing tab; add a new optional contract artifact + section; add a whole new tab. Each grounded in concrete examples from this project's history.
+- Process rules — feature branches, AppTest smoke-tests, session-log entries for material changes, tracker updates only at natural stable points.
+- Caveats — reliability + scope split, matching the memo convention.
+- Sourced from — links to the contract spec, both methodology memos, the session log, and the implementation.
+
+Concrete examples cited inline:
+- `feat/dashboard-add-vline-fix` — Plotly 6.7 + pandas 3.0 datetime annotation bug; ms-since-epoch workaround. Used to illustrate recipe 1 (fix a render bug) and the institutional-knowledge entry about Streamlit cascade failure.
+- `feat/dashboard-primary-model-default` — role-aware model selector defaults. Used to illustrate the `_default_model_index` convention.
+- `feat/contract-tuning-enhancements` — `tuning_convergence.parquet` + `tuning_summary.json` additive change. Used as the worked example for recipe 3 (add a new optional contract artifact + section), with the back-fill script convention.
+- `feat/dashboard-overview-merge-and-terminology` — this branch's work. Used to illustrate the "tab merge vs new tab" sizing question and the terminology-convention payoff.
+
+#### Addition 2 — Project_State_Tracker.docx update
+
+Additive insertion of a new H1 section "Post-LU-v1 dashboard refinements — 2026-05-12" between the existing LU-v1 closure section (paragraph 17) and the "1. Top 5 Most Important Findings" section (which moves from paragraph 46 to 78 after the insert).
+
+Content: new 7-tab structure with brief tab-by-tab descriptions, terminology convention with schema-fields-vs-UI-labels distinction, new architectural reference pointer, standing follow-ups list (unchanged), merge SHAs for traceability (727bc0d, b486e65, 235c8a6, plus this branch's merge SHA to be added post-merge).
+
+The update qualifies as a natural stable point per the standing rule: a structural change to dashboard semantics (7-tab + terminology) plus a new operations doc is more than routine fixing. Generated via `scripts/maintenance/update_tracker_post_lu_v1_dashboard.py` following the same pattern as `update_tracker_phase5.py`.
+
+#### Smoke-test (post-additions)
+
+Re-ran AppTest after the additions to confirm nothing accidentally broke. Operations doc shouldn't affect rendering (markdown file, never read by the dashboard) — verified. Tracker update is `.docx` only — not read by the dashboard. All previously-validated assertions still pass: 7 tabs in order, Performance absent, all 5 selectors default to xgboost, new UI labels render, 0 exceptions.
