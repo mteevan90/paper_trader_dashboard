@@ -23,8 +23,8 @@ from pathlib import Path
 
 import pandas as pd
 
-LABEL_HORIZON_TRADING_DAYS = 5
-EMBARGO_TRADING_DAYS = 5  # = label horizon
+LABEL_HORIZON_TRADING_DAYS = 21  # ~monthly forward return (revised at Phase 2 gate, 2026-05-11)
+EMBARGO_TRADING_DAYS = 21        # = label horizon to prevent train/val leakage
 
 ROOT = Path(__file__).resolve().parents[3]
 SNAPSHOT_PRICE_DIR = ROOT / "models" / "snapshots" / "equities" / "larger_universe_v1_20260511" / "price_cache"

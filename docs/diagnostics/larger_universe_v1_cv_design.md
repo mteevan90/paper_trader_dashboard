@@ -1,16 +1,16 @@
 # Larger Universe v1 — Cross-validation design (Phase 2)
 
 **Branch:** `feat/larger-universe-v1-study`
-**Phase 2 status:** Training pipelines + CV scaffolding built; 10-trial smoke run completed for both models with cross-sectional IC. **Phase 3 currently paused** pending Mike's review of the corrected smoke — the smoke surfaced near-zero cross-sectional alpha on the price+macro-only feature subset, which is a "pause" trigger per the agreed framework.
+**Phase 2 status:** Spec revised post-diagnostic — label horizon 5d → 21d, rebalance weekly → monthly, embargo 5d → 21d. Locked spec at `docs/studies/larger_universe_v1/spec.md`. Phase 3 authorized 2026-05-11 evening with the revised spec.
 
 ## TL;DR
 
-- Label: forward 5-trading-day return per (date, ticker), matching the weekly rebalance cadence
+- Label: **forward 21-trading-day return** per (date, ticker), matching the monthly rebalance cadence (revised from 5d at Phase 2 gate)
 - Scoring metric: **cross-sectional Spearman IC** (per-date Spearman, mean across dates) with min_tickers=30. Reported with mean, std, positive-rate. Mean is the Optuna objective; std and positive-rate are diagnostic.
-- CV: 5-fold expanding-window TimeSeriesSplit over 2017-05-12 → 2023-05-11 with a 5-trading-day embargo
-- XGBoost: native NaN + native categorical (sector), Optuna over 9 hyperparameters (max_depth tightened to 3–8 per Phase-2-gate review)
+- CV: 5-fold expanding-window TimeSeriesSplit over 2017-05-12 → 2023-05-11 with a **21-trading-day embargo** (= label horizon)
+- XGBoost: native NaN + native categorical (sector), Optuna over 9 hyperparameters (max_depth 3–8)
 - ElasticNet: SimpleImputer(mean, add_indicator=True) + StandardScaler + ElasticNet, Optuna over alpha + l1_ratio
-- **Corrected smoke result: cross-sectional IC is near-zero** on the price+macro-only subset (well-covered XGB trials cluster at -0.01 to +0.01; ENet folds range -0.02 to +0.03). The original "0.085 panel IC" reported in the first cut of this doc was almost entirely market-timing signal — predictions are constant within each date (475 SP500 tickers all get the same value), so cross-sectional ranking adds zero information. Smoke deliberately excluded fundamentals + sector + log_market_cap (the ticker-level features designed to provide cross-sectional differentiation); whether Phase 3's full feature set rescues this remains an open question.
+- **Variant B smoke result (SP500 actives, 21d horizon, full features):** XGB mean cross-sectional IC 0.019 with all 5 folds covered (no degeneracy); ElasticNet 0.031 with 4 of 5 folds positive. Phase 3 runs on the full ~1,963-ticker universe and should produce different (likely higher) numbers given the increased cross-sectional dispersion.
 
 ## Label
 
