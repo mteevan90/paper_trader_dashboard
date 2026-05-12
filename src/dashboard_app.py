@@ -3924,26 +3924,79 @@ def tab_contract_overview(study_name: str) -> None:
     st.subheader(meta.get("display_name", study_name))
     st.caption(meta.get("description", ""))
 
+    # === Date-range header ===
     cols = st.columns(4)
     win = meta.get("windows", {})
     cols[0].metric("Train window", f"{win.get('train_start', '?')} →\n"
                                     f"{win.get('train_end', '?')}")
     cols[1].metric("Test window", f"{win.get('test_start', '?')} →\n"
                                    f"{win.get('test_end', '?')}")
-    cols[2].metric("OOS window", f"{win.get('oos_start', '?')} →\n"
-                                  f"{win.get('oos_end', '?')}")
+    # Schema field stays oos_start/oos_end; UI surfaces "Reserved validation".
+    cols[2].metric("Reserved validation window",
+                   f"{win.get('oos_start', '?')} →\n"
+                   f"{win.get('oos_end', '?')}")
     cols[3].metric(
         "Promoted",
         "Yes" if meta.get("promoted") else "No",
     )
 
+    # === NAV chart vs benchmarks (moved here from the former Performance tab) ===
+    port = load_contract_parquet(study_name, "portfolio.parquet")
+    bench = load_contract_parquet(study_name, "benchmarks.parquet")
+    if not port.empty:
+        port["date"] = pd.to_datetime(port["date"])
+        if not bench.empty:
+            bench["date"] = pd.to_datetime(bench["date"])
+
+        fig = go.Figure()
+        for model in port["model"].unique():
+            m = port[port["model"] == model]
+            fig.add_trace(go.Scatter(
+                x=m["date"], y=m["nav"], mode="lines", name=model,
+                line=dict(width=2.5),
+            ))
+        if not bench.empty:
+            for b in bench["benchmark"].unique():
+                bb = bench[bench["benchmark"] == b]
+                fig.add_trace(go.Scatter(
+                    x=bb["date"], y=bb["nav"], mode="lines", name=b,
+                    line=dict(width=1.2, dash="dash"),
+                    opacity=0.65,
+                ))
+
+        oos_start = win.get("oos_start")
+        if oos_start:
+            # Plotly 6.7 + pandas 3.0: add_vline with annotation_text on a
+            # datetime axis requires ms-since-epoch (str / Timestamp /
+            # datetime all raise TypeError because annotation-positioning
+            # adds an int offset). Schema field stays `oos_start`;
+            # human-facing label is "Reserved validation period".
+            oos_ms = int(pd.Timestamp(oos_start).value // 10**6)
+            fig.add_vline(x=oos_ms,
+                          line=dict(color="red", dash="dot", width=1),
+                          annotation_text="Reserved validation period →",
+                          annotation_position="top right")
+
+        fig.update_layout(
+            title="Strategy NAV vs Benchmarks",
+            yaxis_title="NAV (starts at 1.0)",
+            xaxis_title="Date",
+            height=520,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # === Headline metrics ===
     st.markdown("### Headline metrics")
     sm = meta.get("summary_metrics", {})
+    SLICE_LABELS = {
+        "test": "TEST slice",
+        "oos": "RESERVED VALIDATION slice",
+    }
     for slice_name in ("test", "oos"):
         slice_data = sm.get(slice_name, {})
         if not slice_data:
             continue
-        st.markdown(f"**{slice_name.upper()} slice**")
+        st.markdown(f"**{SLICE_LABELS.get(slice_name, slice_name.upper())}**")
         rows = []
         for model, m in slice_data.items():
             rows.append({
@@ -3959,9 +4012,9 @@ def tab_contract_overview(study_name: str) -> None:
 
     st.markdown("### Concentration check (success criterion: ≤ 25% per ticker)")
     st.caption(
-        "Per-ticker contribution to total excess return on the test+OOS "
-        "window. The contract's hard success criterion is no single ticker "
-        "contributing > 25% of total alpha."
+        "Per-ticker contribution to total excess return on the combined "
+        "test + reserved-validation window. The contract's hard success "
+        "criterion is no single ticker contributing > 25% of total alpha."
     )
     attr = load_contract_parquet(study_name, "per_ticker_attribution.parquet")
     if not attr.empty:
@@ -4025,54 +4078,21 @@ def tab_contract_overview(study_name: str) -> None:
         f"sector_cap={pc.get('sector_cap', '—')}"
     )
 
-
-def tab_contract_performance(study_name: str) -> None:
-    port = load_contract_parquet(study_name, "portfolio.parquet")
-    bench = load_contract_parquet(study_name, "benchmarks.parquet")
-    if port.empty:
-        st.warning("No portfolio.parquet found in contract artifacts.")
-        return
-    port["date"] = pd.to_datetime(port["date"])
-    if not bench.empty:
-        bench["date"] = pd.to_datetime(bench["date"])
-
-    fig = go.Figure()
-    for model in port["model"].unique():
-        m = port[port["model"] == model]
-        fig.add_trace(go.Scatter(
-            x=m["date"], y=m["nav"], mode="lines", name=model,
-            line=dict(width=2.5),
-        ))
-    if not bench.empty:
-        for b in bench["benchmark"].unique():
-            bb = bench[bench["benchmark"] == b]
-            fig.add_trace(go.Scatter(
-                x=bb["date"], y=bb["nav"], mode="lines", name=b,
-                line=dict(width=1.2, dash="dash"),
-                opacity=0.65,
-            ))
-
-    meta = load_contract_meta(study_name)
-    oos_start = meta.get("windows", {}).get("oos_start")
-    if oos_start:
-        # Plotly 6.7 + pandas 3.0: add_vline with annotation_text on a
-        # datetime axis raises TypeError for str / Timestamp / datetime
-        # x-values because the annotation-positioning math adds an int
-        # offset. ms-since-epoch is the only x type that survives that
-        # path. https://github.com/plotly/plotly.py/issues/3065 style.
-        oos_ms = int(pd.Timestamp(oos_start).value // 10**6)
-        fig.add_vline(x=oos_ms,
-                      line=dict(color="red", dash="dot", width=1),
-                      annotation_text="OOS start",
-                      annotation_position="top right")
-
-    fig.update_layout(
-        title="Strategy NAV vs Benchmarks",
-        yaxis_title="NAV (starts at 1.0)",
-        xaxis_title="Date",
-        height=520,
+    # === Reserved validation period — explanatory note ===
+    st.markdown("---")
+    st.markdown(
+        "**About the reserved validation period.** The vertical line on "
+        "the chart marks where the reserved validation period begins. "
+        "Data after this line was deliberately not analyzed during the "
+        "study to prevent analyst-level selection bias — it was kept "
+        "untouched until the final writeup as an independent check of "
+        "whether the strategy generalized beyond the period we examined. "
+        "Both the test window (left of the line) and the reserved "
+        "validation window (right of the line) are out-of-sample for the "
+        "model; the distinction protects against subtle analyst biases "
+        "like cherry-picking metrics or time slices, not model-level "
+        "data contamination."
     )
-    st.plotly_chart(fig, use_container_width=True)
 
 
 def tab_contract_holdings(study_name: str) -> None:
@@ -4574,9 +4594,11 @@ def main_contract() -> None:
         f"Created: {meta.get('created_at', '?')[:10]}"
     )
 
+    # 7-tab structure (Performance was merged into Overview — the NAV chart
+    # lives directly under the date-range header, giving visual context for
+    # the headline metrics that follow).
     tabs = st.tabs([
         "Overview",
-        "Performance",
         "Holdings",
         "Trades",
         "Alpha Attribution",
@@ -4587,18 +4609,16 @@ def main_contract() -> None:
     with tabs[0]:
         tab_contract_overview(study_name)
     with tabs[1]:
-        tab_contract_performance(study_name)
-    with tabs[2]:
         tab_contract_holdings(study_name)
-    with tabs[3]:
+    with tabs[2]:
         tab_contract_trades(study_name)
-    with tabs[4]:
+    with tabs[3]:
         tab_contract_alpha(study_name)
-    with tabs[5]:
+    with tabs[4]:
         tab_contract_diagnostics(study_name)
-    with tabs[6]:
+    with tabs[5]:
         tab_contract_walk_forward(study_name)
-    with tabs[7]:
+    with tabs[6]:
         tab_contract_tuning(study_name)
 
 

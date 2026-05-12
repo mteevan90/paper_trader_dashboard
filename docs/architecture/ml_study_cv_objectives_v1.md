@@ -23,7 +23,7 @@ Phase 3 used full-cross-section Spearman IC (per-date Spearman between predictio
 
 Conclusion: the CV objective rewarded an in-sample pattern (XGBoost was discriminating among the bottom-of-distribution stocks in training data) that didn't generalize. The actual deployable signal lives in the top-of-distribution, which the full-cross-section metric doesn't isolate.
 
-Decile-return analysis on the same model in the Phase 4 test+OOS window:
+Decile-return analysis on the same model in the Phase 4 combined test + reserved-validation window:
 
 | Decile | XGBoost mean forward 21d return | ElasticNet mean forward 21d return |
 |---|---|---|

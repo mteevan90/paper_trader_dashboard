@@ -31,33 +31,44 @@ The Larger Universe v1 Phase 3 study writes to `models/studies/larger_universe_v
 **Universal: 1, 2, 3, 5, 7, 8 (with Tuning History generalized to read JSON).**
 **Family-specific (composite-weighted only): 4 (partially), 6.**
 
-## Recommended new tab structure for contract-conformant studies
+## Realized tab structure for contract-conformant studies
 
-Same count as legacy (8 tabs), parallel naming for user familiarity. The two family-specific legacy tabs (Market Context tier, Reliability) get replaced with study-family-agnostic equivalents.
+Seven universal tabs as shipped in Phase 4.5 and refined post-merge. The first tab is the executive-summary view; the remaining six are analytical deep-dives.
 
 | # | Tab | What it shows |
 |---|---|---|
-| 1 | **Performance** | NAV curve vs 4 benchmarks (SPY, RSP, IWM, EW-SP1500 — or whatever the study declares), total return, CAPM alpha vs SPY, beta, drawdown, win rate, year-by-year bars, exec summary auto-generated from headline metrics |
-| 2 | **Holdings** | Latest target weights table, sector allocation pie, position concentration histogram, weight-distribution by tier (SP500/400/600) if available |
-| 3 | **Trades** | Turnover per period, trade list, holding-duration distribution, biggest contributors to PnL |
-| 4 | **Risk & Behavior** | Up/down capture vs each benchmark, drawdown duration analysis, rolling Sharpe / IR, recovery times, monthly-return distribution |
-| 5 | **Model Diagnostics** | NEW. For ML studies: cross-sectional IC time series, per-fold IC bars, feature importance (top N), prediction-vs-realized scatter, model-output distribution. For non-ML studies the tab still exists but renders an "n/a, this study has no ML component" placeholder — better than hiding the tab and breaking visual consistency. |
-| 6 | **Market Context** | Macro indicator time series during the validation window (VIX, yield curve slope, BAA spread, USD index, etc. from `macro_signals_extended.parquet`). NO strategy-prescriptive traffic light — just the context. For composite-weighted studies (not contract-conformant), the legacy tab keeps the tier panel. |
-| 7 | **Tuning History** | Trial scatter (objective value vs trial number), score distribution histogram, parameter importance (Optuna's `get_param_importances`), convergence trace at checkpoint intervals. Reads `trial_log.parquet` instead of SQLite. |
-| 8 | **Glossary & Help** | Definitions section reused; adds Model Diagnostics terms (IC, IR, walk-forward, etc.) |
-
-**Optional 9th tab when present:**
-
-| # | Tab | Renders only if … |
-|---|---|---|
-| 9 | **Sensitivity / Walk-forward** | `walk_forward.parquet` is present in the study's contract directory. Year-by-year IC bars, rolling-3y window retrains, regime-conditional metrics. Larger Universe v1 will land this in Phase 5. |
+| 1 | **Overview** | Executive summary. Date-range header (train / test / reserved-validation windows); NAV chart vs all declared benchmarks with the reserved-validation marker; headline metrics tables per slice (test, reserved validation); concentration check against the ≤ 25% success criterion; repeat-holding profile; objective + portfolio-construction summary; explanatory note defining the reserved-validation period. |
+| 2 | **Holdings** | Per-model rebalance-date selector → positions table. |
+| 3 | **Trades** | Per-model round-trip trade list. |
+| 4 | **Alpha Attribution** | Per-model top-N alpha contributors with the 25% constraint line marked. |
+| 5 | **Diagnostics** | IC decomposition (full vs top-quintile), decile returns with error bars, rolling 12-month win rate. |
+| 6 | **Walk-forward** | Per-window excess CAGR bars across the rolling 3y-train / 1y-validation windows (rendered when `walk_forward.parquet` is present). |
+| 7 | **Tuning** | Narrative summary box (quoting `tuning_summary.json`), score-distribution histogram, running-best convergence curve, per-parameter sensitivity scatter grid, collapsed trial log, feature importance. |
 
 ### Rationale for the structure
 
-- **Mike's "I like the current layout" constraint is honored** — same 8-tab count, 5 of the legacy tab names retained verbatim (Performance, Holdings, Trades, Risk & Behavior, Glossary), 2 renamed (Market Context loses the tier, Tuning History stays).
-- **Reliability is dropped from the universal set** rather than kept-empty: V3 Track 2 perturbation is a very-specific kind of sensitivity test that doesn't generalize without a clear definition of what "axes" mean for an ML study. The Sensitivity / Walk-forward optional tab covers the same conceptual ground in a study-family-agnostic way.
-- **Model Diagnostics is the new content** — gives ML studies somewhere to surface IC, feature importance, prediction quality. For non-ML studies it renders an n/a placeholder rather than disappearing, so the tab order stays consistent across studies.
-- **Tuning History becomes JSON-trial-log-based** — decouples from SQLite, allowing any Optuna study (or any tuning framework that exports a trial log) to render here.
+- **Overview merges what was originally Performance + Overview into one executive-summary view.** The NAV chart sits directly above the headline metrics so the metrics that follow have visual context. A separate Performance tab containing only the NAV chart was redundant given the chart's role as headline-context.
+- **Six analytical tabs after Overview** are study-family-agnostic deep-dives. Each tab renders only when its source artifact is present (e.g., the Walk-forward tab is empty when `walk_forward.parquet` is absent). The dashboard surfaces this with a clear placeholder rather than hiding the tab.
+- **Tuning has been enriched** post-Phase-4.5 to match legacy-tab parity (narrative summary + score histogram + convergence curve + per-parameter sensitivity + collapsed trial log + preserved feature importance section). Auto-derived from `trial_log.parquet`, `tuning_convergence.parquet`, and `tuning_summary.json` per the schema sections below.
+- **Reliability is dropped from the universal set** rather than kept-empty: V3 Track 2 perturbation is a very-specific kind of sensitivity test that doesn't generalize without a clear definition of what "axes" mean for an ML study. Walk-forward (tab 6) covers the conceptual ground in a study-family-agnostic way.
+
+## Terminology convention — schema fields vs UI labels
+
+This contract distinguishes **schema-level** identifiers from **UI-level** human-facing terms. The two layers may use different names for the same concept; the dashboard translates between them.
+
+| Concept | Schema field name (do not rename) | UI label (human-facing) |
+|---|---|---|
+| Start of the period reserved as an analyst-discretion-free check | `meta.json.windows.oos_start` | "Reserved validation period" / "Reserved validation window" / "Reserved validation slice" |
+| End of that period | `meta.json.windows.oos_end` | (same as above, end-of-window) |
+| Summary metrics for that period | `meta.json.summary_metrics.oos` | "RESERVED VALIDATION slice" |
+
+Rationale:
+
+- **Schema field names are short, technical, and developer-facing.** `oos_start` is unambiguous in code and reads cleanly in a JSON file inspected by a developer or in a Python expression like `meta["windows"]["oos_start"]`. Renaming to `reserved_validation_start` would lengthen field names and break compatibility with already-shipped artifacts.
+- **UI labels are partner-facing and need to communicate intent, not just convention.** "OOS" reads as jargon to readers outside the team. "Reserved validation period" makes the deliberate hold-back of data legible to a partner reviewing the dashboard.
+- **The distinction protects against subtle analyst biases** — like cherry-picking metrics or time slices — rather than model-level data contamination. Both the test window and the reserved-validation window are out-of-sample for the trained model; the "reserved" framing makes clear what the analyst-side discipline is.
+
+**Implication for future studies.** Schema field names stay `oos_start` and `oos_end` (and any related `summary_metrics.oos` block). Human-facing prose in writeups, dashboards, and partner-facing memos uses "reserved validation period" or contextually appropriate variants ("reserved validation window", "reserved validation slice"). The term "out-of-sample" remains correct when distinguishing model-level out-of-sample from analyst-level analysis discretion; use it deliberately, not as a default.
 
 ## Data contract v1 specification
 
@@ -407,7 +418,7 @@ Both sections always visible; user toggles by clicking which study to load. Avoi
 
 1. **Phase 4 (next, after this proposal's approval)** — modify Phase 4 spec to produce contract_v1/ artifacts for Larger Universe v1. Runs the backtest, saves per-spec outputs.
 2. **Phase 4.5** — add the contract-conformant dashboard tab set. Includes the discovery walker for `models/studies/<name>/contract_v1/meta.json`, the sidebar section, and the 8 tab renderers reading the contract files. Estimate ~1-2 days of dashboard code.
-3. **Phase 5** — walk-forward + OOS + writeup. Adds `walk_forward.parquet` and `regime_attribution.parquet` to the existing contract_v1/ dir. The Sensitivity tab auto-appears.
+3. **Phase 5** — walk-forward + reserved validation + writeup. Adds `walk_forward.parquet` and `regime_attribution.parquet` to the existing contract_v1/ dir. The Sensitivity tab auto-appears.
 4. **R2 sync** — `snapshot_for_cloud.py` already walks `models/cache/` for legacy artifacts; needs a parallel `models/studies/*/contract_v1/` walker. Small modification.
 
 ## What's out of scope for contract v1
@@ -426,7 +437,7 @@ The six review questions are answered. The decisions are now part of the contrac
 1. **`scores.parquet` size cap: 1M rows.** Studies producing more must also write `scores_sampled.parquet` (every Nth rebalance) per the rule documented under that file's schema. Dashboard prefers the sampled variant when present. Larger Universe v1 stays under the cap.
 2. **Benchmarks declaration: strict.** Dashboard renders exactly what's in `meta.json.benchmarks` — no auto-add of SPY. Studies declare their benchmark list explicitly. Larger Universe v1 declares `["SPY", "RSP", "IWM", "EW-SP1500"]`.
 3. **`promoted` flag: match legacy semantics.** Default `false`; manually flipped to `true` after explicit promotion review. Larger Universe v1 stays `promoted: false` through Phase 5; promotion is a separate decision based on the success-criteria evaluation in Phase 5.
-4. **Holdings tab default: always-show-latest, with date picker.** "Latest" is computed dynamically from the holdings.parquet's max date — advances naturally as Phase 5 adds OOS data, no hard-coded sentinel.
+4. **Holdings tab default: always-show-latest, with date picker.** "Latest" is computed dynamically from the holdings.parquet's max date — advances naturally as Phase 5 adds reserved-validation data, no hard-coded sentinel.
 5. **Model Diagnostics tab visibility: data-driven, no flag.** The tab renders iff BOTH `scores.parquet` AND `feature_importance.parquet` exist for the selected study. Hidden otherwise. The contract is "files determine UI"; no `has_model_diagnostics` boolean.
 6. **Multi-model studies: default to primary.** `meta.json.models[].role` controls. Dashboard renders the role=`"primary"` model by default; sidebar dropdown selects others. **No overlay of multiple models in default views** — clutters the headline and forces the user into compare-mode they didn't ask for. Compare-mode is a future feature.
 
@@ -435,5 +446,5 @@ The six review questions are answered. The decisions are now part of the contrac
 1. Modify Phase 4 spec to produce contract-conformant output at `models/studies/larger_universe_v1/contract_v1/`. Spec doc lives separately at `docs/studies/larger_universe_v1/phase4_spec.md`.
 2. Run Phase 4. Produces contract-conformant artifacts.
 3. Phase 4.5 — implement the new universal dashboard tabs reading from the contract location.
-4. Phase 5 — walk-forward + OOS + writeup. Adds `walk_forward.parquet` and `regime_attribution.parquet` to the same contract directory; Sensitivity tab auto-appears.
+4. Phase 5 — walk-forward + reserved validation + writeup. Adds `walk_forward.parquet` and `regime_attribution.parquet` to the same contract directory; Sensitivity tab auto-appears.
 5. `snapshot_for_cloud.py` — extend with parallel walker for `models/studies/*/contract_v1/`. Small modification.

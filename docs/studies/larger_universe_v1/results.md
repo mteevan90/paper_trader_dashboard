@@ -117,7 +117,7 @@ Walk-forward analysis (6 rolling 3y train → 1y val windows), per-ticker alpha 
 
 ![Equity curves](figures/equity_curves.png)
 
-Both models outperformed all four benchmarks (SPY, RSP, IWM, EW-SP1500) on cumulative NAV over the test+OOS span. ElasticNet's terminal NAV (~4.2) reflects DBD's run; XGBoost's ~2.1 is more typical for a top-N momentum-trend strategy in this regime.
+Both models outperformed all four benchmarks (SPY, RSP, IWM, EW-SP1500) on cumulative NAV over the combined test + reserved-validation span. ElasticNet's terminal NAV (~4.2) reflects DBD's run; XGBoost's ~2.1 is more typical for a top-N momentum-trend strategy in this regime.
 
 ### Test-period headline metrics (2023-05-12 → 2025-12-31)
 
@@ -126,14 +126,14 @@ Both models outperformed all four benchmarks (SPY, RSP, IWM, EW-SP1500) on cumul
 | XGBoost (primary) | +78.3% | +25.1% | **+3.5pp** | −33.5% | −19.0% |
 | ElasticNet (sanity) | +150.9% | +42.9% | **+21.2pp** | −37.5% | −19.0% |
 
-### OOS slice (2026-01-01 → 2026-05-11, 89 trading days)
+### Reserved validation slice (2026-01-01 → 2026-05-11, 89 trading days)
 
 | Model | Total return | CAGR (annualized) | Excess vs SPY | Max DD |
 |---|---|---|---|---|
 | XGBoost | +16.1% | +52.6% | +27.6pp | −12.2% |
 | ElasticNet | +59.7% | +276.7% | +251.6pp | −9.8% |
 
-Caveat: 89 trading days is statistically thin. The annualized CAGRs are extrapolations and shouldn't be over-interpreted; the absolute returns and drawdowns are the meaningful numbers in the OOS slice.
+Caveat: 89 trading days is statistically thin. The annualized CAGRs are extrapolations and shouldn't be over-interpreted; the absolute returns and drawdowns are the meaningful numbers in the reserved validation slice.
 
 ### Year-by-year excess vs SPY
 
