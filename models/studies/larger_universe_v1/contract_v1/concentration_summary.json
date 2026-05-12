@@ -1,0 +1,42 @@
+{
+  "xgboost": {
+    "rebalance_dates": 37,
+    "unique_tickers_held": 340,
+    "avg_positions_per_rebalance": 30.0,
+    "max_single_ticker_weight": 0.036842105263157905,
+    "max_sector_weight_across_dates": 0.30000000000000004,
+    "median_sector_weight_max_per_date": 0.2,
+    "top_10_repeat_holdings": {
+      "SEDG": 20,
+      "CLSK": 19,
+      "BHF": 18,
+      "SPWR": 14,
+      "ARWR": 14,
+      "VIR": 13,
+      "MXL": 13,
+      "TDG": 13,
+      "PRA": 13,
+      "SEZL": 12
+    }
+  },
+  "elasticnet": {
+    "rebalance_dates": 37,
+    "unique_tickers_held": 299,
+    "avg_positions_per_rebalance": 30.0,
+    "max_single_ticker_weight": 0.03333333333333333,
+    "max_sector_weight_across_dates": 0.3,
+    "median_sector_weight_max_per_date": 0.2,
+    "top_10_repeat_holdings": {
+      "DBD": 30,
+      "CLSK": 25,
+      "FTRE": 22,
+      "CVNA": 21,
+      "SMCI": 20,
+      "WOLF": 19,
+      "SEZL": 19,
+      "COIN": 17,
+      "MARA": 16,
+      "APP": 15
+    }
+  }
+}

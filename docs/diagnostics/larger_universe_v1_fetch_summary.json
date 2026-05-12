@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-05-11T23:00:41.994669Z",
+  "window_start": "2016-05-12",
+  "window_end": "2026-05-11",
+  "universe": {
+    "n_total": 2122,
+    "n_active": 1506,
+    "n_removed": 616,
+    "n_with_truncate": 599
+  },
+  "prices": {
+    "ok": 1963,
+    "empty": 159,
+    "error": 0,
+    "errors": []
+  },
+  "metrics": {
+    "ok": 1919,
+    "empty": 202,
+    "error": 1,
+    "errors": [
+      {
+        "symbol": "BKNG",
+        "error": "429 Client Error: Too Many Requests for url: https://finnhub.io/api/v1/stock/metric?symbol=BKNG&metric=all&token=<REDACTED>"
+      }
+    ]
+  },
+  "earnings": {
+    "skipped": false,
+    "total_entries": 75,
+    "nonempty": 67,
+    "nonempty_frac": 0.03157398680490104,
+    "elapsed_s": 1934.8
+  }
+}

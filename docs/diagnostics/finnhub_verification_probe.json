@@ -1,0 +1,199 @@
+{
+  "generated_at": "2026-05-11T20:37:23.139195+00:00",
+  "delisted_coverage": [
+    {
+      "symbol": "BSC",
+      "expected_last_trading": "2008-05",
+      "note": "Bear Stearns acquired by JPM",
+      "http_status": 200,
+      "meta": {
+        "elapsed_ms": 223.9,
+        "limit": "150",
+        "remaining": "149",
+        "retry_after": null
+      },
+      "api_s": "no_data",
+      "body_keys": [
+        "s"
+      ]
+    },
+    {
+      "symbol": "LEHM",
+      "expected_last_trading": "2008-09",
+      "note": "Lehman Brothers bankruptcy",
+      "http_status": 200,
+      "meta": {
+        "elapsed_ms": 252.3,
+        "limit": "150",
+        "remaining": "148",
+        "retry_after": null
+      },
+      "api_s": "no_data",
+      "body_keys": [
+        "s"
+      ]
+    },
+    {
+      "symbol": "TWTR",
+      "expected_last_trading": "2022-10",
+      "note": "Twitter taken private by Musk",
+      "http_status": 200,
+      "meta": {
+        "elapsed_ms": 284.0,
+        "limit": "150",
+        "remaining": "147",
+        "retry_after": null
+      },
+      "api_s": "ok",
+      "candles": 2259,
+      "first_date": "2013-11-07",
+      "last_date": "2022-10-27"
+    },
+    {
+      "symbol": "ATVI",
+      "expected_last_trading": "2023-10",
+      "note": "Activision acquired by Microsoft",
+      "http_status": 200,
+      "meta": {
+        "elapsed_ms": 462.4,
+        "limit": "150",
+        "remaining": "146",
+        "retry_after": null
+      },
+      "api_s": "ok",
+      "candles": 4382,
+      "first_date": "2006-05-17",
+      "last_date": "2023-10-12"
+    },
+    {
+      "symbol": "FB",
+      "expected_last_trading": "2022-06",
+      "note": "Meta renamed; old ticker retired",
+      "http_status": 200,
+      "meta": {
+        "elapsed_ms": 227.4,
+        "limit": "150",
+        "remaining": "145",
+        "retry_after": null
+      },
+      "api_s": "ok",
+      "candles": 220,
+      "first_date": "2025-06-26",
+      "last_date": "2026-05-11"
+    }
+  ],
+  "calendar_earnings_rate_limit": [
+    {
+      "i": 0,
+      "status": 200,
+      "elapsed_ms": 274.5,
+      "limit": "60",
+      "remaining": "59",
+      "retry_after": null
+    },
+    {
+      "i": 1,
+      "status": 200,
+      "elapsed_ms": 294.3,
+      "limit": "60",
+      "remaining": "58",
+      "retry_after": null
+    },
+    {
+      "i": 2,
+      "status": 200,
+      "elapsed_ms": 325.1,
+      "limit": "60",
+      "remaining": "57",
+      "retry_after": null
+    },
+    {
+      "i": 3,
+      "status": 200,
+      "elapsed_ms": 255.5,
+      "limit": "60",
+      "remaining": "56",
+      "retry_after": null
+    },
+    {
+      "i": 4,
+      "status": 200,
+      "elapsed_ms": 274.4,
+      "limit": "60",
+      "remaining": "55",
+      "retry_after": null
+    }
+  ],
+  "historical_earnings_spot_check": [
+    {
+      "window": "2024-07-25..2024-08-05",
+      "symbol": "AAPL",
+      "expected": "2024-08-01",
+      "events_for_symbol": [],
+      "matched_expected_date": false,
+      "http_status": 200,
+      "meta": {
+        "elapsed_ms": 256.1,
+        "limit": "60",
+        "remaining": "54",
+        "retry_after": null
+      }
+    },
+    {
+      "window": "2023-07-25..2023-08-10",
+      "symbol": "AAPL",
+      "expected": "2023-08-03",
+      "events_for_symbol": [],
+      "matched_expected_date": false,
+      "http_status": 200,
+      "meta": {
+        "elapsed_ms": 224.2,
+        "limit": "60",
+        "remaining": "53",
+        "retry_after": null
+      }
+    },
+    {
+      "window": "2022-07-22..2022-08-02",
+      "symbol": "AAPL",
+      "expected": "2022-07-28",
+      "events_for_symbol": [],
+      "matched_expected_date": false,
+      "http_status": 200,
+      "meta": {
+        "elapsed_ms": 234.3,
+        "limit": "60",
+        "remaining": "52",
+        "retry_after": null
+      }
+    },
+    {
+      "window": "2021-07-22..2021-08-02",
+      "symbol": "AAPL",
+      "expected": "2021-07-27",
+      "events_for_symbol": [],
+      "matched_expected_date": false,
+      "http_status": 200,
+      "meta": {
+        "elapsed_ms": 222.4,
+        "limit": "60",
+        "remaining": "51",
+        "retry_after": null
+      }
+    },
+    {
+      "window": "2020-07-25..2020-08-05",
+      "symbol": "AAPL",
+      "expected": "2020-07-30",
+      "events_for_symbol": [],
+      "matched_expected_date": false,
+      "http_status": 200,
+      "meta": {
+        "elapsed_ms": 226.4,
+        "limit": "60",
+        "remaining": "50",
+        "retry_after": null
+      }
+    }
+  ]
+}

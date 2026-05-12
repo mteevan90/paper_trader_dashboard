@@ -69,6 +69,15 @@ EARNINGS_CACHE        = os.path.join(CACHE_DIR, "earnings_dates.json")
 FUNDAMENTALS_TTL_DAYS = 7
 EARNINGS_TTL_DAYS     = 1
 
+# yfinance's get_earnings_dates() is the flakiest endpoint we hit at scale —
+# it silently returns empty for most tickers under throttling. Retry empties
+# with backoff, mirroring fetch_sp1500._fetch_prices_with_retry.
+_EARNINGS_RETRY_BACKOFFS_SECONDS = (5, 10)
+# If a fresh-fetch batch returns >50% empties even after retries, refuse to
+# overwrite the on-disk cache — prevents a bad fetch from poisoning the
+# 1-day-TTL cache and forcing a 24-hour wait or a --force-refresh re-run.
+_EARNINGS_SANITY_MIN_NONEMPTY_FRAC = 0.50
+
 
 def _snapshot_miss(cache_name: str, path: str, required: str) -> "RuntimeError":
     """Build a [CACHE_SNAPSHOT_MISS] error for hard-fail in snapshot mode."""
@@ -237,7 +246,8 @@ def _fetch_one_earnings(tkr: str, start_ts: pd.Timestamp,
 
 
 def fetch_earnings_dates(
-    tickers: list[str], start: str, end: str
+    tickers: list[str], start: str, end: str,
+    *, force_refresh: bool = False,
 ) -> dict[str, list[pd.Timestamp]]:
     """Fetch upcoming earnings dates for each ticker in the given window.
 
@@ -252,8 +262,20 @@ def fetch_earnings_dates(
     Cache semantics: same shape as fetch_fundamentals — fresh cache +
     missing tickers triggers a partial fetch that populates only the new
     names, preserving existing entries. Stale/absent cache triggers a
-    full refresh of the request list. Fixes the same "fresh cache hides
-    new tickers" bug that fetch_fundamentals had.
+    full refresh of the request list. ``force_refresh=True`` ignores the
+    TTL and refetches every requested ticker — used when an earlier
+    fetch wrote mostly-empty entries (yfinance throttling) and you need
+    to retry without waiting 24h for the TTL.
+
+    Fresh-fetch reliability:
+      - Each ticker's initial yfinance call is followed by up to 2 retry
+        passes with 5s / 10s backoff if the first attempt returned [].
+        Most empties at scale are throttling, not real absences.
+      - Sanity gate before the disk write: if <50% of fresh-fetched
+        tickers came back non-empty (post-retry), the function refuses
+        to overwrite the cache file and returns the prior on-disk
+        contents. Prevents a bad batch from poisoning the cache and
+        forcing a 24h wait.
     """
     os.makedirs(CACHE_DIR, exist_ok=True)
     age = _cache_age_days(EARNINGS_CACHE)
@@ -278,8 +300,9 @@ def fetch_earnings_dates(
     requested = list(dict.fromkeys(tickers))   # dedupe, preserve order
     missing = [t for t in requested if t not in cached]
 
-    # Fast path: fresh cache, every requested ticker already populated.
-    if cache_fresh and not missing:
+    # Fast path: fresh cache, every requested ticker already populated,
+    # caller didn't ask for a force-refresh.
+    if not force_refresh and cache_fresh and not missing:
         print(f"  [CACHE] Earnings dates loaded from disk "
               f"({age:.1f} days old, {len(cached)} entries, "
               f"{len(requested)} requested)")
@@ -292,7 +315,17 @@ def fetch_earnings_dates(
             f"and every requested ticker present "
             f"(missing {len(missing)}, e.g. {missing[:3]})")
 
-    if cache_fresh:
+    if force_refresh:
+        # Treat every requested ticker as needing a fresh fetch; do not
+        # carry forward existing entries (we're explicitly distrusting
+        # them). On-disk cache is only overwritten if the sanity gate
+        # passes below.
+        earnings = {}
+        to_fetch = requested
+        print(f"  [CACHE] Earnings --force-refresh: refetching all "
+              f"{len(to_fetch)} requested tickers (ignoring "
+              f"{age:.1f}d TTL on {len(cached)} pre-existing entries)...")
+    elif cache_fresh:
         earnings = dict(cached)
         to_fetch = missing
         print(f"  [CACHE] Earnings fresh ({age:.1f} days old): "
@@ -308,9 +341,50 @@ def fetch_earnings_dates(
             print(f"  Fetching earnings dates for {len(to_fetch)} "
                   f"tickers (no cache)...")
 
+    # --- Initial fetch attempt -----------------------------------------
     for tkr in to_fetch:
         earnings[tkr] = _fetch_one_earnings(tkr, start_ts, end_ts)
 
+    # --- Retry pass for empty results ----------------------------------
+    fresh_empty = [t for t in to_fetch if not earnings[t]]
+    max_retries = len(_EARNINGS_RETRY_BACKOFFS_SECONDS)
+    for attempt, backoff in enumerate(_EARNINGS_RETRY_BACKOFFS_SECONDS, 1):
+        if not fresh_empty:
+            break
+        print(f"  [RETRY {attempt}/{max_retries}] {len(fresh_empty)} "
+              f"earnings fetches empty; waiting {backoff}s before retry...")
+        time.sleep(backoff)
+        recovered = 0
+        for tkr in fresh_empty:
+            result = _fetch_one_earnings(tkr, start_ts, end_ts)
+            if result:
+                earnings[tkr] = result
+                recovered += 1
+        print(f"  [RETRY {attempt}/{max_retries}] recovered {recovered} "
+              f"of {len(fresh_empty)}")
+        fresh_empty = [t for t in to_fetch if not earnings[t]]
+
+    # --- Sanity gate ---------------------------------------------------
+    # Evaluate ONLY over the fresh-fetched set (tickers we actually tried
+    # to query yfinance for). Pre-existing cache entries are excluded —
+    # they didn't go through yfinance this run and aren't a signal of
+    # current API health.
+    n_fresh = len(to_fetch)
+    n_fresh_nonempty = sum(1 for t in to_fetch if earnings.get(t))
+    if n_fresh > 0:
+        nonempty_frac = n_fresh_nonempty / n_fresh
+        if nonempty_frac < _EARNINGS_SANITY_MIN_NONEMPTY_FRAC:
+            print(f"  [FETCH] Sanity gate failed: only "
+                  f"{n_fresh_nonempty} of {n_fresh} fresh fetches "
+                  f"returned earnings ({100.0*nonempty_frac:.1f}%). "
+                  f"Refusing to overwrite cache. Likely yfinance "
+                  f"throttling — wait and re-run.")
+            # Return prior on-disk state, NOT the partial in-memory
+            # result. The caller's classifier will reflect the unchanged
+            # cache, signaling that the run did not improve coverage.
+            return cached
+
+    # --- Write merged cache --------------------------------------------
     try:
         serializable = {
             t: [d.isoformat() for d in dates]
@@ -319,8 +393,8 @@ def fetch_earnings_dates(
         with open(EARNINGS_CACHE, "w", encoding="utf-8") as f:
             json.dump(serializable, f)
         print(f"  [CACHE] Earnings written: {len(earnings)} total entries "
-              f"({len(to_fetch)} fresh, "
-              f"{len(earnings) - len(to_fetch)} pre-existing)")
+              f"({n_fresh} fresh, {n_fresh_nonempty}/{n_fresh} "
+              f"non-empty, {len(earnings) - n_fresh} pre-existing)")
     except Exception as e:
         print(f"  [CACHE] Failed to write earnings cache ({e})")
     return earnings

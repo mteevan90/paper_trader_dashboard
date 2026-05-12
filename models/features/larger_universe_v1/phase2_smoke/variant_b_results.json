@@ -1,0 +1,1383 @@
+{
+  "variant": "variant_b",
+  "config": {
+    "horizon": 21,
+    "features": "full",
+    "feature_list": [
+      "ret_1d",
+      "ret_5d",
+      "ret_21d",
+      "ret_63d",
+      "ret_126d",
+      "ret_252d",
+      "vol_21d",
+      "vol_63d",
+      "price_vs_ma50",
+      "price_vs_ma200",
+      "ma50_vs_ma200",
+      "dd_252d",
+      "yc_slope",
+      "vix",
+      "nfci",
+      "sahm",
+      "yc_3m",
+      "baa_spread",
+      "usd_index",
+      "unrate",
+      "wti_oil",
+      "vix_5d_chg",
+      "pe",
+      "pb",
+      "ps",
+      "debt_to_equity",
+      "roe",
+      "roa",
+      "profit_margin",
+      "revenue_growth",
+      "eps_growth",
+      "dividend_yield",
+      "beta",
+      "sector",
+      "in_sp500",
+      "in_sp400",
+      "in_sp600",
+      "log_market_cap"
+    ],
+    "n_features": 38,
+    "embargo": 21,
+    "n_trials": 10,
+    "n_folds": 5,
+    "universe_tier": "SP500",
+    "universe_status": "active",
+    "n_tickers": 503,
+    "n_training_rows": 734646
+  },
+  "folds": [
+    {
+      "fold_id": 0,
+      "train_start": "2017-05-12",
+      "train_end": "2018-04-11",
+      "val_start": "2018-05-11",
+      "val_end": "2019-05-10"
+    },
+    {
+      "fold_id": 1,
+      "train_start": "2017-05-12",
+      "train_end": "2019-04-10",
+      "val_start": "2019-05-13",
+      "val_end": "2020-05-08"
+    },
+    {
+      "fold_id": 2,
+      "train_start": "2017-05-12",
+      "train_end": "2020-04-08",
+      "val_start": "2020-05-11",
+      "val_end": "2021-05-07"
+    },
+    {
+      "fold_id": 3,
+      "train_start": "2017-05-12",
+      "train_end": "2021-04-08",
+      "val_start": "2021-05-10",
+      "val_end": "2022-05-05"
+    },
+    {
+      "fold_id": 4,
+      "train_start": "2017-05-12",
+      "train_end": "2022-04-05",
+      "val_start": "2022-05-06",
+      "val_end": "2023-05-11"
+    }
+  ],
+  "xgboost": {
+    "wall_clock_s": 186.1423523426056,
+    "best_value_mean_ic": 0.01889667023864359,
+    "best_params": {
+      "max_depth": 3,
+      "learning_rate": 0.011036684984119078,
+      "n_estimators": 730,
+      "subsample": 0.8389667693296159,
+      "colsample_bytree": 0.8779333627056818,
+      "min_child_weight": 3,
+      "gamma": 1.288400396251399,
+      "reg_alpha": 0.05499857951455376,
+      "reg_lambda": 0.0009850744665890567
+    },
+    "best_trial_folds": [
+      {
+        "fold_id": 0,
+        "mean_ic": 0.022714054209401313,
+        "std_ic": 0.15533904420202993,
+        "positive_rate": 0.5657370517928287,
+        "n_dates_scored": 251,
+        "train_rows": 109138,
+        "val_rows": 119823
+      },
+      {
+        "fold_id": 1,
+        "mean_ic": 0.08124905196180286,
+        "std_ic": 0.1742840179071364,
+        "positive_rate": 0.6254980079681275,
+        "n_dates_scored": 251,
+        "train_rows": 228834,
+        "val_rows": 121918
+      },
+      {
+        "fold_id": 2,
+        "mean_ic": 0.023209376229820992,
+        "std_ic": 0.22461833121926172,
+        "positive_rate": 0.6334661354581673,
+        "n_dates_scored": 251,
+        "train_rows": 350606,
+        "val_rows": 122941
+      },
+      {
+        "fold_id": 3,
+        "mean_ic": -0.06261836123594378,
+        "std_ic": 0.16163358105951353,
+        "positive_rate": 0.3745019920318725,
+        "n_dates_scored": 251,
+        "train_rows": 473428,
+        "val_rows": 124264
+      },
+      {
+        "fold_id": 4,
+        "mean_ic": 0.029929230028136564,
+        "std_ic": 0.17482007955521814,
+        "positive_rate": 0.5450980392156862,
+        "n_dates_scored": 255,
+        "train_rows": 597643,
+        "val_rows": 126587
+      }
+    ],
+    "all_trials": [
+      {
+        "number": 0,
+        "value": 0.01889667023864359,
+        "params": {
+          "max_depth": 3,
+          "learning_rate": 0.011036684984119078,
+          "n_estimators": 730,
+          "subsample": 0.8389667693296159,
+          "colsample_bytree": 0.8779333627056818,
+          "min_child_weight": 3,
+          "gamma": 1.288400396251399,
+          "reg_alpha": 0.05499857951455376,
+          "reg_lambda": 0.0009850744665890567
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.022714054209401313,
+            "std_ic": 0.15533904420202993,
+            "positive_rate": 0.5657370517928287,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.08124905196180286,
+            "std_ic": 0.1742840179071364,
+            "positive_rate": 0.6254980079681275,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.023209376229820992,
+            "std_ic": 0.22461833121926172,
+            "positive_rate": 0.6334661354581673,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.06261836123594378,
+            "std_ic": 0.16163358105951353,
+            "positive_rate": 0.3745019920318725,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.029929230028136564,
+            "std_ic": 0.17482007955521814,
+            "positive_rate": 0.5450980392156862,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 1,
+        "value": 0.012825116413481451,
+        "params": {
+          "max_depth": 4,
+          "learning_rate": 0.12478674401421795,
+          "n_estimators": 789,
+          "subsample": 0.974097175995164,
+          "colsample_bytree": 0.8823535840186474,
+          "min_child_weight": 18,
+          "gamma": 1.473946999765331,
+          "reg_alpha": 0.02036245450907262,
+          "reg_lambda": 1.7147830107393978
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.03267779597466215,
+            "std_ic": 0.14874799023615065,
+            "positive_rate": 0.6215139442231076,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.07973245766205066,
+            "std_ic": 0.1727431869575511,
+            "positive_rate": 0.6454183266932271,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.004827266909956137,
+            "std_ic": 0.21506473144332716,
+            "positive_rate": 0.5657370517928287,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.04703732846238693,
+            "std_ic": 0.1650755331421397,
+            "positive_rate": 0.3944223107569721,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": -0.006074610016874758,
+            "std_ic": 0.15930875686198534,
+            "positive_rate": 0.48627450980392156,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 2,
+        "value": 0.016206421672605546,
+        "params": {
+          "max_depth": 4,
+          "learning_rate": 0.13189689482929273,
+          "n_estimators": 589,
+          "subsample": 0.8833725497076161,
+          "colsample_bytree": 0.7900544365840823,
+          "min_child_weight": 5,
+          "gamma": 4.625496598551132,
+          "reg_alpha": 0.00032459608780687974,
+          "reg_lambda": 0.012829765307727831
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.08824126815302029,
+            "std_ic": 0.1551112314806789,
+            "positive_rate": 0.6812749003984063,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.02053601396461792,
+            "std_ic": 0.18722693620228095,
+            "positive_rate": 0.5976095617529881,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.054707388732035914,
+            "std_ic": 0.1953723152551094,
+            "positive_rate": 0.41434262948207173,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.010755793304819884,
+            "std_ic": 0.20255873661791543,
+            "positive_rate": 0.5176470588235295,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 3,
+        "value": 0.007433464025460637,
+        "params": {
+          "max_depth": 4,
+          "learning_rate": 0.06657229691209136,
+          "n_estimators": 759,
+          "subsample": 0.5516026075071914,
+          "colsample_bytree": 0.7857577706253802,
+          "min_child_weight": 19,
+          "gamma": 0.46373443193667485,
+          "reg_alpha": 0.08199335529318948,
+          "reg_lambda": 0.00039072841439666224
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.00991854686201361,
+            "std_ic": 0.17371828765839603,
+            "positive_rate": 0.5099601593625498,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.07693273079073142,
+            "std_ic": 0.19218926690944044,
+            "positive_rate": 0.5537848605577689,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": -0.008413725908248033,
+            "std_ic": 0.26091621342353927,
+            "positive_rate": 0.5219123505976095,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.06416153628472901,
+            "std_ic": 0.15571740641979637,
+            "positive_rate": 0.3466135458167331,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.022891304667535195,
+            "std_ic": 0.1915305101274926,
+            "positive_rate": 0.4980392156862745,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 4,
+        "value": 0.0029920462020755815,
+        "params": {
+          "max_depth": 5,
+          "learning_rate": 0.05025691415130334,
+          "n_estimators": 536,
+          "subsample": 0.917935155554334,
+          "colsample_bytree": 0.9703701203469675,
+          "min_child_weight": 12,
+          "gamma": 3.8443803838231916,
+          "reg_alpha": 0.0012219981497712678,
+          "reg_lambda": 0.012321433941933812
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": -0.03127555110841063,
+            "std_ic": 0.18167953847085697,
+            "positive_rate": 0.450199203187251,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.0813193312570425,
+            "std_ic": 0.1793403973666028,
+            "positive_rate": 0.6653386454183267,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.034322094567402706,
+            "std_ic": 0.22266322428069824,
+            "positive_rate": 0.6414342629482072,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.051702928032125145,
+            "std_ic": 0.19615984553055643,
+            "positive_rate": 0.3944223107569721,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": -0.01770271567353152,
+            "std_ic": 0.15371734832644512,
+            "positive_rate": 0.47058823529411764,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 5,
+        "value": 0.009797206532934189,
+        "params": {
+          "max_depth": 8,
+          "learning_rate": 0.017264390005464484,
+          "n_estimators": 373,
+          "subsample": 0.6191749190182951,
+          "colsample_bytree": 0.6751430016917241,
+          "min_child_weight": 19,
+          "gamma": 4.755529224445371,
+          "reg_alpha": 0.00032885207026473856,
+          "reg_lambda": 0.00022448846642177648
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": -0.034274042674011754,
+            "std_ic": 0.1901308594763966,
+            "positive_rate": 0.47808764940239046,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.08064713088334884,
+            "std_ic": 0.19060608270386017,
+            "positive_rate": 0.6454183266932271,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.04108365287495279,
+            "std_ic": 0.20960035153762258,
+            "positive_rate": 0.6852589641434262,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.03650417887729517,
+            "std_ic": 0.18541176735807585,
+            "positive_rate": 0.450199203187251,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": -0.001966529542323747,
+            "std_ic": 0.19089649763863556,
+            "positive_rate": 0.49019607843137253,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 6,
+        "value": 0.013561420617020323,
+        "params": {
+          "max_depth": 4,
+          "learning_rate": 0.02048901859233801,
+          "n_estimators": 106,
+          "subsample": 0.782023265939342,
+          "colsample_bytree": 0.7463829203729248,
+          "min_child_weight": 13,
+          "gamma": 3.19295444229804,
+          "reg_alpha": 4.653069088999513,
+          "reg_lambda": 0.018898600695935113
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": -0.030111014286345536,
+            "std_ic": 0.20366725795111004,
+            "positive_rate": 0.4900398406374502,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.09046085387559898,
+            "std_ic": 0.17080421474839452,
+            "positive_rate": 0.6852589641434262,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.05910203185692461,
+            "std_ic": 0.183607926528438,
+            "positive_rate": 0.6812749003984063,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.053626072347342665,
+            "std_ic": 0.18426922983451158,
+            "positive_rate": 0.41832669322709165,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.0019813039862662234,
+            "std_ic": 0.21772650820424883,
+            "positive_rate": 0.4627450980392157,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 7,
+        "value": 0.011883439533970069,
+        "params": {
+          "max_depth": 6,
+          "learning_rate": 0.011916057998613281,
+          "n_estimators": 352,
+          "subsample": 0.9378746956137476,
+          "colsample_bytree": 0.9934949410206919,
+          "min_child_weight": 7,
+          "gamma": 4.673058638768512,
+          "reg_alpha": 0.009500801197223881,
+          "reg_lambda": 0.08308556199245097
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": -0.032555882166205634,
+            "std_ic": 0.18153848390949656,
+            "positive_rate": 0.450199203187251,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.07796692897833293,
+            "std_ic": 0.1916854750008958,
+            "positive_rate": 0.6175298804780877,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.058996518660514155,
+            "std_ic": 0.20415932855411156,
+            "positive_rate": 0.649402390438247,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.04799024829218211,
+            "std_ic": 0.19881030990739013,
+            "positive_rate": 0.4262948207171315,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.0029998804893909977,
+            "std_ic": 0.20822216347022623,
+            "positive_rate": 0.5058823529411764,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 8,
+        "value": 0.013113003042842911,
+        "params": {
+          "max_depth": 7,
+          "learning_rate": 0.034329111997380785,
+          "n_estimators": 492,
+          "subsample": 0.6025488741903751,
+          "colsample_bytree": 0.771861360038939,
+          "min_child_weight": 20,
+          "gamma": 2.29400257661323,
+          "reg_alpha": 0.08312521278005629,
+          "reg_lambda": 4.03385782658789
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": -0.006804206119338854,
+            "std_ic": 0.15642065847538192,
+            "positive_rate": 0.47808764940239046,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.07338531013298696,
+            "std_ic": 0.192595434905203,
+            "positive_rate": 0.5976095617529881,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.030021895940780068,
+            "std_ic": 0.21877490507634625,
+            "positive_rate": 0.6095617529880478,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.0516963151887921,
+            "std_ic": 0.17256050470560186,
+            "positive_rate": 0.4063745019920319,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.020658330448578472,
+            "std_ic": 0.1970277447770924,
+            "positive_rate": 0.5647058823529412,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 9,
+        "value": 0.0008649110010760552,
+        "params": {
+          "max_depth": 8,
+          "learning_rate": 0.26854811833767217,
+          "n_estimators": 622,
+          "subsample": 0.5428614199748107,
+          "colsample_bytree": 0.7675881396416315,
+          "min_child_weight": 9,
+          "gamma": 0.18668983361085856,
+          "reg_alpha": 4.741686290676079,
+          "reg_lambda": 0.007128745889287964
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.020140307354022512,
+            "std_ic": 0.16687467212750476,
+            "positive_rate": 0.5617529880478087,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.07107196767310037,
+            "std_ic": 0.16505315513355412,
+            "positive_rate": 0.6374501992031872,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": -0.03511133891422543,
+            "std_ic": 0.19365057756990797,
+            "positive_rate": 0.47410358565737054,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.05658111208689465,
+            "std_ic": 0.145919184315543,
+            "positive_rate": 0.29880478087649404,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.004804730979377471,
+            "std_ic": 0.12124235660309579,
+            "positive_rate": 0.5176470588235295,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      }
+    ]
+  },
+  "elasticnet": {
+    "wall_clock_s": 347.96961975097656,
+    "best_value_mean_ic": 0.030699160982948857,
+    "best_params": {
+      "alpha": 1.0904786296069145e-05,
+      "l1_ratio": 0.4249991211079648
+    },
+    "best_trial_folds": [
+      {
+        "fold_id": 0,
+        "mean_ic": 0.0020031294901203148,
+        "std_ic": 0.20507937483060243,
+        "positive_rate": 0.4940239043824701,
+        "n_dates_scored": 251,
+        "train_rows": 109138,
+        "val_rows": 119823
+      },
+      {
+        "fold_id": 1,
+        "mean_ic": 0.11587483267638601,
+        "std_ic": 0.1402942003691722,
+        "positive_rate": 0.7529880478087649,
+        "n_dates_scored": 251,
+        "train_rows": 228834,
+        "val_rows": 121918
+      },
+      {
+        "fold_id": 2,
+        "mean_ic": 0.006458725777914265,
+        "std_ic": 0.20498889856899746,
+        "positive_rate": 0.5577689243027888,
+        "n_dates_scored": 251,
+        "train_rows": 350606,
+        "val_rows": 122941
+      },
+      {
+        "fold_id": 3,
+        "mean_ic": -0.04549854729930776,
+        "std_ic": 0.1962314504918977,
+        "positive_rate": 0.41434262948207173,
+        "n_dates_scored": 251,
+        "train_rows": 473428,
+        "val_rows": 124264
+      },
+      {
+        "fold_id": 4,
+        "mean_ic": 0.07465766426963148,
+        "std_ic": 0.2453787612156183,
+        "positive_rate": 0.5098039215686274,
+        "n_dates_scored": 255,
+        "train_rows": 597643,
+        "val_rows": 126587
+      }
+    ],
+    "all_trials": [
+      {
+        "number": 0,
+        "value": null,
+        "params": {
+          "alpha": 0.6774458508258365,
+          "l1_ratio": 0.047987142048859566
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 1,
+        "value": 0.029901093660736032,
+        "params": {
+          "alpha": 0.0010585943472519392,
+          "l1_ratio": 0.9422383095637051
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.017002362413399724,
+            "std_ic": 0.2054403397743421,
+            "positive_rate": 0.5099601593625498,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.10177171179688967,
+            "std_ic": 0.16782911156153693,
+            "positive_rate": 0.6772908366533864,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.02596178126573174,
+            "std_ic": 0.21420584395104098,
+            "positive_rate": 0.5776892430278885,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.05804791776551206,
+            "std_ic": 0.21231488113248195,
+            "positive_rate": 0.42231075697211157,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.0628175305931711,
+            "std_ic": 0.2809783981730944,
+            "positive_rate": 0.5098039215686274,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 2,
+        "value": 0.03065583574909576,
+        "params": {
+          "alpha": 1.3163754520518333e-05,
+          "l1_ratio": 0.7844982958454295
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.0018702798778952856,
+            "std_ic": 0.20518905880702326,
+            "positive_rate": 0.4940239043824701,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.11605802648263237,
+            "std_ic": 0.14071358849640628,
+            "positive_rate": 0.749003984063745,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.0063070901202458216,
+            "std_ic": 0.2051880634692597,
+            "positive_rate": 0.5577689243027888,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.045518997258245694,
+            "std_ic": 0.19655726679921748,
+            "positive_rate": 0.41434262948207173,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.07456277952295103,
+            "std_ic": 0.245842877762336,
+            "positive_rate": 0.5098039215686274,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 3,
+        "value": 0.028533644287683235,
+        "params": {
+          "alpha": 0.0007257939646729173,
+          "l1_ratio": 0.9829709581170458
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.011849135850062541,
+            "std_ic": 0.20653859504699432,
+            "positive_rate": 0.49800796812749004,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.1075175995860918,
+            "std_ic": 0.1621002978301623,
+            "positive_rate": 0.6892430278884463,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.016960217234992567,
+            "std_ic": 0.21952073497595337,
+            "positive_rate": 0.5697211155378487,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.05733365097821374,
+            "std_ic": 0.21291403181607774,
+            "positive_rate": 0.41434262948207173,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.063674919745483,
+            "std_ic": 0.2750116185012234,
+            "positive_rate": 0.5058823529411764,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 4,
+        "value": 0.030699160982948857,
+        "params": {
+          "alpha": 1.0904786296069145e-05,
+          "l1_ratio": 0.4249991211079648
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.0020031294901203148,
+            "std_ic": 0.20507937483060243,
+            "positive_rate": 0.4940239043824701,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.11587483267638601,
+            "std_ic": 0.1402942003691722,
+            "positive_rate": 0.7529880478087649,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.006458725777914265,
+            "std_ic": 0.20498889856899746,
+            "positive_rate": 0.5577689243027888,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.04549854729930776,
+            "std_ic": 0.1962314504918977,
+            "positive_rate": 0.41434262948207173,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.07465766426963148,
+            "std_ic": 0.2453787612156183,
+            "positive_rate": 0.5098039215686274,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 5,
+        "value": 0.027962967511951365,
+        "params": {
+          "alpha": 0.0008133243468447127,
+          "l1_ratio": 0.6582236034692122
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.00926642821626477,
+            "std_ic": 0.20631431815787496,
+            "positive_rate": 0.4900398406374502,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.1104283475036623,
+            "std_ic": 0.15894234576847482,
+            "positive_rate": 0.7051792828685259,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.011555746077293016,
+            "std_ic": 0.21768007537073966,
+            "positive_rate": 0.545816733067729,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.056112859971720885,
+            "std_ic": 0.21308313404363133,
+            "positive_rate": 0.4103585657370518,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.06467717573425764,
+            "std_ic": 0.2707386611059515,
+            "positive_rate": 0.5019607843137255,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 6,
+        "value": 0.03044288434343644,
+        "params": {
+          "alpha": 4.0062460773010876e-05,
+          "l1_ratio": 0.8329078820245811
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.00166705141867527,
+            "std_ic": 0.2056806011340263,
+            "positive_rate": 0.4940239043824701,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.11652919006067891,
+            "std_ic": 0.14239071109627846,
+            "positive_rate": 0.7410358565737052,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.00554849010005205,
+            "std_ic": 0.20601345309402921,
+            "positive_rate": 0.549800796812749,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.04563703537479683,
+            "std_ic": 0.1977508856921617,
+            "positive_rate": 0.41434262948207173,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.07410672551257282,
+            "std_ic": 0.24764230214303637,
+            "positive_rate": 0.5098039215686274,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 7,
+        "value": 0.027695867654287477,
+        "params": {
+          "alpha": 0.0004808151671620373,
+          "l1_ratio": 0.4706728391895064
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.0036651565200826303,
+            "std_ic": 0.20625908611978752,
+            "positive_rate": 0.4940239043824701,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.11524749845401815,
+            "std_ic": 0.15052500468400998,
+            "positive_rate": 0.7091633466135459,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.001270362241176758,
+            "std_ic": 0.21303147401055764,
+            "positive_rate": 0.5099601593625498,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.05029694523424315,
+            "std_ic": 0.20559666524021133,
+            "positive_rate": 0.41434262948207173,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.06859326629040298,
+            "std_ic": 0.25990995524149146,
+            "positive_rate": 0.49019607843137253,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 8,
+        "value": 0.027520402553504207,
+        "params": {
+          "alpha": 0.00046832187280079963,
+          "l1_ratio": 0.7756264548232349
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": 0.006639450771082194,
+            "std_ic": 0.20585873223675633,
+            "positive_rate": 0.4900398406374502,
+            "n_dates_scored": 251,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": 0.11247032553305755,
+            "std_ic": 0.15460718613729707,
+            "positive_rate": 0.7091633466135459,
+            "n_dates_scored": 251,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": 0.005492309252846649,
+            "std_ic": 0.21459636592234144,
+            "positive_rate": 0.5179282868525896,
+            "n_dates_scored": 251,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": -0.054056309859728854,
+            "std_ic": 0.21150162021423244,
+            "positive_rate": 0.4103585657370518,
+            "n_dates_scored": 251,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": 0.06705623707026351,
+            "std_ic": 0.26585047998229805,
+            "positive_rate": 0.5019607843137255,
+            "n_dates_scored": 255,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      },
+      {
+        "number": 9,
+        "value": null,
+        "params": {
+          "alpha": 0.045165994480041584,
+          "l1_ratio": 0.6510982828310627
+        },
+        "folds": [
+          {
+            "fold_id": 0,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 109138,
+            "val_rows": 119823
+          },
+          {
+            "fold_id": 1,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 228834,
+            "val_rows": 121918
+          },
+          {
+            "fold_id": 2,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 350606,
+            "val_rows": 122941
+          },
+          {
+            "fold_id": 3,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 473428,
+            "val_rows": 124264
+          },
+          {
+            "fold_id": 4,
+            "mean_ic": NaN,
+            "std_ic": NaN,
+            "positive_rate": NaN,
+            "n_dates_scored": 0,
+            "train_rows": 597643,
+            "val_rows": 126587
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "best_value_mean_ic": 0.014366624586357808,
+  "best_params": {
+    "alpha": 1.016278393940138e-05,
+    "l1_ratio": 0.7702612754219582
+  },
+  "best_trial_folds": [
+    {
+      "fold_id": 0,
+      "mean_ic": 0.02015679917816406,
+      "std_ic": 0.129533143504177,
+      "positive_rate": 0.5577689243027888,
+      "n_dates_scored": 251,
+      "train_rows": 400728,
+      "val_rows": 447409
+    },
+    {
+      "fold_id": 1,
+      "mean_ic": 0.059628479620023496,
+      "std_ic": 0.12459005157416166,
+      "positive_rate": 0.6573705179282868,
+      "n_dates_scored": 251,
+      "train_rows": 847378,
+      "val_rows": 455281
+    },
+    {
+      "fold_id": 2,
+      "mean_ic": 0.013011696718123703,
+      "std_ic": 0.1308801656938895,
+      "positive_rate": 0.5577689243027888,
+      "n_dates_scored": 251,
+      "train_rows": 1302096,
+      "val_rows": 459270
+    },
+    {
+      "fold_id": 3,
+      "mean_ic": -0.05128581296279869,
+      "std_ic": 0.13709563327194246,
+      "positive_rate": 0.3705179282868526,
+      "n_dates_scored": 251,
+      "train_rows": 1761312,
+      "val_rows": 455254
+    },
+    {
+      "fold_id": 4,
+      "mean_ic": 0.030321960378276457,
+      "std_ic": 0.17790771695821078,
+      "positive_rate": 0.5019607843137255,
+      "n_dates_scored": 255,
+      "train_rows": 2217179,
+      "val_rows": 448140
+    }
+  ],
+  "label_horizon_trading_days": 21,
+  "embargo_trading_days": 21,
+  "universe_size": 2122,
+  "n_training_rows": 2703057
+}

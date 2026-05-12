@@ -1,0 +1,5758 @@
+{
+  "label": "elasticnet",
+  "n_trials_completed": 100,
+  "best_value_mean_ic": 0.014366624586357808,
+  "best_params": {
+    "alpha": 1.016278393940138e-05,
+    "l1_ratio": 0.7702612754219582
+  },
+  "best_trial_folds": [
+    {
+      "fold_id": 0,
+      "mean_ic": 0.02015679917816406,
+      "std_ic": 0.129533143504177,
+      "positive_rate": 0.5577689243027888,
+      "n_dates_scored": 251,
+      "train_rows": 400728,
+      "val_rows": 447409
+    },
+    {
+      "fold_id": 1,
+      "mean_ic": 0.059628479620023496,
+      "std_ic": 0.12459005157416166,
+      "positive_rate": 0.6573705179282868,
+      "n_dates_scored": 251,
+      "train_rows": 847378,
+      "val_rows": 455281
+    },
+    {
+      "fold_id": 2,
+      "mean_ic": 0.013011696718123703,
+      "std_ic": 0.1308801656938895,
+      "positive_rate": 0.5577689243027888,
+      "n_dates_scored": 251,
+      "train_rows": 1302096,
+      "val_rows": 459270
+    },
+    {
+      "fold_id": 3,
+      "mean_ic": -0.05128581296279869,
+      "std_ic": 0.13709563327194246,
+      "positive_rate": 0.3705179282868526,
+      "n_dates_scored": 251,
+      "train_rows": 1761312,
+      "val_rows": 455254
+    },
+    {
+      "fold_id": 4,
+      "mean_ic": 0.030321960378276457,
+      "std_ic": 0.17790771695821078,
+      "positive_rate": 0.5019607843137255,
+      "n_dates_scored": 255,
+      "train_rows": 2217179,
+      "val_rows": 448140
+    }
+  ],
+  "trials": [
+    {
+      "number": 0,
+      "state": "COMPLETE",
+      "value": 0.013174999829810522,
+      "params": {
+        "alpha": 0.0007459343285726547,
+        "l1_ratio": 0.9507143064099162
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.008887306943113894,
+          "std_ic": 0.1399310757313485,
+          "positive_rate": 0.5338645418326693,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.05427411029674218,
+          "std_ic": 0.16037976308499022,
+          "positive_rate": 0.6254980079681275,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.038254342506629346,
+          "std_ic": 0.1476871867244077,
+          "positive_rate": 0.6254980079681275,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.061987345957697344,
+          "std_ic": 0.15828534729138086,
+          "positive_rate": 0.3705179282868526,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.02644658536026453,
+          "std_ic": 0.19267148343264642,
+          "positive_rate": 0.5058823529411764,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 37.95333
+    },
+    {
+      "number": 1,
+      "state": "COMPLETE",
+      "value": -0.06403695524320313,
+      "params": {
+        "alpha": 0.0457056309980145,
+        "l1_ratio": 0.5986584841970366
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.06403695524320313,
+          "std_ic": 0.18509225180215197,
+          "positive_rate": 0.3745019920318725,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.978882
+    },
+    {
+      "number": 2,
+      "state": "COMPLETE",
+      "value": 0.014352708034858774,
+      "params": {
+        "alpha": 6.0268891286825045e-05,
+        "l1_ratio": 0.15599452033620265
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.020105055745508204,
+          "std_ic": 0.12957010303372882,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.059633831382498725,
+          "std_ic": 0.12473892524166016,
+          "positive_rate": 0.6573705179282868,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.01304293197701568,
+          "std_ic": 0.13098803510633372,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.0513474022000846,
+          "std_ic": 0.13726683877148732,
+          "positive_rate": 0.3705179282868526,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.030329123269355853,
+          "std_ic": 0.17804063567056305,
+          "positive_rate": 0.5019607843137255,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 192.108806
+    },
+    {
+      "number": 3,
+      "state": "COMPLETE",
+      "value": 0.014337626034872347,
+      "params": {
+        "alpha": 1.951722464144947e-05,
+        "l1_ratio": 0.8661761457749352
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.019984602500633237,
+          "std_ic": 0.1298301170343089,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.059628643201698195,
+          "std_ic": 0.12511643176117024,
+          "positive_rate": 0.6573705179282868,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.013106843957940253,
+          "std_ic": 0.13119292841144717,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.05145286122467973,
+          "std_ic": 0.1376654816992983,
+          "positive_rate": 0.3705179282868526,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.03042090173876979,
+          "std_ic": 0.17846992934802847,
+          "positive_rate": 0.5019607843137255,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 143.538945
+    },
+    {
+      "number": 4,
+      "state": "COMPLETE",
+      "value": -0.001823603262833345,
+      "params": {
+        "alpha": 0.010129197956845729,
+        "l1_ratio": 0.7080725777960455
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": -0.03529311909446193,
+          "std_ic": 0.15929393528184596,
+          "positive_rate": 0.398406374501992,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.012392023707551247,
+          "std_ic": 0.2104119730004786,
+          "positive_rate": 0.5139442231075697,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.07732697192572512,
+          "std_ic": 0.23553970580688913,
+          "positive_rate": 0.6334661354581673,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.06652946933559518,
+          "std_ic": 0.1912742928851764,
+          "positive_rate": 0.36254980079681276,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.002985576482614024,
+          "std_ic": 0.21331282661864917,
+          "positive_rate": 0.45098039215686275,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 20.537407
+    },
+    {
+      "number": 5,
+      "state": "COMPLETE",
+      "value": 0.014353112286793524,
+      "params": {
+        "alpha": 1.2674255898937214e-05,
+        "l1_ratio": 0.9699098521619943
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.02006650299721678,
+          "std_ic": 0.12968854426934523,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.0596286968998163,
+          "std_ic": 0.12485064849947819,
+          "positive_rate": 0.6573705179282868,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.013061567616699346,
+          "std_ic": 0.13102440060973128,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.051358285947637604,
+          "std_ic": 0.13735744338681252,
+          "positive_rate": 0.3705179282868526,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.030367079867872803,
+          "std_ic": 0.17820296496746002,
+          "positive_rate": 0.5019607843137255,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 148.858781
+    },
+    {
+      "number": 6,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.1452824663751603,
+        "l1_ratio": 0.21233911067827616
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.751276
+    },
+    {
+      "number": 7,
+      "state": "COMPLETE",
+      "value": 0.0143350426406279,
+      "params": {
+        "alpha": 8.111941985431919e-05,
+        "l1_ratio": 0.18340450985343382
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.020000614029581854,
+          "std_ic": 0.12974345710674257,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.059635572045489756,
+          "std_ic": 0.12506927084694744,
+          "positive_rate": 0.6573705179282868,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.013102552791750223,
+          "std_ic": 0.1311961486550757,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.05144843315941429,
+          "std_ic": 0.13762086126109463,
+          "positive_rate": 0.3705179282868526,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.030384907495731958,
+          "std_ic": 0.17837342622569205,
+          "positive_rate": 0.5019607843137255,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 149.936032
+    },
+    {
+      "number": 8,
+      "state": "COMPLETE",
+      "value": 0.013610926641194288,
+      "params": {
+        "alpha": 0.00033205591037519585,
+        "l1_ratio": 0.5247564316322378
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.016566351904113624,
+          "std_ic": 0.13399136207909593,
+          "positive_rate": 0.5418326693227091,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.05972867000325138,
+          "std_ic": 0.13402238956879384,
+          "positive_rate": 0.6414342629482072,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.016186373897817387,
+          "std_ic": 0.13675645951677015,
+          "positive_rate": 0.549800796812749,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.054943391017285965,
+          "std_ic": 0.14613607994875805,
+          "positive_rate": 0.3705179282868526,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.030516628418075023,
+          "std_ic": 0.18613481294056158,
+          "positive_rate": 0.5058823529411764,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 73.875459
+    },
+    {
+      "number": 9,
+      "state": "COMPLETE",
+      "value": 0.012611585479339663,
+      "params": {
+        "alpha": 0.0014445251022763056,
+        "l1_ratio": 0.2912291401980419
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.010326446943743899,
+          "std_ic": 0.13775013729231617,
+          "positive_rate": 0.5298804780876494,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.05811776204203647,
+          "std_ic": 0.14798991034758954,
+          "positive_rate": 0.6334661354581673,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.02585625580011837,
+          "std_ic": 0.14416700241928646,
+          "positive_rate": 0.5776892430278885,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.05951062547020262,
+          "std_ic": 0.1541127135750803,
+          "positive_rate": 0.36254980079681276,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.028268088081002198,
+          "std_ic": 0.18827210089335414,
+          "positive_rate": 0.5019607843137255,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 49.203214
+    },
+    {
+      "number": 10,
+      "state": "COMPLETE",
+      "value": 0.010480697196974507,
+      "params": {
+        "alpha": 0.01146210740342503,
+        "l1_ratio": 0.13949386065204183
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": -0.00783175874176298,
+          "std_ic": 0.1476419717399499,
+          "positive_rate": 0.4701195219123506,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.033800315746838915,
+          "std_ic": 0.1994219835576283,
+          "positive_rate": 0.5418326693227091,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.07938741739025422,
+          "std_ic": 0.16605758201221565,
+          "positive_rate": 0.6972111553784861,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.06907801151128554,
+          "std_ic": 0.17196063833115127,
+          "positive_rate": 0.3784860557768924,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.016125523100827915,
+          "std_ic": 0.21387862598729793,
+          "positive_rate": 0.49019607843137253,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 26.843824
+    },
+    {
+      "number": 11,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5317196633982095,
+        "l1_ratio": 0.7695416687855854
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.516971
+    },
+    {
+      "number": 12,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.7041830285015988,
+        "l1_ratio": 0.7481758206137435
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.55438
+    },
+    {
+      "number": 13,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.3018297683160872,
+        "l1_ratio": 0.7868158850603526
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.51641
+    },
+    {
+      "number": 14,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.6292942010319487,
+        "l1_ratio": 0.3924528921026324
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.52388
+    },
+    {
+      "number": 15,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5430119434848273,
+        "l1_ratio": 0.7431502532252897
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.525418
+    },
+    {
+      "number": 16,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.6881485068556903,
+        "l1_ratio": 0.7757183712887339
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.496331
+    },
+    {
+      "number": 17,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.3786080588557447,
+        "l1_ratio": 0.7812244512863489
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.530859
+    },
+    {
+      "number": 18,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.602786951013876,
+        "l1_ratio": 0.7724165577961688
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.504521
+    },
+    {
+      "number": 19,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.8277452165000689,
+        "l1_ratio": 0.7676259977007913
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.562077
+    },
+    {
+      "number": 20,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.27009340133508025,
+        "l1_ratio": 0.7545671809551893
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.509915
+    },
+    {
+      "number": 21,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.3627301170985633,
+        "l1_ratio": 0.7712331437158623
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.507591
+    },
+    {
+      "number": 22,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.681298190300741,
+        "l1_ratio": 0.7894770663194648
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.479113
+    },
+    {
+      "number": 23,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.7191772137096404,
+        "l1_ratio": 0.7714475174393125
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.556189
+    },
+    {
+      "number": 24,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5198079027935578,
+        "l1_ratio": 0.781751003160722
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.520048
+    },
+    {
+      "number": 25,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.687357090962191,
+        "l1_ratio": 0.8215289636205667
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.562893
+    },
+    {
+      "number": 26,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.9926866770500912,
+        "l1_ratio": 0.7852141467608815
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.507406
+    },
+    {
+      "number": 27,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.18963627849603018,
+        "l1_ratio": 0.7874031218286208
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.562129
+    },
+    {
+      "number": 28,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.906657735857598,
+        "l1_ratio": 0.7728366533147123
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.535589
+    },
+    {
+      "number": 29,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.6060107620890473,
+        "l1_ratio": 0.7704326152297125
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.523617
+    },
+    {
+      "number": 30,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.47700841646695424,
+        "l1_ratio": 0.7758567344792187
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.565261
+    },
+    {
+      "number": 31,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.9795291380705637,
+        "l1_ratio": 0.7609744640810898
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.504885
+    },
+    {
+      "number": 32,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5114523007026317,
+        "l1_ratio": 0.7849042647407845
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.57452
+    },
+    {
+      "number": 33,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.12657888504767803,
+        "l1_ratio": 0.7582236170130733
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.558904
+    },
+    {
+      "number": 34,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.7853884040002693,
+        "l1_ratio": 0.7946453641120889
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.525521
+    },
+    {
+      "number": 35,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.48731053105396804,
+        "l1_ratio": 0.7783868761447652
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.502579
+    },
+    {
+      "number": 36,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.8192770396891577,
+        "l1_ratio": 0.3908796883566816
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.5289
+    },
+    {
+      "number": 37,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.8886506330099021,
+        "l1_ratio": 0.780699112075909
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.510112
+    },
+    {
+      "number": 38,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.23662627808547382,
+        "l1_ratio": 0.7593460446305584
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.501285
+    },
+    {
+      "number": 39,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.4932658558400529,
+        "l1_ratio": 0.79903868834662
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.512893
+    },
+    {
+      "number": 40,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.15947255730621776,
+        "l1_ratio": 0.7724420771224503
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.500756
+    },
+    {
+      "number": 41,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.6626211997205579,
+        "l1_ratio": 0.3850623047864927
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.556642
+    },
+    {
+      "number": 42,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.3170108918245423,
+        "l1_ratio": 0.760831194340562
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.517479
+    },
+    {
+      "number": 43,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.35034274674267657,
+        "l1_ratio": 0.7794432417755716
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.50108
+    },
+    {
+      "number": 44,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5578593759644441,
+        "l1_ratio": 0.7579518741876717
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.486377
+    },
+    {
+      "number": 45,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.8592518713119032,
+        "l1_ratio": 0.7523393165106943
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.524083
+    },
+    {
+      "number": 46,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.9530729636328232,
+        "l1_ratio": 0.7521379792939258
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.522363
+    },
+    {
+      "number": 47,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.861756188521117,
+        "l1_ratio": 0.795867761893573
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.508673
+    },
+    {
+      "number": 48,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5485962161406122,
+        "l1_ratio": 0.7721696975406835
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.521974
+    },
+    {
+      "number": 49,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.12454803532397143,
+        "l1_ratio": 0.7461383098062676
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.523103
+    },
+    {
+      "number": 50,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.43073944922465185,
+        "l1_ratio": 0.8157298373095427
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.525755
+    },
+    {
+      "number": 51,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.4453239907834242,
+        "l1_ratio": 0.7753644107547315
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.539265
+    },
+    {
+      "number": 52,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.7219487616642565,
+        "l1_ratio": 0.7813636720696002
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.544281
+    },
+    {
+      "number": 53,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.9044529523016416,
+        "l1_ratio": 0.7842413633806864
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.567966
+    },
+    {
+      "number": 54,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.7906420096252469,
+        "l1_ratio": 0.763217558677613
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.497404
+    },
+    {
+      "number": 55,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.885292422344612,
+        "l1_ratio": 0.7739683373614098
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.553473
+    },
+    {
+      "number": 56,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5940154603611365,
+        "l1_ratio": 0.7815671672388269
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.644041
+    },
+    {
+      "number": 57,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.9574738509612207,
+        "l1_ratio": 0.7722898155207707
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.596134
+    },
+    {
+      "number": 58,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.9625511972499162,
+        "l1_ratio": 0.8007203811244099
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.504805
+    },
+    {
+      "number": 59,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5117736561144884,
+        "l1_ratio": 0.7676037927976135
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.526414
+    },
+    {
+      "number": 60,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.9315666345772178,
+        "l1_ratio": 0.775228279167604
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.479613
+    },
+    {
+      "number": 61,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5775411725722143,
+        "l1_ratio": 0.7821970960597301
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.485378
+    },
+    {
+      "number": 62,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.6208689679853956,
+        "l1_ratio": 0.7953685076953202
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.513713
+    },
+    {
+      "number": 63,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.687338617143166,
+        "l1_ratio": 0.7635775259556954
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.509004
+    },
+    {
+      "number": 64,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.6373611454540657,
+        "l1_ratio": 0.7611983209859814
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.566269
+    },
+    {
+      "number": 65,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5239972528887763,
+        "l1_ratio": 0.8186695208812709
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.571906
+    },
+    {
+      "number": 66,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.9361091161935777,
+        "l1_ratio": 0.7738512145127501
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.622518
+    },
+    {
+      "number": 67,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5954167084253021,
+        "l1_ratio": 0.8105573646159567
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.532741
+    },
+    {
+      "number": 68,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.4113456275669324,
+        "l1_ratio": 0.7798144201751244
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.484139
+    },
+    {
+      "number": 69,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.7110481724189984,
+        "l1_ratio": 0.7728325572583865
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.507815
+    },
+    {
+      "number": 70,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.8200535647863875,
+        "l1_ratio": 0.7730843334004325
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.541575
+    },
+    {
+      "number": 71,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.9918988469728302,
+        "l1_ratio": 0.7739199334387092
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.540401
+    },
+    {
+      "number": 72,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.9469896380215888,
+        "l1_ratio": 0.7637830871433013
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.520042
+    },
+    {
+      "number": 73,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.611912897521593,
+        "l1_ratio": 0.7809675536435816
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.531128
+    },
+    {
+      "number": 74,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.23246421336846432,
+        "l1_ratio": 0.7787107650758989
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.54101
+    },
+    {
+      "number": 75,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.689868403986681,
+        "l1_ratio": 0.7727410986279146
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.570133
+    },
+    {
+      "number": 76,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.7933503517537123,
+        "l1_ratio": 0.7661452165401216
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.524658
+    },
+    {
+      "number": 77,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.6709867788298111,
+        "l1_ratio": 0.7590018501969391
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.526147
+    },
+    {
+      "number": 78,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.6799711839103288,
+        "l1_ratio": 0.7635947804904542
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.519421
+    },
+    {
+      "number": 79,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.16748435033272224,
+        "l1_ratio": 0.7518338184213417
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.527976
+    },
+    {
+      "number": 80,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.2728031517196597,
+        "l1_ratio": 0.79444193810976
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.548925
+    },
+    {
+      "number": 81,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.957394763257182,
+        "l1_ratio": 0.7661016752501413
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.518874
+    },
+    {
+      "number": 82,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.3305853011766081,
+        "l1_ratio": 0.7825680007508118
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.507255
+    },
+    {
+      "number": 83,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.23932936969522775,
+        "l1_ratio": 0.7683720740312481
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.523873
+    },
+    {
+      "number": 84,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.4364785669986747,
+        "l1_ratio": 0.7492345936072582
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.491436
+    },
+    {
+      "number": 85,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5119407583473935,
+        "l1_ratio": 0.7633478041382391
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.521138
+    },
+    {
+      "number": 86,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.5223501866771888,
+        "l1_ratio": 0.7690528187790255
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.470262
+    },
+    {
+      "number": 87,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.49004294138934923,
+        "l1_ratio": 0.7760312656187296
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.520167
+    },
+    {
+      "number": 88,
+      "state": "COMPLETE",
+      "value": 0.014365333896076082,
+      "params": {
+        "alpha": 1.1716531092719684e-05,
+        "l1_ratio": 0.7635661092514915
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.02013116304910548,
+          "std_ic": 0.12957315594913624,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.05963239862879161,
+          "std_ic": 0.12465798560861016,
+          "positive_rate": 0.6573705179282868,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.013028677079476057,
+          "std_ic": 0.13091631510099275,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.05130185585367824,
+          "std_ic": 0.1371618821084912,
+          "positive_rate": 0.3705179282868526,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.03033628657668551,
+          "std_ic": 0.17799194491570927,
+          "positive_rate": 0.5019607843137255,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 225.112502
+    },
+    {
+      "number": 89,
+      "state": "COMPLETE",
+      "value": 0.014365399007401317,
+      "params": {
+        "alpha": 1.0887728111697668e-05,
+        "l1_ratio": 0.7911839016787201
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.020139003619262064,
+          "std_ic": 0.12956283694344178,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.05963102435596019,
+          "std_ic": 0.12463740400164937,
+          "positive_rate": 0.6573705179282868,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.0130235143329871,
+          "std_ic": 0.13090789965953709,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.05130030682335964,
+          "std_ic": 0.1371427710542406,
+          "positive_rate": 0.3705179282868526,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.030333759552156874,
+          "std_ic": 0.17797611464084795,
+          "positive_rate": 0.5019607843137255,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 228.951928
+    },
+    {
+      "number": 90,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.28999799565332224,
+        "l1_ratio": 0.7449562475634571
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.700516
+    },
+    {
+      "number": 91,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.8347980824190724,
+        "l1_ratio": 0.7701306163135627
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.70801
+    },
+    {
+      "number": 92,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.8434099842175029,
+        "l1_ratio": 0.7001877991869194
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.698079
+    },
+    {
+      "number": 93,
+      "state": "COMPLETE",
+      "value": 0.014366624586357808,
+      "params": {
+        "alpha": 1.016278393940138e-05,
+        "l1_ratio": 0.7702612754219582
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.02015679917816406,
+          "std_ic": 0.129533143504177,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.059628479620023496,
+          "std_ic": 0.12459005157416166,
+          "positive_rate": 0.6573705179282868,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.013011696718123703,
+          "std_ic": 0.1308801656938895,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.05128581296279869,
+          "std_ic": 0.13709563327194246,
+          "positive_rate": 0.3705179282868526,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.030321960378276457,
+          "std_ic": 0.17790771695821078,
+          "positive_rate": 0.5019607843137255,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 188.976141
+    },
+    {
+      "number": 94,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.38644524021581234,
+        "l1_ratio": 0.7005266964584905
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.717426
+    },
+    {
+      "number": 95,
+      "state": "COMPLETE",
+      "value": 0.01423039025253126,
+      "params": {
+        "alpha": 0.00010560282579249105,
+        "l1_ratio": 0.40024778622927526
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": 0.01941180746197584,
+          "std_ic": 0.13061085048892493,
+          "positive_rate": 0.5617529880478087,
+          "n_dates_scored": 251,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": 0.05964904706101159,
+          "std_ic": 0.12662183513745112,
+          "positive_rate": 0.649402390438247,
+          "n_dates_scored": 251,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": 0.013378950435869438,
+          "std_ic": 0.1322782565011855,
+          "positive_rate": 0.5577689243027888,
+          "n_dates_scored": 251,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": -0.05199017978813076,
+          "std_ic": 0.13933072008028172,
+          "positive_rate": 0.3705179282868526,
+          "n_dates_scored": 251,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": 0.030702326091930188,
+          "std_ic": 0.17992877352268197,
+          "positive_rate": 0.5019607843137255,
+          "n_dates_scored": 255,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 96.06255
+    },
+    {
+      "number": 96,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.10725851544830092,
+        "l1_ratio": 0.6811990810963118
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.698338
+    },
+    {
+      "number": 97,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.7420271591690581,
+        "l1_ratio": 0.69573348310781
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.652355
+    },
+    {
+      "number": 98,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.34566335874212045,
+        "l1_ratio": 0.6830554432004984
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.709587
+    },
+    {
+      "number": 99,
+      "state": "FAIL",
+      "value": null,
+      "params": {
+        "alpha": 0.4115730856516291,
+        "l1_ratio": 0.6981724352086327
+      },
+      "folds": [
+        {
+          "fold_id": 0,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 400728,
+          "val_rows": 447409
+        },
+        {
+          "fold_id": 1,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 847378,
+          "val_rows": 455281
+        },
+        {
+          "fold_id": 2,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1302096,
+          "val_rows": 459270
+        },
+        {
+          "fold_id": 3,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 1761312,
+          "val_rows": 455254
+        },
+        {
+          "fold_id": 4,
+          "mean_ic": NaN,
+          "std_ic": NaN,
+          "positive_rate": NaN,
+          "n_dates_scored": 0,
+          "train_rows": 2217179,
+          "val_rows": 448140
+        }
+      ],
+      "duration_s": 17.721944
+    }
+  ]
+}
