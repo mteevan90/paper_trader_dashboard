@@ -188,9 +188,101 @@ def _cross_sectional_ic_for_period(
     return float(arr.mean()), float(arr.std()), float((arr > 0).mean()), int(len(arr))
 
 
+def _compute_window_warmup(
+    model, ctx: dict, tr_start: pd.Timestamp, tr_end: pd.Timestamp,
+) -> dict:
+    """Per-window warmup state for B1 / B3 in walk-forward.
+
+    Uses this window's trained model to score this window's training period,
+    derive top-decile dispersion list (for B3) and last-63-day baseline
+    portfolio vol (for B1). Same logic as phase4_run_v2._compute_warmup_state
+    but with window-specific train_start / train_end.
+    """
+    train_rb_dates = month_end_trading_dates(ctx["trading_dates"], tr_start, tr_end)
+    if not train_rb_dates:
+        return {"training_dispersion_dist": [], "training_tail_vol": 0.0,
+                "n_training_rebalances": 0}
+
+    feat = ctx["features"]
+    train_feat = feat[(feat["date"] >= tr_start) & (feat["date"] <= tr_end)]
+    train_score_cache: dict[pd.Timestamp, pd.Series] = {}
+    for d in train_rb_dates:
+        d_ts = pd.Timestamp(d)
+        rows = train_feat[train_feat["date"] == d_ts]
+        if rows.empty:
+            train_score_cache[d_ts] = pd.Series(dtype=float)
+            continue
+        X, _ = _split_features_target(rows.assign(target=np.nan))
+        X = _prep_xgb_X(X)
+        preds = model.predict(X)
+        train_score_cache[d_ts] = pd.Series(preds, index=rows["ticker"].values)
+
+    dispersions: list[float] = []
+    for _, scores in train_score_cache.items():
+        valid = scores.dropna()
+        if valid.empty:
+            continue
+        decile_n = max(1, int(round(0.1 * len(valid))))
+        top = valid.nlargest(decile_n)
+        if len(top) > 1:
+            dispersions.append(float(top.std()))
+
+    from src.equities.portfolio_construction import BaselineVariant
+
+    def train_score_fn(d_ts):
+        return train_score_cache.get(pd.Timestamp(d_ts), pd.Series(dtype=float))
+
+    baseline_for_warmup = BaselineVariant()
+    train_result = run_backtest(
+        model_name="xgboost",
+        score_fn=train_score_fn,
+        rebalance_dates=train_rb_dates,
+        daily_returns=ctx["daily_returns"],
+        delisting_dates=ctx["delisting_dates"],
+        sectors=ctx["sectors"], tiers=ctx["tiers"],
+        pc_params=None,
+        universe_records=ctx["universe_records"],
+        construction_variant=baseline_for_warmup,
+    )
+    train_port = train_result.portfolio
+    if train_port.empty:
+        training_tail_vol = 0.0
+    else:
+        train_nav = train_port["nav"].values
+        daily_ret = pd.Series(train_nav).pct_change().dropna()
+        last63 = daily_ret.iloc[-63:] if len(daily_ret) >= 63 else daily_ret
+        training_tail_vol = (
+            float(last63.std() * np.sqrt(252)) if len(last63) > 1 else 0.0
+        )
+
+    return {
+        "training_dispersion_dist": dispersions,
+        "training_tail_vol": training_tail_vol,
+        "n_training_rebalances": len(train_rb_dates),
+    }
+
+
+def _build_variant_with_warmup(variant_name: str, warmup: dict | None):
+    """Same as phase4_run_v2._build_variant_with_warmup; threaded into B1/B3."""
+    if variant_name == "b1_vol_target":
+        if warmup is None or warmup.get("training_tail_vol") is None:
+            raise RuntimeError("B1 requires warmup state in walk-forward")
+        from src.equities.portfolio_construction import VolTargetVariant
+        return VolTargetVariant(training_tail_vol=warmup["training_tail_vol"])
+    if variant_name == "b3_dynamic_topn":
+        if warmup is None or not warmup.get("training_dispersion_dist"):
+            raise RuntimeError("B3 requires warmup state in walk-forward")
+        from src.equities.portfolio_construction import DynamicTopNVariant
+        return DynamicTopNVariant(
+            training_dispersion_dist=warmup["training_dispersion_dist"],
+        )
+    return get_variant_by_name(variant_name)
+
+
 def _backtest_stats_for_variant(
     variant_name: str, score_fn, val_start: pd.Timestamp, val_end: pd.Timestamp,
     ctx: dict, shy_returns: pd.Series | None, shy_close: pd.Series | None,
+    warmup: dict | None = None,
 ) -> dict:
     """Run a 1-year mini-backtest with the named variant on the val window."""
     rebal_dates = month_end_trading_dates(ctx["trading_dates"], val_start, val_end)
@@ -222,7 +314,7 @@ def _backtest_stats_for_variant(
         ctx["spy_history"] if variant_name in VARIANTS_NEEDING_SPY_HISTORY else None
     )
 
-    variant = get_variant_by_name(variant_name)
+    variant = _build_variant_with_warmup(variant_name, warmup)
 
     result = run_backtest(
         model_name="xgboost",
@@ -385,12 +477,26 @@ def main() -> int:
         score_lookup = scores_df.set_index(["date", "ticker"])["score"]
         score_fn = _make_score_fn_from_lookup(score_lookup)
 
+        # Per-window warmup (computed lazily — only if B1 or B3 requested)
+        window_warmup: dict | None = None
+        if any(v in {"b1_vol_target", "b3_dynamic_topn"} for v in variant_names):
+            logger.info("  computing window warmup (B1 vol + B3 dispersion)...")
+            t1 = time.time()
+            window_warmup = _compute_window_warmup(model, ctx, tr_start, tr_end)
+            logger.info(
+                "    warmup: training_tail_vol=%.4f n_dispersions=%d in %.1fs",
+                window_warmup["training_tail_vol"],
+                len(window_warmup["training_dispersion_dist"]),
+                time.time() - t1,
+            )
+
         # Run each variant on this window's val period
         for v_name in variant_names:
             logger.info("  [%s] backtest on val window...", v_name)
             t1 = time.time()
             stats = _backtest_stats_for_variant(
                 v_name, score_fn, va_start, va_end, ctx, shy_returns, shy_close,
+                warmup=window_warmup,
             )
             logger.info(
                 "    [%s] done in %.1fs: ret=%+.1f%% CAGR=%+.2f%% "

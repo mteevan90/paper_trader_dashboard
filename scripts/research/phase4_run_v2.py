@@ -352,6 +352,103 @@ def _variant_out_dir(variant_name: str) -> Path:
     return V2_OUT_DIR / variant_name / "contract_v1"
 
 
+def _compute_warmup_state(
+    xgb_model, feat: pd.DataFrame, trading_dates: pd.DatetimeIndex,
+    daily_returns: pd.DataFrame, sectors: pd.Series, tiers: pd.Series,
+    delisting_dates: dict, universe_records: list[dict],
+    train_start: pd.Timestamp, train_end: pd.Timestamp,
+) -> dict:
+    """Compute training-period warmup state needed by some variants.
+
+    Returns a dict with:
+      - 'training_dispersion_dist': list of top-decile score std at each
+        training-period monthly rebalance. Consumed by B3.
+      - 'training_tail_vol': last-63-day annualized realized vol of a
+        BASELINE-construction backtest over the training period (frozen
+        at study config time). Consumed by B1.
+
+    Per Gate 1 design: B1 uses "frozen training-tail vol" and B3 uses the
+    frozen training-period dispersion distribution. Both are computed
+    once at study time using the same locked XGBoost model that will be
+    used in the test window. Not peek-ahead: the model is used to
+    characterize the training period, not to make forward-looking
+    decisions during it.
+    """
+    train_rb_dates = month_end_trading_dates(trading_dates, train_start, train_end)
+    if not train_rb_dates:
+        raise RuntimeError("no training-period rebalance dates")
+
+    bt_train_feat = feat[(feat["date"] >= train_start) & (feat["date"] <= train_end)]
+
+    # Score every training rebalance date with the trained model
+    train_score_cache: dict[pd.Timestamp, pd.Series] = {}
+    for d in train_rb_dates:
+        d_ts = pd.Timestamp(d)
+        train_score_cache[d_ts] = _score_for_date(
+            "xgboost", xgb_model, bt_train_feat, d_ts,
+        )
+
+    # B3: top-decile dispersion at each rebalance
+    dispersions: list[float] = []
+    for d_ts, scores in train_score_cache.items():
+        valid = scores.dropna()
+        if valid.empty:
+            continue
+        decile_n = max(1, int(round(0.1 * len(valid))))
+        top = valid.nlargest(decile_n)
+        if len(top) > 1:
+            dispersions.append(float(top.std()))
+
+    # B1: run a baseline backtest over the training window to derive
+    # last-63-day portfolio vol. Use a fresh BaselineVariant so caps logic
+    # is identical to v1's path.
+    from src.equities.portfolio_construction import BaselineVariant
+
+    def train_score_fn(d_ts: pd.Timestamp) -> pd.Series:
+        return train_score_cache.get(pd.Timestamp(d_ts), pd.Series(dtype=float))
+
+    baseline_for_warmup = BaselineVariant()
+    train_result = run_backtest(
+        model_name="xgboost",
+        score_fn=train_score_fn,
+        rebalance_dates=train_rb_dates,
+        daily_returns=daily_returns,
+        delisting_dates=delisting_dates,
+        sectors=sectors, tiers=tiers,
+        pc_params=None,
+        universe_records=universe_records,
+        construction_variant=baseline_for_warmup,
+    )
+    train_port = train_result.portfolio
+    train_nav = train_port["nav"].values
+    daily_ret_train = pd.Series(train_nav).pct_change().dropna()
+    last63 = daily_ret_train.iloc[-63:] if len(daily_ret_train) >= 63 else daily_ret_train
+    training_tail_vol = float(last63.std() * np.sqrt(252)) if len(last63) > 1 else 0.0
+
+    return {
+        "training_dispersion_dist": dispersions,
+        "training_tail_vol": training_tail_vol,
+        "n_training_rebalances": len(train_rb_dates),
+    }
+
+
+def _build_variant_with_warmup(variant_name: str, warmup: dict | None):
+    """Instantiate a variant, threading warmup state into B1/B3 as needed."""
+    if variant_name == "b1_vol_target":
+        if warmup is None or warmup.get("training_tail_vol") is None:
+            raise RuntimeError("B1 requires warmup state; run _compute_warmup_state first")
+        from src.equities.portfolio_construction import VolTargetVariant
+        return VolTargetVariant(training_tail_vol=warmup["training_tail_vol"])
+    if variant_name == "b3_dynamic_topn":
+        if warmup is None or not warmup.get("training_dispersion_dist"):
+            raise RuntimeError("B3 requires warmup state; run _compute_warmup_state first")
+        from src.equities.portfolio_construction import DynamicTopNVariant
+        return DynamicTopNVariant(
+            training_dispersion_dist=warmup["training_dispersion_dist"],
+        )
+    return get_variant_by_name(variant_name)
+
+
 def _run_one_variant(
     variant_name: str,
     score_cache: dict[pd.Timestamp, pd.Series],
@@ -368,6 +465,7 @@ def _run_one_variant(
     spy_history: pd.DataFrame,
     shy_returns: pd.Series | None,
     shy_close: pd.Series | None,
+    warmup: dict | None = None,
 ) -> dict:
     """Build the variant, run its backtest, write its artifacts. Return a
     headline-metrics summary for logging."""
@@ -395,8 +493,8 @@ def _run_one_variant(
         spy_history if variant_name in VARIANTS_NEEDING_SPY_HISTORY else None
     )
 
-    # Build the variant
-    variant = get_variant_by_name(variant_name)
+    # Build the variant (threading warmup state for B1 / B3)
+    variant = _build_variant_with_warmup(variant_name, warmup)
 
     # Wrap cached scores in a score_fn the engine expects
     def score_fn(d_ts: pd.Timestamp) -> pd.Series:
@@ -715,6 +813,25 @@ def main() -> int:
     benchmarks["date"] = pd.to_datetime(benchmarks["date"]).astype("datetime64[ns]")
     logger.info("  benchmarks built in %.1fs; %d rows", time.time() - t0, len(benchmarks))
 
+    # ---- Compute warmup state for B1 / B3 (if requested) ----
+    warmup: dict | None = None
+    if any(v in {"b1_vol_target", "b3_dynamic_topn"} for v in variant_names):
+        logger.info("computing training-period warmup state (B1 vol + B3 dispersion)...")
+        t0 = time.time()
+        warmup = _compute_warmup_state(
+            xgb_model=xgb_model, feat=feat, trading_dates=trading_dates,
+            daily_returns=daily_returns, sectors=sectors, tiers=tiers,
+            delisting_dates=delisting_dates, universe_records=universe_records,
+            train_start=TRAIN_START, train_end=TRAIN_END,
+        )
+        logger.info(
+            "  warmup state computed in %.1fs: %d training rebalances, "
+            "training_tail_vol=%.4f (annualized), n_dispersions=%d",
+            time.time() - t0,
+            warmup["n_training_rebalances"], warmup["training_tail_vol"],
+            len(warmup["training_dispersion_dist"]),
+        )
+
     # ---- Run variants ----
     summaries = []
     for v_name in variant_names:
@@ -733,6 +850,7 @@ def main() -> int:
             spy_history=spy_history,
             shy_returns=shy_returns,
             shy_close=shy_close,
+            warmup=warmup,
         )
         summaries.append(s)
 
