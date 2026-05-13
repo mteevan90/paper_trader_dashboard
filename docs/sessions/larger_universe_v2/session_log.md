@@ -134,3 +134,76 @@ Engine still produces the same `BacktestResult` (portfolio, holdings, trades, sc
 ### Awaiting Mike's review
 
 Gate 2 deliverables are surface-ready: code lands cleanly, all tests pass, the engine refactor preserves v1's call path. Awaiting authorization before kicking off Phase 4 backtests (Gate 3).
+
+## 2026-05-13 — Gate 3 (a): pre-flight + baseline reproducibility check
+
+**Phase:** Phase 4 — runner creation + v2-baseline backtest only (B1–B6 pending baseline approval)
+**Branch:** `feat/larger-universe-v2`
+**Status:** Baseline bit-exact-reproduces v1; awaiting Mike's approval before running B1–B6.
+
+### Pre-flight (verbal authorization from Mike before any compute)
+
+Three pre-implementation findings surfaced and resolved before runner code was written:
+
+1. **v1 reference values locked.** Re-derived v1's pinned `summary_metrics.test.xgboost` from `portfolio.parquet` using the `_summarize` formula at `scripts/research/phase4_run.py:251–294`. Zero deviation vs `meta.json` pinned values across all six metrics (total_return, cagr, spy_cagr, excess_cagr, max_drawdown, spy_max_drawdown). The < 0.01% pre-flight tolerance was met with margin to spare. Sharpe nuance: v1 doesn't pin test-window Sharpe in `summary_metrics`; the walk-forward Sharpe formula at `phase5_walk_forward.py:215–217` applied to v1's test-window NAV gives 0.901503 as a derived informational reference. Sharpe stays informational, not gated (the seven gating metrics remain CAGR, excess CAGR, MaxDD, SPY MaxDD, n_days, total_return, SPY CAGR).
+
+2. **v2 spec was not in the repo.** The session log referenced a "locked spec" with seven success criteria, but no `docs/studies/larger_universe_v2/spec.md` existed in version control. Git log confirmed nothing had ever been added under that path. The criteria existed only in conversation. Mike pasted the full spec and it landed at commit `54c286e` ("docs(studies): land Larger Universe v2 study spec (pre-committed criteria)") before any runner code was written — making it pre-committed per the Operating Principles' methodology requirement.
+
+3. **Runner scripts didn't exist.** Gate 2 landed the variant package + the `backtest.py` engine refactor with `construction_variant` support, but no v2 Phase 4 runners (`phase4_run_v2.py`, `phase5_walk_forward_v2.py`, `build_comparison_results_v2.py`) existed. Treated as Gate 3 scope. Written as Commit A (`ce8dfdd`) before any backtest ran.
+
+### Commits landed
+
+- `54c286e` — `docs(studies): land Larger Universe v2 study spec (pre-committed criteria)`
+- `ce8dfdd` — `gate3(v2): phase 4 + phase 5 + comparison runners` (1,694 insertions across 3 new scripts)
+- `9bde239` — `gate3(v2): cast numpy.bool_ to native bool in scores parity result` (caught by baseline run when first attempt failed at the JSON-write step of the parity check; XGBoost training and score caching had already completed successfully)
+- `(this commit)` — `gate3(v2): baseline reproducibility check` (artifacts + deviation analysis writeup + this session log entry)
+
+### Runner architecture
+
+`phase4_run_v2.py` uses shared-model optimization: train XGBoost once on v1's locked hyperparameters, cache scores at every rebalance date once, then loop over `--variants` calling the engine with each variant's `construction_variant` instance. Cached-score reuse means per-variant compute is dominated by the engine walk over daily returns (~0.6s observed on baseline, vs ~44s for the one-shot training step). Total Gate 3 wall-clock for all 7 variants will be dominated by walk-forward retrains (6 windows × 1 training each), not by Phase 4 itself.
+
+`phase5_walk_forward_v2.py` does the same per-window: 1 training + cached scoring + N variant backtests. `build_comparison_results_v2.py` evaluates the seven success criteria from the spec, including criterion-5 (max single-ticker alpha share, mirrors v1's `per_ticker_attribution` filtered to the test window) and criterion-6 (12-month rolling win rate vs SPY, mirrors v1's `rolling_win_rate` filtered to the test window).
+
+### Baseline reproducibility result
+
+Upstream scores parity check (v2 cached scores vs v1's `scores.parquet`):
+
+- 59,232 (date, ticker) pairs compared
+- v1-only: 0; v2-only: 0 (perfect set overlap)
+- max_abs_diff: 0.00e+00
+- mean_abs_diff: 0.00e+00
+- **PASS — bit-identical**
+
+Headline-metric deviation (v2-baseline `summary_metrics.test` vs v1 pinned `summary_metrics.test.xgboost`):
+
+| Metric | abs diff | rel diff |
+|---|---|---|
+| n_days | 0 | 0% |
+| total_return | 0.00e+00 | 0% |
+| cagr | 0.00e+00 | 0% |
+| spy_cagr | 0.00e+00 | 0% |
+| excess_cagr | 0.00e+00 | 0% |
+| max_drawdown | 0.00e+00 | 0% |
+| spy_max_drawdown | 0.00e+00 | 0% |
+
+Bit-level NAV check (full 739-row series across the test + OOS windows): max abs diff 0.0, bit-identical.
+
+Informational Sharpe: v1 derived ref 0.901503; v2 baseline 0.901503; abs diff 4.97e-07 (FP precision noise from a different computation path, not flagged).
+
+**Verdict: BIT-EXACT REPRODUCTION.** Exceeds the < 0.1% reproducibility tolerance with margin to spare. No source-of-deviation analysis required.
+
+Full deviation writeup: [docs/studies/larger_universe_v2/baseline_reproducibility_check.md](../../studies/larger_universe_v2/baseline_reproducibility_check.md).
+
+### What this enables
+
+The variant package + engine refactor preserves v1's pipeline behavior with floating-point identity. Any divergences from baseline in B1–B6 backtest results can be cleanly attributed to the construction-logic differences specified in each variant — not to pipeline drift, training-path variability, or engine refactor artifacts.
+
+### What's next
+
+- **Awaiting Mike's approval to run B1–B6.** Per pre-flight authorization, baseline-first sequencing with stop-on-fail; baseline reproduced with zero deviation, so the gate is clean to proceed.
+- After approval: run `phase4_run_v2.py --variants b1_vol_target,b2_conviction_weighted,b3_dynamic_topn,b4_concentration_penalties,b5_defensive_sleeves,b6_smaller_caps`, then `phase5_walk_forward_v2.py --variants all`, then `build_comparison_results_v2.py --variants all`.
+- Then surface the Gate 3 report (Gate 3 (b) entry): headline metrics per variant, walk-forward consistency stats, comparison_results.parquet rendering, and any variant flagged for unexpected behavior. Don't auto-proceed to Gate 4.
+
+### Standing follow-ups (unchanged from Gate 1)
+
+1–5 as listed in the Gate 1 entry above.
