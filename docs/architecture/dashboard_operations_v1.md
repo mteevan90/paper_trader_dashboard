@@ -95,6 +95,51 @@ A study writes its contract artifacts during Phases 4 and 5 (see the per-phase P
 
 No registration step. No code change. This is the contract's design payoff.
 
+### Two deployment paths — legacy vs contract-conformant studies
+
+The `.gitignore` rule `models/*` blocks ordinary `git add`. Studies use one of two mechanisms to get their data to the cloud dashboard:
+
+**Legacy studies** (composite-weighted family, `models/cache/dashboard_results/<label>/`):
+- Synced to R2 object storage via `src/snapshot_for_cloud.py`.
+- Cloud Streamlit (in `DASHBOARD_CLOUD_MODE`) fetches files from R2 on demand using the bucket layout in `src/data_source.py` (`R2_LAYOUT_SUFFIX` + `dashboard_results/` prefix rule).
+- Workflow: produce results locally → run `python src/snapshot_for_cloud.py` → cloud reads via R2 within ~5 min cache TTL.
+
+**Contract-conformant studies** (`models/studies/<study_name>/contract_v1/`):
+- Force-added to git via `git add -f models/studies/<study_name>/`. The `-f` flag is required because `.gitignore` would otherwise silently skip these files.
+- Cloud Streamlit reads from the deployed git checkout — no R2 fetch for contract data. Streamlit Cloud's GitHub integration auto-deploys on push to `main`; new study data appears in the cloud dashboard within minutes of the push.
+- Workflow: produce contract artifacts locally → `git add -f models/studies/<study_name>/` → commit → push → cloud auto-deploys.
+- v1 established this pattern at commit `5b96fd0`. v2 followed it at commit `7ae3977` (force-added 90 files / ~10MB for `larger_universe_v2/` covering 7 variants + `comparison/` artifacts + `variant_meta.json`).
+
+The `src/snapshot_for_cloud.py` script does NOT sync `models/studies/<study>/contract_v1/` — its bundle scope is the legacy `dashboard_results/` subtree plus the hardcoded `R2_LAYOUT_SUFFIX` files only. Running it does not affect contract-study cloud visibility.
+
+### Deploying a new contract-conformant study to the cloud dashboard
+
+Concrete step-by-step (matches v1 + v2 pattern):
+
+```
+# 1. Produce contract artifacts locally (Phase 4 + Phase 5 runners)
+python scripts/research/phase4_run.py        # or phase4_run_v2.py for multi-variant
+python scripts/research/phase5_walk_forward.py
+python scripts/research/phase5_analytics.py  # or phase5_analytics_v2.py
+
+# 2. Verify artifacts exist locally
+ls models/studies/<study_name>/contract_v1/
+
+# 3. Force-add to git (-f required due to models/* .gitignore rule)
+git add -f models/studies/<study_name>/
+
+# 4. Commit with a descriptive message naming the study
+git commit -m "phase4(study): <study_name> — contract v1 artifacts"
+
+# 5. Push to main (or via PR depending on branch protection)
+git push origin main
+
+# 6. Streamlit Cloud auto-deploys on push to main; new study
+#    appears in the dashboard's "Study" sidebar within minutes.
+```
+
+**Why git instead of R2 for contract data:** the contract artifacts are version-controlled snapshots of what a study produced; deploying them via git keeps the dashboard's view bit-identical to what the writeup describes at that commit. Legacy `dashboard_results/` predates the contract and uses R2 because the legacy artifacts are larger and historically updated more frequently. Future architectural conversation may revisit this split (tracked as a follow-up post-v2); for now both paths are in use and partners should know which applies to their study type.
+
 ## Recipe 1 — Fix a render bug
 
 The smallest type of change. Two recent examples ground the recipe.
