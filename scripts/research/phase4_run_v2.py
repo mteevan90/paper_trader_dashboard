@@ -342,8 +342,8 @@ def _verify_scores_parity(
         "fraction_within_1e6": (
             float(n_within_1e6) / len(both) if not both.empty else 0.0
         ),
-        "passed": (
-            max_abs_diff < 1e-6 and n_v1_only == 0 and n_v2_only == 0
+        "passed": bool(
+            max_abs_diff < 1e-6 and int(n_v1_only) == 0 and int(n_v2_only) == 0
         ),
     }
 
