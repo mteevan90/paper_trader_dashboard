@@ -496,3 +496,44 @@ Dashboard boots cleanly under all changes (verified via `streamlit run` on port 
   - Tracker update reflecting v2 completion
   - Known follow-ups documented (CV memo re-justification, v3 scoping, dashboard rendering watch item)
   - v2 chapter closes
+
+## 2026-05-13 — v2 closure (merge + cloud visibility + tracker)
+
+**Phase:** v2 closure
+**Branch:** `main` (v2 merge already landed)
+**Status:** v2 closed. Code on main; contract artifacts force-added to git for cloud visibility; tracker updated; ops doc gap closed.
+
+### What landed and where
+
+| Commit | Branch | What |
+|---|---|---|
+| `b1d177a` | main | v2 code merge via PR #16 — GitHub web-UI squash merge bundling all 13 gate commits from `feat/larger-universe-v2` |
+| `7ae3977` | main | v2 contract artifacts force-added (90 files / ~10MB) per v1's existing pattern at 5b96fd0 |
+| `cacca9c` | main | `dashboard_operations_v1.md` updated to document the two deployment paths (legacy via R2/snapshot_for_cloud.py vs contract-conformant via git force-add) |
+| `ec6dfec` | main | `Project_State_Tracker.docx` v2 completion section + three follow-ups |
+| `104d164` | feat/larger-universe-v2 | Feature branch preserved (not deleted) — carries the per-gate commit history Gate 1 → Gate 5 |
+
+### Institutional knowledge captured during v2 closure
+
+**(1) Merge style: web-UI squash vs `--no-ff` are both acceptable.** The v2 merge happened via the GitHub web UI as a squash merge (PR #16 → `b1d177a`). The session's earlier merge instructions had asked for `--no-ff` consistency with the project's git history pattern. Both paths are valid. Future sessions should treat web-UI squash merges as part of the project's accepted merge patterns, NOT as an error to correct. The substantive content (writeup, session log, tracker, code) is unaffected by merge-style choice. Force-pushing to main to "fix" a style preference would violate the standing "no force-push to main" discipline; that discipline ranks higher than merge-style consistency.
+
+**(2) Contract-conformant studies deploy to cloud via git force-add, not via `snapshot_for_cloud.py`.** This was undocumented before v2 closure surfaced it. The cloud Streamlit deploy reads `models/studies/<study>/contract_v1/` data from the deployed git checkout. The `.gitignore` rule `models/*` blocks ordinary `git add`, so the force-add (`git add -f models/studies/<study>/`) is the required mechanism. v1 established this pattern at `5b96fd0`; v2 followed at `7ae3977`. `snapshot_for_cloud.py` only handles legacy `dashboard_results/` and the hardcoded `R2_LAYOUT_SUFFIX` files; running it does NOT make contract-study data appear on the cloud. Documented in `dashboard_operations_v1.md` (commit `cacca9c`) and noted as a candidate architectural follow-up in the tracker.
+
+**(3) Diagnostic discipline: verify state before acting on user-reported actions.** During v2 closure, the user reported "the dashboard isn't showing v2" with the apparent diagnostic "v2 isn't on main." Initial diagnostic (read-only `git log`) showed main at `726193d` — confirming "v2 not on main." But by the time the diagnostic ran, Mike was concurrently merging via the GitHub web UI; the actual main state at the moment of `git pull --ff-only` was `b1d177a` (the squash merge). Lesson: when a user reports a state observation that motivates an action, fetch the latest remote state before acting; the user's observation may be from a stale snapshot. (Applied: surface the discrepancy before merging, rather than proceeding on the user's reported state.)
+
+**(4) Premise verification before destructive action.** The user's message arriving with the premise "I merged v2 (the action didn't complete though)" was internally inconsistent — but in the current session's history, there was no Gate 5 merge approval at all. Surfacing the premise mismatch BEFORE acting on the message's destructive instructions (merge, snapshot publish, tracker update) was the right discipline. Mike confirmed the merge approval explicitly in response. Future Claude Code sessions should preserve this pattern: when a message's premise doesn't match the conversation history, surface the mismatch before acting, even when the requested action would seem to follow from the premise.
+
+### Verification steps after v2 closure
+
+- `git log --oneline main -6` shows: `ec6dfec` (tracker) → `cacca9c` (ops doc) → `7ae3977` (force-add) → `b1d177a` (squash merge PR #16) → `726193d` (prior merge).
+- `git ls-files models/studies/larger_universe_v2/ | wc -l` shows 90 files tracked, matching the force-add count.
+- `feat/larger-universe-v2` still at `104d164` on both local and origin — branch preserved for git-archaeology purposes.
+
+### What's next
+
+- **Cloud dashboard auto-deploys on push to main** via Streamlit Cloud's GitHub integration. Mike to verify v2 visible in the cloud sidebar within a few minutes of the force-add push.
+- **Three known follow-ups deferred to post-v2 conversations** (per tracker section "Three known follow-ups (post-v2)"):
+  1. CV-objectives memo recommendation re-justification (status: under review)
+  2. v3 scoping with Mechanism A as primary direction (next substantive conversation)
+  3. Contract-artifact deployment pattern — architectural question worth its own conversation
+- **v2 chapter closes** with this session log entry.
