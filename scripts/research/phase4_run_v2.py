@@ -605,12 +605,21 @@ def _run_one_variant(
             "phase_4_complete": datetime.now(timezone.utc).isoformat(),
             "phase_5_complete": None,
         },
+        # summary_metrics shape: {slice: {model_name: {metric: value, ...}}}
+        # — matches the v1 contract schema the dashboard's Overview tab
+        # iterates over. v2 has a single model (xgboost) per variant; the
+        # nested dict structure preserves model-keying for cross-study
+        # consistency.
         "summary_metrics": {
             "test": {
-                k: v for k, v in test_m.items() if k not in ("model", "period")
+                "xgboost": {
+                    k: v for k, v in test_m.items() if k not in ("model", "period")
+                }
             } if test_m.get("n_days", 0) > 0 else {},
             "oos": {
-                k: v for k, v in oos_m.items() if k not in ("model", "period")
+                "xgboost": {
+                    k: v for k, v in oos_m.items() if k not in ("model", "period")
+                }
             } if oos_m.get("n_days", 0) > 0 else {},
         },
         "notes": [],

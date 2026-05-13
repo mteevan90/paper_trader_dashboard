@@ -414,3 +414,85 @@ The writeup explicitly notes both as known follow-ups so the v2 record is honest
 - **Gate 5 dashboard implementation.** Per Gate 1 spec: 7 universal tabs with variant selector + 8th Variant Comparison tab. Mike's Gate 4 refinement: the Variant Comparison tab interprets variant comparison as supporting the writeup's headline rather than as the main story. Verdict displayed clearly, cross-variant overlap finding surfaced prominently, per-criterion detail available but not the main visual.
 - Don't merge v2 to main until Mike approves the full bundle (results.md + dashboard implementation + this session log).
 - Don't auto-proceed to v3 scoping or to the CV-memo re-justification workstream after merge. Those are the next conversations.
+
+## 2026-05-13 — Gate 5: dashboard implementation
+
+**Phase:** Dashboard implementation (variant selector + Variant Comparison tab)
+**Branch:** `feat/larger-universe-v2`
+**Status:** Implemented + smoke-tested. Ready for full v2 bundle review.
+
+### What was implemented
+
+**Variant routing (composite study refs):**
+- `_split_study_ref(study_ref)` splits a study reference into (study, variant) or (study, None). Composite refs use the form `"<study>/<variant>"`.
+- `_contract_dir(study_ref)` resolves to the right contract_v1 directory: single-variant studies route to `models/studies/<study>/contract_v1/`; multi-variant variants route to `models/studies/<study>/<variant>/contract_v1/`. Minimizes the diff — existing tab functions (`tab_contract_overview`, `tab_contract_holdings`, etc.) accept `study_ref` and pass it to the loaders unchanged.
+- `load_variant_meta(study)` returns the study-level `variant_meta.json` for multi-variant studies; `list_contract_v1_variants(study)` returns the variants[] list.
+
+**Sidebar (Mike's authorized placement: Option 1 — sidebar):**
+- `_study_format(s)` produces the sidebar display label. Multi-variant studies get the **🔀 + (N variants)** suffix per Gate 1's sidebar-disambiguation spec.
+- `sidebar_contract_picker` now returns the composite ref. For multi-variant studies, renders a Variant selectbox below the Study selectbox, defaulted to `role: "control"` per Gate 1 spec. Variant selection applies globally to the 7 contract-conformant tabs.
+
+**Eighth tab — Variant Comparison (multi-variant only):**
+- New `tab_contract_variant_comparison(study_name)` function.
+- Structure follows Mike's Gate 4 refinement:
+  1. **Verdict callout at top** — `st.error` for no-PROMOTE ("No variant promoted; X of N are methodology findings"), per-variant `n_pass` table sorted by pass count.
+  2. **Cross-variant concentration overlap** as the prominent structural finding —
+     - 7×7 annotated Plotly heatmap of Spearman correlations on per-ticker `pct_of_total_alpha`. Color scale calibrated to the off-diagonal range so B3's ~0.85 outlier shows visually. Cell values annotated.
+     - Appearance histogram (x: appears in N variants' top-20, y: count of unique tickers).
+     - Caption stating the substantive finding plainly: "0.94 mean cross-variant correlation and 14 of 28 shared top contributors indicate concentration is model-determined; B3 most divergent at ~0.85 correlation."
+  3. **Collapsible expander** labeled descriptively: "Full per-criterion comparison (all 7 variants × 7 criteria)". Inside: per-criterion `value` + `pass` columns for all 7 × 7 — communicates that comprehensive data is available without hiding it. Collapsed by default to keep the headline content prominent.
+  4. **Walk-forward consistency stats per variant** — standard section below the expander showing mean / std / median / min / max excess CAGR + positive-window count per variant. Methodology context partners need to interpret the headline.
+  5. **Honest framing footer** — `st.info` callout reminding readers that "the binding constraint for top-N equity strategies on this universe is signal extraction (Mechanism A), not portfolio construction (Mechanism B)" + link to `docs/studies/larger_universe_v2/results.md`.
+- Mike's UX choice of NOT defaulting to the Variant Comparison tab as opening tab (since changing the default would be invasive and the verdict callout at the top of the tab does the job once a user clicks it) is preserved — Overview is the default opening tab for multi-variant studies; users click into Variant Comparison to see the cross-variant view.
+
+**Schema fix for v2 meta.json `summary_metrics`:**
+- Caught by AppTest harness when v2 raised `AttributeError: 'int' object has no attribute 'get'` at `tab_contract_overview` line 4103. Root cause: `phase4_run_v2.py` wrote `summary_metrics.test = {n_days: ..., cagr: ..., ...}` (flat) where the v1 contract expected `summary_metrics.test = {model_name: {n_days, cagr, ...}}` (model-keyed). Fix: wrap the metric dict in an `xgboost` key, matching v1's contract.
+- Existing v2 variant meta.json files patched inline (deterministic data; only schema structure changed). All 7 variants now render cleanly. Future v2-pattern runs produce the correct schema automatically.
+
+### Smoke tests (programmatic via Streamlit AppTest)
+
+Verified for the following cases — all zero exceptions:
+
+| Case | Tabs rendered | Last tab |
+|---|---:|---|
+| v1 (single-variant) | 7 | Tuning (no Variant Comparison) |
+| v2 baseline (default) | 8 | Variant Comparison |
+| v2 b1_vol_target | 8 | Variant Comparison |
+| v2 b4_concentration_penalties | 8 | Variant Comparison |
+| v2 b5_defensive_sleeves (uses SHY) | 8 | Variant Comparison |
+| v2 b6_smaller_caps | 8 | Variant Comparison |
+
+Sidebar selectbox formatting:
+- v1: displays as `"Larger Universe v1"` (no suffix)
+- v2: displays as `"Larger Universe v2 🔀 + (7 variants)"` (suffix correct)
+
+Variant Comparison tab structure (programmatic render test with mocked streamlit):
+- 1 error callout (verdict callout)
+- 2 dataframe (n_pass summary + walk-forward stats; per-criterion table inside expander adds 1 more)
+- 2 plotly_chart (heatmap + histogram)
+- 1 expander (per-criterion comparison, collapsed)
+- 1 info callout (honest framing footer)
+- 3 captions (one above heatmap, one inside expander, one above walk-forward)
+
+Dashboard boots cleanly under all changes (verified via `streamlit run` on port 8767).
+
+### Commits landed in Gate 5
+
+- `(this commit)` — `gate5(v2): variant selector + Variant Comparison tab`
+  - `src/dashboard_app.py` — variant routing helpers (`_split_study_ref`, `_contract_dir` extension, `load_variant_meta`, `list_contract_v1_variants`), sidebar variant selector with `🔀 + (N variants)` suffix, new 8th tab `tab_contract_variant_comparison` with heatmap + histogram + expander structure
+  - `scripts/research/phase4_run_v2.py` — `summary_metrics` shape fixed to model-keyed `{xgboost: {...}}` matching the v1 contract
+  - `docs/sessions/larger_universe_v2/session_log.md` — this entry
+  - Local-only (gitignored): patched v2 variant meta.json files inline to use the corrected schema
+
+### What's next
+
+- **Full v2 bundle review.** All Gate 3-5 work on `feat/larger-universe-v2` is now landable:
+  - Gate 1 → Gate 5 design + spec + writeup + dashboard
+  - Operating Principles in tracker
+  - v1 audit + memo correction + dashboard rendering correction
+  - Gate 5 variant selector + Variant Comparison tab
+- Surface for Mike's review of the full bundle before merging to main.
+- After approval + merge:
+  - Tracker update reflecting v2 completion
+  - Known follow-ups documented (CV memo re-justification, v3 scoping, dashboard rendering watch item)
+  - v2 chapter closes
