@@ -4496,6 +4496,11 @@ def tab_contract_holdings(study_name: str) -> None:
     display = sub.copy()
     if "weight" in display.columns:
         display["weight"] = display["weight"].apply(lambda v: f"{v * 100:.2f}%")
+    # Universe-tier classification is methodology detail rather than
+    # something partners need to interpret the holdings table. Drop the
+    # column entirely from the primary display.
+    if "tier" in display.columns:
+        display = display.drop(columns=["tier"])
     rename_map = {
         "date": "Date",
         "model": "Model",
@@ -4503,7 +4508,6 @@ def tab_contract_holdings(study_name: str) -> None:
         "weight": "Weight",
         "value_usd": "Position value ($)",
         "sector": "Sector",
-        "tier": "Universe tier",
     }
     display = display.rename(columns={k: v for k, v in rename_map.items()
                                        if k in display.columns})
@@ -4513,8 +4517,7 @@ def tab_contract_holdings(study_name: str) -> None:
     st.caption(
         "Stocks the strategy held on this rebalance date, sorted by weight. "
         "Each weight is the share of total portfolio value invested in that "
-        "stock. 'Universe tier' indicates whether the stock was in the SP500, "
-        "SP400, SP600, or removed-but-still-tradeable list at this date."
+        "stock."
     )
     st.dataframe(display, use_container_width=True, hide_index=True)
 
@@ -4969,19 +4972,20 @@ def tab_contract_diagnostics(study_name: str) -> None:
         st.markdown(
             "The **skill score** (technical name: top-quintile Information "
             "Coefficient) measures whether the model's highest-scored "
-            "stocks actually delivered the highest returns. \n\n"
+            "stocks actually delivered the highest returns over the test "
+            "period. It's a rank-correlation between the model's scores "
+            "and the actual forward returns, computed within the model's "
+            "top 20% of picks at each rebalance and averaged across "
+            "rebalances. \n\n"
             "- **+1.0** would mean the model perfectly ranked stocks by "
             "future return.\n"
             "- **0.0** means the model's rankings were no better than "
             "random.\n"
             "- **−1.0** would mean the model's rankings were inverted.\n\n"
-            "In practice, even successful equity strategies show skill "
-            "scores in the **+0.02 to +0.10** range — the signal is weak "
-            "per-stock-per-month but compounds across many bets. A score "
-            "near zero or slightly negative on a test window can still "
-            "pair with positive cumulative returns if a few names happen "
-            "to land in the top rankings before large positive moves "
-            "(sometimes called 'tail-driven alpha'). The **Alpha "
+            "A score near zero or slightly negative on a test window can "
+            "still pair with positive cumulative returns if a few names "
+            "happen to land in the top rankings before large positive "
+            "moves (sometimes called 'tail-driven alpha'). The **Alpha "
             "Attribution** tab shows whether that's the pattern here.\n\n"
             "**Why 'top 20%' specifically:** the strategy only trades "
             "the top 30 stocks each month — about the top 1.5% of the "
@@ -6115,15 +6119,10 @@ def tab_contract_variant_comparison(study_name: str) -> None:
     if promote_count == 0:
         st.info(
             "**v2's findings indicate the binding constraint for top-N "
-            "equity strategies on this universe is signal extraction "
-            "(better stock-ranking, called 'Mechanism A' in the v2 "
-            "scoping document), not portfolio construction (the variant "
-            "approaches v2 actually tested, called 'Mechanism B'). "
-            "See the v2 writeup at `docs/studies/larger_universe_v2/"
-            "results.md` for the full analysis — including the underlying "
-            "model's near-zero ranking accuracy on the test window, the "
-            "decile structure under the standard measurement, and the "
-            "per-variant supporting detail.**"
+            "equity strategies on this universe is better stock-ranking, "
+            "not the portfolio construction approaches v2 tested. See "
+            "`docs/studies/larger_universe_v2/results.md` for the full "
+            "analysis.**"
         )
 
     # === Key takeaways ===
