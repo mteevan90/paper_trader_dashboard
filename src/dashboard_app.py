@@ -5238,51 +5238,13 @@ def tab_contract_walk_forward(study_name: str) -> None:
         f"Worst year: **{_format_pp(p_worst)} outperformance**."
     )
 
-    # === Per-model summary panel (existing — keep, expand label) ===
-    st.markdown("### Per-window summary")
-    cols = st.columns(len(models))
-    for col, model in zip(cols, models):
-        m = (wf[wf["model"] == model]
-             .sort_values("val_start").reset_index(drop=True))
-        excess = m["excess_cagr_vs_spy"]
-        n_total = len(m)
-        n_positive = int((excess > 0).sum())
-        n_strong = int((excess >= 0.05).sum())
-        median_excess = excess.median()
-        std_excess = excess.std(ddof=1) if n_total > 1 else 0.0
-        best_pos = int(excess.idxmax())
-        worst_pos = int(excess.idxmin())
-        best_w = best_pos + 1
-        worst_w = worst_pos + 1
-        best_val = float(excess.iloc[best_pos])
-        worst_val = float(excess.iloc[worst_pos])
-
-        with col:
-            st.markdown(f"**{model}**")
-            st.metric("Windows positive", f"{n_positive} of {n_total}")
-            st.metric("Median yearly outperformance",
-                      f"{median_excess * 100:+.1f}pp")
-            st.metric("Best window",
-                      f"W{best_w}  ({best_val * 100:+.1f}pp)")
-            st.metric("Worst window",
-                      f"W{worst_w}  ({worst_val * 100:+.1f}pp)")
-            st.metric("Year-to-year variability (std)",
-                      f"{std_excess * 100:.1f}pp")
-            st.metric("Strong outperformance (≥ +5pp)",
-                      f"{n_strong} of {n_total}")
-
+    # === Headline bar chart — per-window outperformance ===
+    st.markdown("### Per-window outperformance vs S&P 500")
     st.caption(
-        "Windows are numbered W1–W6 in chronological order of validation "
-        "start. **Strong outperformance** counts windows where the strategy "
-        "beat the S&P 500 by 5 percentage points or more in annual return."
-    )
-
-    # === Bar chart with regime annotations ===
-    st.markdown("### Per-window outperformance chart")
-    st.caption(
-        "Each bar is one validation window. Above the zero line = strategy "
-        "beat the market that year; below = underperformed. The grey "
-        "text below each year is the dominant market regime for context."
+        "Each bar is one 1-year validation window. Above the zero line = "
+        "strategy beat the market that year; below = underperformed. The "
+        "grey text below each year is the dominant market regime for "
+        "context. Hover any bar for the exact percentage and regime label."
     )
     fig = go.Figure()
     for model in models:
@@ -5292,7 +5254,8 @@ def tab_contract_walk_forward(study_name: str) -> None:
         # text underneath. Hover tooltips also carry the regime explicitly.
         x_labels = []
         regimes = []
-        for v in m["val_start"]:
+        bar_colors = []
+        for i, v in enumerate(m["val_start"]):
             v_str = str(v)[:10]
             year = v_str[:4]
             regime = _WALK_FORWARD_REGIME_LABELS.get(v_str, "")
@@ -5305,85 +5268,86 @@ def tab_contract_walk_forward(study_name: str) -> None:
                 )
             else:
                 x_labels.append(year)
+            # Color-code: green for positive excess, red for negative.
+            v_excess = float(m["excess_cagr_vs_spy"].iloc[i])
+            bar_colors.append("#16a34a" if v_excess >= 0 else "#dc2626")
         fig.add_trace(go.Bar(
             x=x_labels,
             y=m["excess_cagr_vs_spy"] * 100,
             name=model,
+            marker=dict(color=bar_colors),
             customdata=regimes,
             hovertemplate=(
                 "<b>%{fullData.name}</b><br>"
-                "Val start year: %{x}<br>"
-                "Excess CAGR: %{y:+.2f}pp<br>"
+                "Year: %{x}<br>"
+                "Outperformance vs S&P 500: %{y:+.2f}pp<br>"
                 "Regime: %{customdata}"
                 "<extra></extra>"
             ),
         ))
     fig.update_layout(
         barmode="group",
-        title="Per-window excess CAGR vs SPY",
+        title="Annual outperformance vs S&P 500, per validation window",
         xaxis_title="Validation window (year + regime context)",
-        yaxis_title="Excess CAGR vs SPY (pp)",
+        yaxis_title="Outperformance vs S&P 500 (percentage points)",
         height=480,
         margin=dict(b=80),
+        showlegend=len(models) > 1,
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # === Synthetic compounded growth (expander) ===
-    with st.expander(
-        "Synthetic compounded growth across yearly windows (technical)",
-        expanded=False,
-    ):
-        st.caption(
-            "What $1 would grow to if each window's annual return held for "
-            "one year, compounded across the six non-overlapping 1-year "
-            "validation windows. **Different from the Overview NAV chart**, "
-            "which shows the actual deployed portfolio NAV; this view "
-            "assumes per-window retrains and treats each window's annual "
-            "return as that year's realized growth. Useful for visualizing "
-            "the cumulative effect of the per-window outperformance shown "
-            "in the bar chart above."
-        )
+    # === Cumulative growth across windows (promoted from expander) ===
+    st.markdown("### Cumulative growth across windows")
+    st.caption(
+        "**Different from the Overview NAV chart**, which shows the "
+        "actual deployed portfolio NAV. This view assumes the model is "
+        "retrained at the start of each window and shows what $1 would "
+        "grow to if each window's annual return held for one year, "
+        "compounded across all six non-overlapping yearly windows. "
+        "Useful for visualizing the cumulative effect of the per-window "
+        "outperformance shown in the bar chart above."
+    )
 
-        line_fig = go.Figure()
-        # SPY is identical across model rows for the same window — take it
-        # from either subset.
-        spy_subset = (wf[wf["model"] == models[0]]
-                      .sort_values("val_start").reset_index(drop=True))
-        spy_growth = (1 + spy_subset["spy_cagr"]).cumprod()
-        x_period_labels = [
-            f"After W{i+1} ({str(v)[:7]})"
-            for i, v in enumerate(spy_subset["val_end"])
-        ]
-        x_with_start = ["Start"] + x_period_labels
+    line_fig = go.Figure()
+    # SPY is identical across model rows for the same window — take it
+    # from either subset.
+    spy_subset = (wf[wf["model"] == models[0]]
+                  .sort_values("val_start").reset_index(drop=True))
+    spy_growth = (1 + spy_subset["spy_cagr"]).cumprod()
+    x_period_labels = [
+        f"After W{i+1} ({str(v)[:7]})"
+        for i, v in enumerate(spy_subset["val_end"])
+    ]
+    x_with_start = ["Start"] + x_period_labels
+    line_fig.add_trace(go.Scatter(
+        x=x_with_start,
+        y=[1.0] + list(spy_growth),
+        mode="lines+markers",
+        name="S&P 500",
+        line=dict(width=1.6, dash="dash", color="#888888"),
+        marker=dict(size=7),
+    ))
+    for model in models:
+        m = (wf[wf["model"] == model]
+             .sort_values("val_start").reset_index(drop=True))
+        growth = (1 + m["cagr"]).cumprod()
         line_fig.add_trace(go.Scatter(
             x=x_with_start,
-            y=[1.0] + list(spy_growth),
+            y=[1.0] + list(growth),
             mode="lines+markers",
-            name="S&P 500",
-            line=dict(width=1.6, dash="dash", color="#888888"),
-            marker=dict(size=7),
+            name=model,
+            line=dict(width=2.5),
+            marker=dict(size=8),
         ))
-        for model in models:
-            m = (wf[wf["model"] == model]
-                 .sort_values("val_start").reset_index(drop=True))
-            growth = (1 + m["cagr"]).cumprod()
-            line_fig.add_trace(go.Scatter(
-                x=x_with_start,
-                y=[1.0] + list(growth),
-                mode="lines+markers",
-                name=model,
-                line=dict(width=2.5),
-                marker=dict(size=8),
-            ))
-        line_fig.update_layout(
-            title="Synthetic compounded growth — $1 invested across windows",
-            xaxis_title="Window endpoint",
-            yaxis_title="Cumulative growth multiplier",
-            height=420,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                        xanchor="right", x=1),
-        )
-        st.plotly_chart(line_fig, use_container_width=True)
+    line_fig.update_layout(
+        title="Cumulative growth — $1 invested at the start, compounded across windows",
+        xaxis_title="Window endpoint",
+        yaxis_title="Cumulative growth multiplier",
+        height=420,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1),
+    )
+    st.plotly_chart(line_fig, use_container_width=True)
 
     # === Full window-level data (expander) ===
     with st.expander(
@@ -5419,26 +5383,82 @@ def tab_contract_walk_forward(study_name: str) -> None:
             f"Strategy beat the S&P 500 in **{p_n_pos} of {p_n}** yearly "
             "windows."
         )
-        if p_std > abs(p_mean) * 1.5:
-            bullets.append(
-                f"Year-to-year results are **highly variable** "
-                f"(std dev {_format_pp(p_std)} vs mean "
-                f"{_format_pp(p_mean)}) — strategy worked well some years "
-                "and poorly others. Don't read the mean as a reliable "
-                "forward expectation."
+
+        # Identify the window contributing most to variability (largest
+        # absolute deviation from the mean). Compute mean excluding that
+        # window so partners can see whether one window dominates.
+        if p_n > 1:
+            excess_arr = primary_wf["excess_cagr_vs_spy"].values
+            val_starts = primary_wf["val_start"].values
+            val_ends = primary_wf["val_end"].values
+            devs = np.abs(excess_arr - p_mean)
+            max_dev_idx = int(np.argmax(devs))
+            most_w_num = max_dev_idx + 1
+            most_w_excess = float(excess_arr[max_dev_idx])
+            most_w_val_start = str(val_starts[max_dev_idx])[:10]
+            most_w_val_end = str(val_ends[max_dev_idx])[:10]
+            # Mean excluding the most-influential window
+            other_excess = np.delete(excess_arr, max_dev_idx)
+            other_mean = (
+                float(other_excess.mean()) if len(other_excess) else 0.0
             )
-        else:
-            bullets.append(
-                f"Year-to-year variability "
-                f"({_format_pp(p_std).lstrip('+')}) is in line with the "
-                f"mean outperformance ({_format_pp(p_mean)}) — results "
-                "are reasonably consistent across windows."
+            other_std = (
+                float(other_excess.std(ddof=1))
+                if len(other_excess) > 1 else 0.0
             )
+            std_drop_pct = (
+                (p_std - other_std) / p_std if p_std > 0 else 0.0
+            )
+
+            direction = "beat" if most_w_excess > 0 else "trailed"
+            abs_pp = _format_pp(abs(most_w_excess)).lstrip("+")
+            # Year span like "mid-2025 to mid-2026"
+            start_year = most_w_val_start[:4]
+            end_year = most_w_val_end[:4] if most_w_val_end else start_year
+
+            # Only call out a "dominant window" if removing it materially
+            # changes the variability picture. Threshold: std drops by
+            # 25%+ when that window is excluded.
+            if std_drop_pct >= 0.25:
+                bullets.append(
+                    f"Most of the variability comes from one specific "
+                    f"window: **W{most_w_num} (validation period "
+                    f"mid-{start_year} to mid-{end_year}), where the "
+                    f"strategy {direction} the market by {abs_pp}.** "
+                    "The bar chart above shows the regime label for "
+                    "this window."
+                )
+                bullets.append(
+                    f"Excluding W{most_w_num}, the strategy's average "
+                    f"yearly outperformance across the other {p_n - 1} "
+                    f"windows is **{_format_pp(other_mean)}** — "
+                    "meaningfully different from the full-sample average "
+                    f"of {_format_pp(p_mean)}."
+                )
+                bullets.append(
+                    "Year-to-year results remain variable even excluding "
+                    f"W{most_w_num}. Don't read the average "
+                    "outperformance as a reliable forward expectation."
+                )
+            elif p_std > abs(p_mean) * 1.5:
+                bullets.append(
+                    f"Year-to-year results are **highly variable** "
+                    f"(std dev {_format_pp(p_std)} vs mean "
+                    f"{_format_pp(p_mean)}) — strategy worked well some "
+                    "years and poorly others. Don't read the mean as a "
+                    "reliable forward expectation."
+                )
+            else:
+                bullets.append(
+                    f"Year-to-year variability "
+                    f"({_format_pp(p_std).lstrip('+')}) is in line with "
+                    f"the mean outperformance ({_format_pp(p_mean)}) — "
+                    "results are reasonably consistent across windows."
+                )
+
         bullets.append(
             f"Range across windows: best year {_format_pp(p_best)}, worst "
-            f"year {_format_pp(p_worst)}. If those extremes have specific "
-            "market regimes (e.g., COVID, AI rally, 2022 bear), the "
-            "regime labels under each bar above identify them."
+            f"year {_format_pp(p_worst)}."
         )
     _key_takeaways(bullets)
 
