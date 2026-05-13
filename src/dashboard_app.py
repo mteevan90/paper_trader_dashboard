@@ -3801,9 +3801,100 @@ def _risk_behavior_detailed_diagnostics(
 # `models/studies/<name>/contract_v1/`. Universal tabs read directly from
 # the parquet/json artifacts; no live-fallback path. Legacy Optuna v1
 # studies remain on the legacy sidebar branch unchanged.
+#
+# Style: every contract-conformant tab follows the "What this tab shows"
+# header + single-number callouts + headline viz + expanders for
+# technical detail + Key takeaways footer pattern. See the "Dashboard
+# content style guide" section in dashboard_operations_v1.md for the
+# audience characterization, vocabulary translation list, and reference
+# example.
 # ---------------------------------------------------------------------------
 
 CONTRACT_V1_DIR = Path(MODELS_DIR) / "studies"
+
+
+# ---------------------------------------------------------------------------
+# Style-guide helpers — surface reusable patterns for plain-language
+# treatment across all contract-conformant tabs.
+# ---------------------------------------------------------------------------
+
+def _tab_header(text: str) -> None:
+    """Render the 'What this tab shows' header that opens every tab.
+
+    Always visible, always at the top, always 2-3 sentences in plain
+    English. Renders as a Streamlit info callout for visual distinction
+    from the data below.
+    """
+    st.info(f"**What this tab shows.** {text}")
+
+
+def _key_takeaways(bullets: list[str]) -> None:
+    """Render the Key takeaways footer that closes every tab.
+
+    Always visible, always at the bottom, always 3-5 interpretive bullets
+    derived from the data shown above. Bullets should be plain-English
+    findings, not labels.
+    """
+    bullets = [b for b in bullets if b]
+    if not bullets:
+        return
+    st.markdown("### Key takeaways")
+    for b in bullets:
+        st.markdown(f"- {b}")
+
+
+def _test_window_years(meta: dict) -> float:
+    """Return the test window length in calendar years, for dollar-growth
+    intuition callouts. Falls back to a sensible default if windows are
+    missing."""
+    win = meta.get("windows", {})
+    test_start = win.get("test_start")
+    test_end = win.get("test_end")
+    if not (test_start and test_end):
+        return 1.0
+    try:
+        years = (pd.Timestamp(test_end) - pd.Timestamp(test_start)).days / 365.25
+        return max(years, 0.01)
+    except Exception:
+        return 1.0
+
+
+def _dollar_growth(cagr: float, years: float, principal: float = 10_000.0) -> float:
+    """Return what `principal` would grow to over `years` at annual rate
+    `cagr`. Used for $10K dollar-intuition callouts."""
+    return float(principal * (1 + cagr) ** years)
+
+
+def _format_pp(value: float, places: int = 1) -> str:
+    """Format a percentage-point difference like +3.5pp / -1.2pp."""
+    return f"{value * 100:+.{places}f}pp"
+
+
+def _format_pct(value: float, places: int = 1) -> str:
+    """Format a percentage like 25.1% (no sign)."""
+    return f"{value * 100:.{places}f}%"
+
+
+def _primary_summary_metrics(meta: dict) -> tuple[str | None, dict]:
+    """Return the (model_name, metric_dict) for the study's primary model's
+    test-window summary metrics. Used by Overview + Diagnostics to surface
+    the headline numbers. Returns (None, {}) if no data available.
+    """
+    sm = meta.get("summary_metrics", {})
+    test = sm.get("test", {})
+    if not test:
+        return None, {}
+    # Prefer model declared as role="primary" in meta.models
+    primary_name = None
+    for m in meta.get("models", []) or []:
+        if isinstance(m, dict) and m.get("role") == "primary":
+            primary_name = m.get("name")
+            break
+    if primary_name and primary_name in test:
+        return primary_name, test[primary_name]
+    # Fall back to first key
+    name = next(iter(test.keys()), None)
+    return name, test.get(name, {}) if name else (None, {})
 
 
 def list_contract_v1_studies() -> list[str]:
@@ -4023,6 +4114,14 @@ def tab_contract_overview(study_name: str) -> None:
     st.subheader(meta.get("display_name", study_name))
     st.caption(meta.get("description", ""))
 
+    _tab_header(
+        "The big picture: did the strategy beat the market over the test "
+        "period, by how much, and with what kind of risk profile. Below: "
+        "cumulative growth vs benchmarks, headline annual return numbers "
+        "in plain-English terms, the strategy's biggest single-stock "
+        "concentration, and a note on the reserved validation period."
+    )
+
     # === Date-range header ===
     cols = st.columns(4)
     win = meta.get("windows", {})
@@ -4030,7 +4129,6 @@ def tab_contract_overview(study_name: str) -> None:
                                     f"{win.get('train_end', '?')}")
     cols[1].metric("Test window", f"{win.get('test_start', '?')} →\n"
                                    f"{win.get('test_end', '?')}")
-    # Schema field stays oos_start/oos_end; UI surfaces "Reserved validation".
     cols[2].metric("Reserved validation window",
                    f"{win.get('oos_start', '?')} →\n"
                    f"{win.get('oos_end', '?')}")
@@ -4039,7 +4137,62 @@ def tab_contract_overview(study_name: str) -> None:
         "Yes" if meta.get("promoted") else "No",
     )
 
-    # === NAV chart vs benchmarks (moved here from the former Performance tab) ===
+    # === Headline performance callouts (plain-English single-number) ===
+    primary_name, m = _primary_summary_metrics(meta)
+    if m:
+        cagr = float(m.get("cagr", 0) or 0)
+        spy_cagr = float(m.get("spy_cagr", 0) or 0)
+        excess = float(m.get("excess_cagr", 0) or 0)
+        mdd = float(m.get("max_drawdown", 0) or 0)
+        spy_mdd = float(m.get("spy_max_drawdown", 0) or 0)
+        years = _test_window_years(meta)
+
+        st.markdown("### Headline performance (test period)")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if excess > 0.005:
+                st.success(
+                    f"**Beat the market by "
+                    f"{_format_pp(excess)} per year**"
+                )
+            elif excess > -0.005:
+                st.info(
+                    f"**Matched the market** ({_format_pp(excess)} per year)"
+                )
+            else:
+                st.error(
+                    f"**Trailed the market by "
+                    f"{_format_pp(-excess).lstrip('+')} per year**"
+                )
+            st.caption(
+                f"Strategy annual return: {_format_pct(cagr)}  •  "
+                f"S&P 500 annual return: {_format_pct(spy_cagr)}"
+            )
+        with c2:
+            strat_growth = _dollar_growth(cagr, years)
+            spy_growth = _dollar_growth(spy_cagr, years)
+            st.metric(
+                "$10,000 at start grew to",
+                f"${strat_growth:,.0f}",
+                delta=f"${strat_growth - spy_growth:+,.0f} vs S&P 500",
+            )
+            st.caption(
+                f"Over a {years:.1f}-year test window. "
+                f"S&P 500 grew to ${spy_growth:,.0f}."
+            )
+        with c3:
+            st.metric(
+                "Worst drawdown",
+                _format_pct(mdd) if mdd < 0 else _format_pct(-abs(mdd)),
+                delta=f"{_format_pp(mdd - spy_mdd)} vs S&P 500",
+                delta_color="inverse",
+            )
+            st.caption(
+                f"S&P 500's worst drawdown over the same period: "
+                f"{_format_pct(spy_mdd) if spy_mdd < 0 else _format_pct(-abs(spy_mdd))}."
+            )
+
+    # === Cumulative growth chart ===
     port = load_contract_parquet(study_name, "portfolio.parquet")
     bench = load_contract_parquet(study_name, "benchmarks.parquet")
     if not port.empty:
@@ -4047,11 +4200,21 @@ def tab_contract_overview(study_name: str) -> None:
         if not bench.empty:
             bench["date"] = pd.to_datetime(bench["date"])
 
+        st.markdown("### Cumulative growth")
+        st.caption(
+            "Strategy NAV vs market benchmarks, starting from 1.0 at the "
+            "test window's first day. The red dotted vertical line marks "
+            "where the **reserved validation period** begins — data the "
+            "strategy was tested on but the analyst did not look at during "
+            "the study (a discipline check against cherry-picking). See "
+            "the note below the chart for more on this distinction."
+        )
+
         fig = go.Figure()
         for model in port["model"].unique():
-            m = port[port["model"] == model]
+            mm = port[port["model"] == model]
             fig.add_trace(go.Scatter(
-                x=m["date"], y=m["nav"], mode="lines", name=model,
+                x=mm["date"], y=mm["nav"], mode="lines", name=model,
                 line=dict(width=2.5),
             ))
         if not bench.empty:
@@ -4065,11 +4228,6 @@ def tab_contract_overview(study_name: str) -> None:
 
         oos_start = win.get("oos_start")
         if oos_start:
-            # Plotly 6.7 + pandas 3.0: add_vline with annotation_text on a
-            # datetime axis requires ms-since-epoch (str / Timestamp /
-            # datetime all raise TypeError because annotation-positioning
-            # adds an int offset). Schema field stays `oos_start`;
-            # human-facing label is "Reserved validation period".
             oos_ms = int(pd.Timestamp(oos_start).value // 10**6)
             fig.add_vline(x=oos_ms,
                           line=dict(color="red", dash="dot", width=1),
@@ -4084,38 +4242,17 @@ def tab_contract_overview(study_name: str) -> None:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    # === Headline metrics ===
-    st.markdown("### Headline metrics")
-    sm = meta.get("summary_metrics", {})
-    SLICE_LABELS = {
-        "test": "TEST slice",
-        "oos": "RESERVED VALIDATION slice",
-    }
-    for slice_name in ("test", "oos"):
-        slice_data = sm.get(slice_name, {})
-        if not slice_data:
-            continue
-        st.markdown(f"**{SLICE_LABELS.get(slice_name, slice_name.upper())}**")
-        rows = []
-        for model, m in slice_data.items():
-            rows.append({
-                "model": model,
-                "CAGR": f"{m.get('cagr', 0) * 100:.1f}%",
-                "SPY CAGR": f"{m.get('spy_cagr', 0) * 100:.1f}%",
-                "Excess vs SPY": f"{m.get('excess_cagr', 0) * 100:+.1f}pp",
-                "Max DD": f"{m.get('max_drawdown', 0) * 100:.1f}%",
-                "SPY Max DD": f"{m.get('spy_max_drawdown', 0) * 100:.1f}%",
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True,
-                     hide_index=True)
-
-    st.markdown("### Concentration check (success criterion: ≤ 25% per ticker)")
+    # === Single-stock concentration check ===
+    st.markdown("### Single-stock concentration check")
     st.caption(
-        "Per-ticker contribution to total excess return on the combined "
-        "test + reserved-validation window. The contract's hard success "
-        "criterion is no single ticker contributing > 25% of total alpha."
+        "How much of the strategy's outperformance came from any single "
+        "stock. A healthy strategy spreads its edge across many names; "
+        "the project's guideline is **no single stock contributing more "
+        "than 25% of total outperformance**. Detailed per-stock breakdown "
+        "lives in the **Alpha Attribution** tab."
     )
     attr = load_contract_parquet(study_name, "per_ticker_attribution.parquet")
+    top_ticker_pct: float | None = None
     if not attr.empty:
         rows = []
         for model in sorted(attr["model"].unique()):
@@ -4124,58 +4261,105 @@ def tab_contract_overview(study_name: str) -> None:
                 continue
             ticker = top["ticker"].iloc[0]
             pct = float(top["pct_of_total_alpha"].iloc[0])
+            if model == primary_name:
+                top_ticker_pct = pct
             rows.append({
-                "model": model,
+                "Model": model,
                 "Top contributor": ticker,
-                "% of total alpha": f"{pct:.1f}%",
-                "≤ 25% constraint": "✅ Pass" if pct <= 25 else "❌ Fail",
+                "% of total outperformance": f"{pct:.1f}%",
+                "≤ 25% guideline": "Pass" if pct <= 25 else "Fail",
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True,
                      hide_index=True)
 
+    # === Position-set details (expander) ===
     conc = load_contract_concentration(study_name)
     if conc:
-        st.markdown("### Repeat-holding profile")
-        st.caption(
-            "How often each top-ranked ticker was selected across rebalance "
-            "dates. Persistent single-name presence is the structural "
-            "driver of concentration even when per-rebalance weights stay "
-            "below the individual cap."
-        )
-        rows = []
-        for model, payload in conc.items():
-            if not isinstance(payload, dict):
-                continue
-            top_holds = payload.get("top_10_repeat_holdings", {}) or {}
-            top_str = ", ".join(f"{t}×{n}" for t, n in
-                                list(top_holds.items())[:5])
-            rows.append({
-                "model": model,
-                "Rebalances": payload.get("rebalance_dates", "—"),
-                "Unique tickers": payload.get("unique_tickers_held", "—"),
-                "Avg positions / rebalance":
-                    f"{payload.get('avg_positions_per_rebalance', 0):.1f}",
-                "Max single-ticker weight":
-                    f"{payload.get('max_single_ticker_weight', 0) * 100:.2f}%",
-                "Max sector weight (any date)":
-                    f"{payload.get('max_sector_weight_across_dates', 0) * 100:.1f}%",
-                "Top repeat holdings (×N)": top_str,
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True,
-                     hide_index=True)
+        with st.expander(
+            "Position-set details (turnover, sector caps, repeat holdings)",
+            expanded=False,
+        ):
+            st.caption(
+                "How often each top-ranked stock was held across rebalance "
+                "dates. Persistent single-name presence is the structural "
+                "driver of concentration even when per-rebalance weights "
+                "stay below the individual cap."
+            )
+            rows = []
+            for model, payload in conc.items():
+                if not isinstance(payload, dict):
+                    continue
+                top_holds = payload.get("top_10_repeat_holdings", {}) or {}
+                top_str = ", ".join(f"{t}×{n}" for t, n in
+                                    list(top_holds.items())[:5])
+                rows.append({
+                    "Model": model,
+                    "Rebalances": payload.get("rebalance_dates", "—"),
+                    "Unique stocks held over period": payload.get("unique_tickers_held", "—"),
+                    "Avg positions per rebalance":
+                        f"{payload.get('avg_positions_per_rebalance', 0):.1f}",
+                    "Max single-stock weight":
+                        f"{payload.get('max_single_ticker_weight', 0) * 100:.2f}%",
+                    "Max sector weight (any date)":
+                        f"{payload.get('max_sector_weight_across_dates', 0) * 100:.1f}%",
+                    "Most-held stocks (×N rebalances)": top_str,
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                         hide_index=True)
 
-    st.markdown("### Objective + construction")
-    obj = meta.get("objective", {})
-    pc = meta.get("portfolio_construction", {})
-    st.markdown(
-        f"- **Training CV objective**: `{obj.get('training_cv', '—')}` "
-        f"(see [memo](../../docs/architecture/ml_study_cv_objectives_v1.md))\n"
-        f"- **Headline objective**: `{obj.get('headline', '—')}`\n"
-        f"- **Construction**: `{pc.get('method', '—')}` "
-        f"n={pc.get('n', '—')}, "
-        f"individual_cap={pc.get('individual_cap', '—')}, "
-        f"sector_cap={pc.get('sector_cap', '—')}"
-    )
+    # === Strategy configuration (expander) ===
+    with st.expander(
+        "Strategy configuration (model objective, position-sizing rules)",
+        expanded=False,
+    ):
+        obj = meta.get("objective", {})
+        pc = meta.get("portfolio_construction", {})
+        st.markdown(
+            f"- **Training objective**: `{obj.get('training_cv', '—')}` "
+            f"(see [methodology memo]"
+            f"(../../docs/architecture/ml_study_cv_objectives_v1.md))\n"
+            f"- **Headline objective**: `{obj.get('headline', '—')}`\n"
+            f"- **Position-sizing rule**: `{pc.get('method', '—')}` "
+            f"with n={pc.get('n', '—')} positions, "
+            f"individual_cap={pc.get('individual_cap', '—')}, "
+            f"sector_cap={pc.get('sector_cap', '—')}"
+        )
+
+    # === Full headline metrics table (expander) ===
+    sm = meta.get("summary_metrics", {})
+    if any(sm.get(s, {}) for s in ("test", "oos")):
+        with st.expander(
+            "Full headline metrics table (test + reserved validation slices, technical)",
+            expanded=False,
+        ):
+            SLICE_LABELS = {
+                "test": "Test slice",
+                "oos": "Reserved validation slice",
+            }
+            for slice_name in ("test", "oos"):
+                slice_data = sm.get(slice_name, {})
+                if not slice_data:
+                    continue
+                st.markdown(f"**{SLICE_LABELS.get(slice_name, slice_name)}**")
+                rows = []
+                for model, mm in slice_data.items():
+                    if not isinstance(mm, dict):
+                        continue
+                    rows.append({
+                        "Model": model,
+                        "Annual return (CAGR)":
+                            f"{(mm.get('cagr', 0) or 0) * 100:.1f}%",
+                        "S&P 500 annual return":
+                            f"{(mm.get('spy_cagr', 0) or 0) * 100:.1f}%",
+                        "Outperformance vs S&P 500":
+                            f"{(mm.get('excess_cagr', 0) or 0) * 100:+.1f}pp",
+                        "Strategy worst drawdown":
+                            f"{(mm.get('max_drawdown', 0) or 0) * 100:.1f}%",
+                        "S&P 500 worst drawdown":
+                            f"{(mm.get('spy_max_drawdown', 0) or 0) * 100:.1f}%",
+                    })
+                st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                             hide_index=True)
 
     # === Reserved validation period — explanatory note ===
     st.markdown("---")
@@ -4186,15 +4370,79 @@ def tab_contract_overview(study_name: str) -> None:
         "study to prevent analyst-level selection bias — it was kept "
         "untouched until the final writeup as an independent check of "
         "whether the strategy generalized beyond the period we examined. "
-        "Both the test window (left of the line) and the reserved "
-        "validation window (right of the line) are out-of-sample for the "
-        "model; the distinction protects against subtle analyst biases "
-        "like cherry-picking metrics or time slices, not model-level "
-        "data contamination."
+        "Both sides of the line are out-of-sample for the model itself; "
+        "the distinction protects against analyst-level biases like "
+        "cherry-picking metrics or time slices, not model-level data "
+        "contamination."
     )
+
+    # === Key takeaways ===
+    bullets: list[str] = []
+    if m:
+        if excess > 0.005:
+            bullets.append(
+                f"Strategy beat the S&P 500 by **{_format_pp(excess)} per "
+                "year** over the test period."
+            )
+        elif excess > -0.005:
+            bullets.append(
+                f"Strategy roughly matched the S&P 500 ({_format_pp(excess)} "
+                "per year over the test period)."
+            )
+        else:
+            bullets.append(
+                f"Strategy underperformed the S&P 500 by "
+                f"**{_format_pp(-excess).lstrip('+')} per year** over the "
+                "test period."
+            )
+        if mdd != 0 and spy_mdd != 0:
+            ratio = abs(mdd) / abs(spy_mdd) if spy_mdd != 0 else 1.0
+            if ratio > 1.3:
+                bullets.append(
+                    f"Strategy's worst drawdown was **{ratio:.1f}× larger** "
+                    f"than the S&P 500's over the same period — the strategy "
+                    "takes on meaningfully more downside risk to capture "
+                    "its edge."
+                )
+            else:
+                bullets.append(
+                    "Strategy's worst drawdown is comparable to the S&P "
+                    "500's over the same period."
+                )
+    if top_ticker_pct is not None:
+        if top_ticker_pct > 25:
+            bullets.append(
+                f"Top single stock contributed **{top_ticker_pct:.1f}%** "
+                "of total outperformance — **exceeds the 25% guideline**. "
+                "The strategy's edge is concentrated in a small number of "
+                "names; see Alpha Attribution for the full breakdown."
+            )
+        else:
+            bullets.append(
+                f"Top single stock contributed {top_ticker_pct:.1f}% of "
+                "total outperformance — within the 25% guideline."
+            )
+    is_promoted = meta.get("promoted")
+    if is_promoted is False:
+        bullets.append(
+            "**This study was not promoted** — see the writeup for the "
+            "specific promotion criteria and which were missed."
+        )
+    elif is_promoted is True:
+        bullets.append(
+            "This study was promoted as a deployable strategy."
+        )
+    _key_takeaways(bullets)
 
 
 def tab_contract_holdings(study_name: str) -> None:
+    _tab_header(
+        "What the strategy was holding on a specific rebalance date. "
+        "Pick a date from the dropdown to see the position list, weights "
+        "per stock, sector, and SP-tier classification. Useful for "
+        "answering 'what was in the portfolio at any given point.'"
+    )
+
     holdings = load_contract_parquet(study_name, "holdings.parquet")
     if holdings.empty:
         st.warning("No holdings.parquet found.")
@@ -4215,15 +4463,94 @@ def tab_contract_holdings(study_name: str) -> None:
     )
     sub = holdings[(holdings["model"] == model) &
                    (holdings["date"] == date_pick)].copy()
+
+    # === Concentration summary callouts (NEW) ===
+    n_positions = len(sub)
+    top_stock_pct = (
+        float(sub["weight"].max()) * 100 if not sub.empty and "weight" in sub.columns
+        else 0.0
+    )
+    # Top sector by total weight
+    top_sector_name = "—"
+    top_sector_pct = 0.0
+    if "sector" in sub.columns and "weight" in sub.columns and not sub.empty:
+        sector_totals = sub.groupby("sector")["weight"].sum().sort_values(ascending=False)
+        if not sector_totals.empty:
+            top_sector_name = str(sector_totals.index[0])
+            top_sector_pct = float(sector_totals.iloc[0]) * 100
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Positions held", f"{n_positions}")
+    with c2:
+        st.metric("Largest stock weight", f"{top_stock_pct:.2f}%")
+    with c3:
+        st.metric(
+            f"Top sector: {top_sector_name}",
+            f"{top_sector_pct:.1f}% of portfolio",
+        )
+
+    # === Headline table with plain-language columns (NEW formatting) ===
     if "weight" in sub.columns:
         sub = sub.sort_values("weight", ascending=False)
-        sub["weight"] = sub["weight"].apply(lambda v: f"{v * 100:.2f}%")
-    st.dataframe(sub, use_container_width=True, hide_index=True)
-    st.caption(f"{len(sub)} positions held on "
-               f"{pd.Timestamp(date_pick).strftime('%Y-%m-%d')}.")
+    display = sub.copy()
+    if "weight" in display.columns:
+        display["weight"] = display["weight"].apply(lambda v: f"{v * 100:.2f}%")
+    # Universe-tier classification is methodology detail rather than
+    # something partners need to interpret the holdings table. Drop the
+    # column entirely from the primary display.
+    if "tier" in display.columns:
+        display = display.drop(columns=["tier"])
+    rename_map = {
+        "date": "Date",
+        "model": "Model",
+        "ticker": "Stock",
+        "weight": "Weight",
+        "value_usd": "Position value ($)",
+        "sector": "Sector",
+    }
+    display = display.rename(columns={k: v for k, v in rename_map.items()
+                                       if k in display.columns})
+    st.markdown(
+        f"### Positions on {pd.Timestamp(date_pick).strftime('%Y-%m-%d')}"
+    )
+    st.caption(
+        "Stocks the strategy held on this rebalance date, sorted by weight. "
+        "Each weight is the share of total portfolio value invested in that "
+        "stock."
+    )
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+    # === Key takeaways ===
+    bullets: list[str] = []
+    if n_positions:
+        bullets.append(
+            f"Portfolio held **{n_positions}** stocks on this rebalance "
+            "date."
+        )
+    if top_stock_pct:
+        bullets.append(
+            f"Largest single-stock weight: **{top_stock_pct:.2f}%** of "
+            "portfolio value."
+        )
+    if top_sector_pct:
+        bullets.append(
+            f"Most-weighted sector on this date: **{top_sector_name}** at "
+            f"{top_sector_pct:.1f}% of total portfolio value. (Strategy's "
+            "sector cap is 30% per the configuration; see Overview's "
+            "Strategy configuration expander.)"
+        )
+    _key_takeaways(bullets)
 
 
 def tab_contract_trades(study_name: str) -> None:
+    _tab_header(
+        "Every trade the strategy made during the test period — buys, "
+        "sells, rebalance adjustments, and forced exits when stocks were "
+        "delisted. Useful for understanding how active the strategy was "
+        "and what its trading costs looked like."
+    )
+
     trades = load_contract_parquet(study_name, "trades.parquet")
     if trades.empty:
         st.warning("No trades.parquet found.")
@@ -4238,11 +4565,115 @@ def tab_contract_trades(study_name: str) -> None:
         key="contract_trade_model",
     )
     sub = trades[trades["model"] == model].copy()
-    st.caption(f"{len(sub)} round-trip trades — {model}")
-    st.dataframe(sub, use_container_width=True, hide_index=True)
+
+    # === Trade activity summary (NEW) ===
+    n_trades = len(sub)
+    fee_total = 0.0
+    if "fee_usd" in sub.columns:
+        fee_total = float(sub["fee_usd"].sum())
+    n_rebalances = (
+        int(sub[sub["reason"] == "rebalance"].shape[0])
+        if "reason" in sub.columns else 0
+    )
+    n_delisting = (
+        int(sub[sub["reason"] == "delisting_truncation"].shape[0])
+        if "reason" in sub.columns else 0
+    )
+    # Monthly trade-count distribution
+    monthly_busy = None
+    if "date" in sub.columns and not sub.empty:
+        per_month = sub.groupby(sub["date"].dt.to_period("M")).size()
+        if not per_month.empty:
+            top_month = per_month.idxmax()
+            top_month_count = int(per_month.max())
+            monthly_busy = (str(top_month), top_month_count)
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Total trades over test period", f"{n_trades:,}")
+    with c2:
+        st.metric("Rebalance trades", f"{n_rebalances:,}")
+        st.caption(
+            "Buys and sells driven by the monthly rebalance signal."
+        )
+    with c3:
+        st.metric("Forced exits from delistings", f"{n_delisting:,}")
+        st.caption(
+            "Stocks the strategy held that were removed from the universe."
+        )
+
+    # Plain-English summary line
+    summary_bits = [
+        f"The strategy made **{n_trades:,} trades** over the test period."
+    ]
+    if monthly_busy:
+        summary_bits.append(
+            f"Most active month: **{monthly_busy[0]}** with "
+            f"{monthly_busy[1]} trades."
+        )
+    if fee_total > 0:
+        summary_bits.append(
+            f"Total transaction costs paid: **${fee_total:,.0f}** "
+            "(0.05% per leg, applied to a $1M starting portfolio)."
+        )
+    st.markdown(" ".join(summary_bits))
+
+    # === Full trades table (kept in primary display per spec; partners
+    # may want to scroll through this) ===
+    st.markdown(f"### Trade log — {model}")
+    st.caption(
+        "Each row is one trade. 'Action' is buy or sell. 'Weight change' is "
+        "the change in portfolio share for that stock (positive = bought, "
+        "negative = sold). 'Reason' distinguishes rebalance trades from "
+        "delisting-driven forced exits."
+    )
+    display = sub.copy()
+    rename_map = {
+        "date": "Date", "model": "Model", "ticker": "Stock",
+        "action": "Action", "weight_change": "Weight change",
+        "price": "Price", "notional_usd": "Notional ($)",
+        "fee_usd": "Fee ($)", "reason": "Reason",
+    }
+    display = display.rename(columns={k: v for k, v in rename_map.items()
+                                       if k in display.columns})
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+    # === Key takeaways ===
+    bullets: list[str] = []
+    if n_trades:
+        avg_per_rebal = (
+            n_rebalances / max(int(sub["date"].dt.to_period("M").nunique()), 1)
+            if "date" in sub.columns and n_rebalances else 0
+        )
+        if avg_per_rebal:
+            bullets.append(
+                f"Average rebalance churn: about **{avg_per_rebal:.0f} "
+                "buy/sell trades per month** in this strategy."
+            )
+        if n_delisting:
+            bullets.append(
+                f"**{n_delisting}** forced exits from delistings over the "
+                "period — the strategy is exposed to universe attrition "
+                "and pays exit fees when names get removed from indices."
+            )
+    if fee_total > 0:
+        bullets.append(
+            f"Total trading costs: **${fee_total:,.0f}** — already baked "
+            "into the headline returns on the Overview tab."
+        )
+    _key_takeaways(bullets)
 
 
 def tab_contract_alpha(study_name: str) -> None:
+    _tab_header(
+        "Which stocks drove the strategy's outperformance, and how "
+        "concentrated was the contribution. A healthy strategy spreads "
+        "its edge across many names; the project's guideline is no "
+        "single stock contributing more than 25% of total outperformance. "
+        "Below: the top contributors with a plain-English concentration "
+        "assessment."
+    )
+
     df = load_contract_parquet(study_name, "per_ticker_attribution.parquet")
     if df.empty:
         st.warning("No per_ticker_attribution.parquet found.")
@@ -4253,28 +4684,137 @@ def tab_contract_alpha(study_name: str) -> None:
         index=_default_model_index(study_name, models),
         key="contract_alpha_model",
     )
-    sub = df[df["model"] == model].nlargest(25, "pct_of_total_alpha").copy()
-    fig = go.Figure(go.Bar(
-        x=sub["pct_of_total_alpha"],
-        y=sub["ticker"],
-        orientation="h",
-        marker=dict(
-            color=[
-                "#c0392b" if v > 25 else "#1f4e79"
-                for v in sub["pct_of_total_alpha"]
-            ],
-        ),
-    ))
-    fig.add_vline(x=25, line=dict(color="red", dash="dash", width=1.2),
-                  annotation_text="25% constraint")
-    fig.update_layout(
-        title=f"{model} — top 25 alpha contributors (% of total excess return)",
-        xaxis_title="% of total alpha",
-        height=620,
-        yaxis=dict(autorange="reversed"),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(sub, use_container_width=True, hide_index=True)
+    sub_all = df[df["model"] == model].copy()
+    sub_all = sub_all.sort_values("pct_of_total_alpha", ascending=False)
+    sub_top5 = sub_all.head(5)
+
+    # === Concentration assessment callout (NEW) ===
+    if not sub_top5.empty:
+        top_pct = float(sub_top5.iloc[0]["pct_of_total_alpha"])
+        top_ticker = str(sub_top5.iloc[0]["ticker"])
+        top5_sum = float(sub_top5["pct_of_total_alpha"].sum())
+        if top_pct > 25:
+            st.error(
+                f"**Top stock ({top_ticker}) contributed "
+                f"{top_pct:.1f}% of total outperformance — exceeds the "
+                f"25% guideline.** Strategy's edge is concentrated in a "
+                "small number of names. See the detailed per-stock table "
+                "below for the full distribution."
+            )
+        else:
+            st.success(
+                f"**Top stock ({top_ticker}) contributed "
+                f"{top_pct:.1f}% of total outperformance — within the "
+                "25% guideline.** Strategy's edge is reasonably spread."
+            )
+
+        # Top-5 callout
+        st.markdown("### Top 5 contributors")
+        st.caption(
+            "The five stocks that contributed the most to the strategy's "
+            "outperformance vs the S&P 500 over the test + reserved "
+            "validation periods. The sum of these five tells you how much "
+            "of the edge came from a handful of names."
+        )
+        c_metrics = st.columns(5)
+        for i, (_, row) in enumerate(sub_top5.iterrows()):
+            with c_metrics[i]:
+                st.metric(
+                    str(row["ticker"]),
+                    f"{float(row['pct_of_total_alpha']):.1f}%",
+                )
+        st.caption(
+            f"Combined, these five contributed **{top5_sum:.1f}%** of "
+            "total outperformance."
+        )
+
+    # === Headline visualization — top 25 bar chart with constraint line ===
+    sub25 = sub_all.head(25)
+    if not sub25.empty:
+        st.markdown("### Top 25 contributors (chart)")
+        st.caption(
+            "Horizontal bars sorted by contribution. The dashed red line "
+            "is the project's 25% guideline; bars crossing it are stocks "
+            "that single-handedly contributed more than 25% of total "
+            "outperformance."
+        )
+        fig = go.Figure(go.Bar(
+            x=sub25["pct_of_total_alpha"],
+            y=sub25["ticker"],
+            orientation="h",
+            marker=dict(
+                color=[
+                    "#c0392b" if v > 25 else "#1f4e79"
+                    for v in sub25["pct_of_total_alpha"]
+                ],
+            ),
+        ))
+        fig.add_vline(x=25, line=dict(color="red", dash="dash", width=1.2),
+                      annotation_text="25% guideline")
+        fig.update_layout(
+            title=f"{model} — top 25 stocks by share of total outperformance",
+            xaxis_title="% of total outperformance",
+            height=620,
+            yaxis=dict(autorange="reversed"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # === Full per-stock table in expander ===
+    with st.expander(
+        f"Full per-stock contribution table (all {len(sub_all)} stocks held, technical)",
+        expanded=False,
+    ):
+        display = sub_all.copy()
+        rename_map = {
+            "model": "Model",
+            "ticker": "Stock",
+            "total_excess_contribution": "Total excess contribution",
+            "pct_of_total_alpha": "% of total outperformance",
+        }
+        display = display.rename(columns={k: v for k, v in rename_map.items()
+                                           if k in display.columns})
+        if "% of total outperformance" in display.columns:
+            display["% of total outperformance"] = display[
+                "% of total outperformance"
+            ].apply(lambda v: f"{v:.2f}%")
+        st.dataframe(display, use_container_width=True, hide_index=True)
+        st.caption(
+            "Each row is one stock the strategy ever held over the test "
+            "+ reserved-validation window. 'Total excess contribution' is "
+            "the dollar-weighted contribution to outperformance vs S&P "
+            "500 expressed as a fraction of starting portfolio value; "
+            "'% of total outperformance' is its share of the strategy's "
+            "total edge."
+        )
+
+    # === Key takeaways ===
+    bullets: list[str] = []
+    if not sub_top5.empty:
+        if top_pct > 25:
+            bullets.append(
+                f"**Concentration risk:** top stock ({top_ticker}) "
+                f"contributed {top_pct:.1f}% of total outperformance, "
+                "exceeding the 25% guideline. The strategy's edge "
+                "depends heavily on this single name's performance."
+            )
+        bullets.append(
+            f"Top 5 stocks combined contributed **{top5_sum:.1f}%** of "
+            "total outperformance — suggests the strategy's edge is "
+            "**driven by a small handful of names**, not broad-based "
+            "outperformance across the portfolio."
+            if top5_sum > 50 else
+            f"Top 5 stocks combined contributed {top5_sum:.1f}% of total "
+            "outperformance — the edge is **reasonably spread across "
+            "many names** rather than concentrated in a few."
+        )
+    if len(sub_all) > 0:
+        bullets.append(
+            f"Strategy held **{len(sub_all)}** distinct stocks over the "
+            "test + reserved-validation window. Each made a (positive or "
+            "negative) contribution; the table above shows the full "
+            "distribution."
+        )
+    _key_takeaways(bullets)
 
 
 def _render_scope_callout(scope_info: dict, default_caption: str) -> None:
@@ -4315,13 +4855,14 @@ def _render_scope_callout(scope_info: dict, default_caption: str) -> None:
 
 
 def tab_contract_diagnostics(study_name: str) -> None:
-    # Read scope information for scope-sensitive artifacts per the
-    # artifact_metadata schema in dashboard_contract_v1.md. When scope is
-    # present per-artifact, the dashboard surfaces it inline above each
-    # artifact's rendering and SKIPS the legacy fallback banner. When
-    # absent, falls back to a legacy-v1 study-name-specific banner so
-    # partners still see correction context until v1's meta.json is
-    # annotated (see docs/studies/larger_universe_v1/ic_scope_audit.md).
+    _tab_header(
+        "How well the strategy's underlying stock-picking model worked. "
+        "The model scores every stock in the universe each month and "
+        "picks the top 30 — these numbers tell you whether higher scores "
+        "actually predicted higher returns, and how often the strategy "
+        "beat the market over 12-month rolling windows."
+    )
+
     try:
         meta = load_contract_meta(study_name)
     except Exception:
@@ -4338,75 +4879,285 @@ def tab_contract_diagnostics(study_name: str) -> None:
         and study_name == "larger_universe_v1"
     ):
         st.warning(
-            "**Note on scope** — The IC decomposition and decile returns "
-            "tables below were computed on a held-subset price universe "
-            "(450 tickers across XGBoost and ElasticNet holdings) rather "
-            "than the full eligible cross-section (1,963 tickers). "
-            "Held-subset scope produces `top_quintile_ic_mean = +0.0481` "
-            "as displayed below; the standard full-cross-section "
-            "equivalent is **−0.0041**. Decile 1's `+35.7%` mean / "
-            "`±202%` std is driven by ~5 held tickers per rebalance in "
-            "the bottom decile (small-sample tail). Full-cross-section "
-            "Decile 1 mean is +5.8% (std 25%). "
-            "See `docs/studies/larger_universe_v1/ic_scope_audit.md` for "
-            "the audit. v2 and future studies compute these metrics at "
-            "full cross-section by default."
+            "**Note on scope** — The skill score and decile numbers below "
+            "were originally computed only across stocks the strategy "
+            "actually held (~450 stocks) rather than across the full "
+            "universe (~1,963 stocks). The held-subset numbers show "
+            "`top_quintile_ic_mean = +0.0481`; the standard full-universe "
+            "equivalent is **−0.0041** (sign reversal). Decile 1's "
+            "`+35.7%`/`±202%` is driven by a handful of held stocks in "
+            "the bottom-scored bucket. See "
+            "`docs/studies/larger_universe_v1/ic_scope_audit.md`."
         )
 
-    st.markdown("### IC decomposition")
+    # === Headline single-number callouts (NEW) ===
     ic = load_contract_parquet(study_name, "ic_decomposition.parquet")
-    if not ic.empty:
-        _render_scope_callout(
-            ic_scope_info,
-            default_caption=(
-                "Full-cross-section IC is the standard Spearman IC across all "
-                "scored tickers per date, averaged. Top-quintile IC restricts "
-                "to the top 20% of scores per date. For top-N portfolio "
-                "strategies the top-quintile IC is the more deployment-aligned "
-                "signal — see `docs/architecture/ml_study_cv_objectives_v1.md`."
-            ),
-        )
-        st.dataframe(ic, use_container_width=True, hide_index=True)
+    rw = load_contract_parquet(study_name, "rolling_win_rate.parquet")
 
-    st.markdown("### Decile returns")
+    # Pull primary model's skill score and win rate for callouts
+    primary_name, _ = _primary_summary_metrics(meta)
+    primary_tq_ic: float | None = None
+    primary_full_ic: float | None = None
+    if not ic.empty:
+        if primary_name and (ic["model"] == primary_name).any():
+            row = ic[ic["model"] == primary_name].iloc[0]
+        else:
+            row = ic.iloc[0]
+        try:
+            primary_tq_ic = float(row.get("top_quintile_ic_mean", float("nan")))
+            primary_full_ic = float(row.get("full_ic_mean", float("nan")))
+        except Exception:
+            primary_tq_ic = None
+            primary_full_ic = None
+
+    primary_win_rate: float | None = None
+    primary_win_n: int | None = None
+    if not rw.empty:
+        if primary_name and (rw["model"] == primary_name).any():
+            wrow = rw[rw["model"] == primary_name].iloc[0]
+        else:
+            wrow = rw.iloc[0]
+        try:
+            primary_win_rate = float(wrow.get("win_rate", float("nan")))
+            primary_win_n = int(wrow.get("n_windows", 0) or 0)
+        except Exception:
+            primary_win_rate = None
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if primary_tq_ic is not None and not pd.isna(primary_tq_ic):
+            if abs(primary_tq_ic) < 0.01:
+                st.warning(
+                    f"**Skill score: near zero** "
+                    f"({primary_tq_ic:+.4f}). The model's higher-scored "
+                    "stocks did not reliably outperform its lower-scored "
+                    "ones over the test period — see the explainer below."
+                )
+            elif primary_tq_ic > 0.05:
+                st.success(
+                    f"**Skill score: positive** "
+                    f"({primary_tq_ic:+.4f}). The model's top-20% picks "
+                    "outperformed its lower rankings over the test "
+                    "period."
+                )
+            elif primary_tq_ic > 0:
+                st.info(
+                    f"**Skill score: mild positive** "
+                    f"({primary_tq_ic:+.4f}). Modest positive signal in "
+                    "the top 20%."
+                )
+            else:
+                st.warning(
+                    f"**Skill score: slightly negative** "
+                    f"({primary_tq_ic:+.4f}). The model's top-scored "
+                    "stocks underperformed its lower-scored ones."
+                )
+    with c2:
+        if primary_win_rate is not None and not pd.isna(primary_win_rate):
+            st.metric(
+                "12-month rolling win rate vs S&P 500",
+                f"{primary_win_rate * 100:.1f}%",
+                help=(
+                    f"Fraction of 12-month rolling windows where the "
+                    f"strategy beat the S&P 500 (over {primary_win_n} "
+                    f"windows in test + reserved-validation periods)."
+                ),
+            )
+
+    # === How to read the skill score (explainer expander) ===
+    with st.expander(
+        "How to read the skill score (ranking accuracy)",
+        expanded=False,
+    ):
+        st.markdown(
+            "The **skill score** (technical name: top-quintile Information "
+            "Coefficient) measures whether the model's highest-scored "
+            "stocks actually delivered the highest returns over the test "
+            "period. It's a rank-correlation between the model's scores "
+            "and the actual forward returns, computed within the model's "
+            "top 20% of picks at each rebalance and averaged across "
+            "rebalances. \n\n"
+            "- **+1.0** would mean the model perfectly ranked stocks by "
+            "future return.\n"
+            "- **0.0** means the model's rankings were no better than "
+            "random.\n"
+            "- **−1.0** would mean the model's rankings were inverted.\n\n"
+            "A score near zero or slightly negative on a test window can "
+            "still pair with positive cumulative returns if a few names "
+            "happen to land in the top rankings before large positive "
+            "moves (sometimes called 'tail-driven alpha'). The **Alpha "
+            "Attribution** tab shows whether that's the pattern here.\n\n"
+            "**Why 'top 20%' specifically:** the strategy only trades "
+            "the top 30 stocks each month — about the top 1.5% of the "
+            "universe — so what matters is the model's accuracy in the "
+            "region it actually uses, not its accuracy across the full "
+            "ranked list."
+        )
+
+    # === Per-decile breakdown (expander) ===
     dr = load_contract_parquet(study_name, "decile_returns.parquet")
     if not dr.empty:
-        _render_scope_callout(
-            dr_scope_info,
-            default_caption=(
-                "Per-decile mean forward 21d return with std error bars. "
-                "Score-by-decile bucketing on the full eligible universe; "
-                "forward returns from snapshot prices."
-            ),
-        )
-        fig = go.Figure()
-        for model in sorted(dr["model"].unique()):
-            m = dr[dr["model"] == model].sort_values("decile")
-            fig.add_trace(go.Bar(
-                x=m["decile"].astype(int),
-                y=m["mean_fwd_return"] * 100,
-                name=model,
-                error_y=dict(
-                    type="data",
-                    array=m["std_fwd_return"] * 100,
-                    visible=True,
-                    thickness=0.8,
-                    width=0,
+        with st.expander(
+            "Detailed ranking accuracy breakdown (per-decile returns, technical)",
+            expanded=False,
+        ):
+            st.caption(
+                "Stocks are ranked by the model's score each month and "
+                "split into 10 buckets (decile 1 = lowest scores, decile "
+                "10 = highest). Each bar shows the average 21-trading-day "
+                "forward return for stocks in that bucket. A model with "
+                "good ranking skill would show a monotonically increasing "
+                "pattern from left to right (low scores → low returns, "
+                "high scores → high returns)."
+            )
+            _render_scope_callout(
+                dr_scope_info,
+                default_caption=(
+                    "Bucketing is across the full eligible universe; "
+                    "forward returns from snapshot prices."
                 ),
-            ))
-        fig.update_layout(
-            barmode="group",
-            title="Mean forward 21d return per score decile",
-            xaxis_title="Decile (1 = lowest, 10 = highest)",
-            yaxis_title="Mean fwd 21d return (%)",
-            height=420,
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            )
+            fig = go.Figure()
+            for model in sorted(dr["model"].unique()):
+                m = dr[dr["model"] == model].sort_values("decile")
+                fig.add_trace(go.Bar(
+                    x=m["decile"].astype(int),
+                    y=m["mean_fwd_return"] * 100,
+                    name=model,
+                    error_y=dict(
+                        type="data",
+                        array=m["std_fwd_return"] * 100,
+                        visible=True,
+                        thickness=0.8,
+                        width=0,
+                    ),
+                ))
+            fig.update_layout(
+                barmode="group",
+                title="Mean forward 21-day return per score bucket",
+                xaxis_title="Score bucket (1 = lowest 10%, 10 = highest 10%)",
+                yaxis_title="Mean forward 21-day return (%)",
+                height=420,
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("### Rolling 12-month win rate")
-    rw = load_contract_parquet(study_name, "rolling_win_rate.parquet")
+    # === IC decomposition table (expander) ===
+    if not ic.empty:
+        with st.expander(
+            "Full IC decomposition table (technical)",
+            expanded=False,
+        ):
+            _render_scope_callout(
+                ic_scope_info,
+                default_caption=(
+                    "Full-cross-section IC is the standard Spearman IC "
+                    "(rank-correlation between model scores and forward "
+                    "returns) averaged across rebalance dates. Top-"
+                    "quintile IC restricts the rank-correlation to the "
+                    "top 20% of scores per date — the deployment region "
+                    "the strategy actually trades in."
+                ),
+            )
+            display = ic.copy()
+            rename_map = {
+                "model": "Model",
+                "full_ic_mean": "Full-universe IC (mean)",
+                "full_ic_std": "Full-universe IC (std)",
+                "top_quintile_ic_mean": "Top-20% IC (mean)",
+                "top_quintile_ic_std": "Top-20% IC (std)",
+                "n_dates_full": "N dates (full)",
+                "n_dates_top": "N dates (top-20%)",
+            }
+            display = display.rename(columns={k: v for k, v in rename_map.items()
+                                               if k in display.columns})
+            st.dataframe(display, use_container_width=True, hide_index=True)
+
+    # === Rolling win-rate detail (expander) ===
     if not rw.empty:
-        st.dataframe(rw, use_container_width=True, hide_index=True)
+        with st.expander(
+            "Rolling 12-month win rate details (technical)",
+            expanded=False,
+        ):
+            st.caption(
+                "Distribution of 12-month rolling strategy-vs-S&P-500 "
+                "outperformance, computed over every overlapping 252-"
+                "trading-day window in the portfolio history. 'Win rate' "
+                "is the fraction of windows where the strategy beat SPY; "
+                "best/worst show the extreme windows."
+            )
+            display = rw.copy()
+            rename_map = {
+                "model": "Model",
+                "n_windows": "N windows",
+                "mean_excess_return": "Mean outperformance (12-mo)",
+                "median_excess_return": "Median outperformance (12-mo)",
+                "win_rate": "Win rate vs SPY",
+                "best_window_excess": "Best window outperformance",
+                "worst_window_excess": "Worst window outperformance",
+            }
+            display = display.rename(columns={k: v for k, v in rename_map.items()
+                                               if k in display.columns})
+            for col in ("Mean outperformance (12-mo)",
+                        "Median outperformance (12-mo)",
+                        "Best window outperformance",
+                        "Worst window outperformance"):
+                if col in display.columns:
+                    display[col] = display[col].apply(lambda v: f"{v * 100:+.2f}%")
+            if "Win rate vs SPY" in display.columns:
+                display["Win rate vs SPY"] = display["Win rate vs SPY"].apply(
+                    lambda v: f"{v * 100:.1f}%"
+                )
+            st.dataframe(display, use_container_width=True, hide_index=True)
+
+    # === Key takeaways ===
+    bullets: list[str] = []
+    if primary_tq_ic is not None and not pd.isna(primary_tq_ic):
+        if abs(primary_tq_ic) < 0.01:
+            bullets.append(
+                f"Model's stock-ranking skill is **near zero** on this "
+                f"test period under the standard measurement "
+                f"({primary_tq_ic:+.4f}). Higher-scored stocks did not "
+                "reliably outperform lower-scored ones across the "
+                "universe."
+            )
+            bullets.append(
+                "If the **Overview** tab still shows positive cumulative "
+                "outperformance, it likely came from a handful of names "
+                "the model happened to flag at the right time, not from "
+                "reliable per-stock ranking. See **Alpha Attribution** "
+                "for the per-stock breakdown."
+            )
+        elif primary_tq_ic > 0.03:
+            bullets.append(
+                f"Model showed **modest positive ranking skill** "
+                f"({primary_tq_ic:+.4f}) within its top-20% picks — in "
+                "the range typical for working equity strategies."
+            )
+        else:
+            bullets.append(
+                f"Model showed weak ranking signal "
+                f"({primary_tq_ic:+.4f})."
+            )
+    if primary_win_rate is not None and not pd.isna(primary_win_rate):
+        if primary_win_rate >= 0.6:
+            bullets.append(
+                f"Strategy beat the S&P 500 in **{primary_win_rate * 100:.1f}% "
+                "of 12-month rolling windows** — a strong win-rate signal."
+            )
+        elif primary_win_rate >= 0.5:
+            bullets.append(
+                f"Strategy beat the S&P 500 in **{primary_win_rate * 100:.1f}% "
+                "of 12-month rolling windows** — slightly better than coin-"
+                "flip across rolling windows."
+            )
+        else:
+            bullets.append(
+                f"Strategy beat the S&P 500 in only "
+                f"**{primary_win_rate * 100:.1f}% of 12-month rolling "
+                "windows** — strategy more often than not trailed the "
+                "market over rolling 12-month windows."
+            )
+    _key_takeaways(bullets)
 
 
 _WALK_FORWARD_REGIME_LABELS = {
@@ -4423,20 +5174,72 @@ _WALK_FORWARD_REGIME_LABELS = {
 
 
 def tab_contract_walk_forward(study_name: str) -> None:
+    _tab_header(
+        "How consistently the strategy worked across different market "
+        "periods. The model was retrained on rolling 3-year windows and "
+        "tested on the next 1-year window — six such windows in total. "
+        "Below: how many windows the strategy beat the market, by how "
+        "much on average, and how spread-out the results were."
+    )
+
     wf = load_contract_parquet(study_name, "walk_forward.parquet")
     if wf.empty:
         st.warning("No walk_forward.parquet found.")
         return
-    st.caption(
-        "Walk-forward stability: each row is one rolling 3-year-train / "
-        "1-year-validation window. excess_cagr_vs_spy < 0 in some windows is "
-        "expected; what matters is sign and magnitude consistency."
-    )
 
     models = sorted(wf["model"].unique())
 
-    # === Summary statistics panel — per model ===
-    st.markdown("### Window-level summary")
+    # === Headline single-number callouts (NEW) ===
+    primary_meta = load_contract_meta(study_name)
+    primary_name, _ = _primary_summary_metrics(primary_meta)
+    if primary_name and (wf["model"] == primary_name).any():
+        primary_wf = wf[wf["model"] == primary_name].copy()
+    else:
+        primary_wf = wf[wf["model"] == models[0]].copy()
+    primary_wf = primary_wf.sort_values("val_start").reset_index(drop=True)
+    p_excess = primary_wf["excess_cagr_vs_spy"]
+    p_n = len(primary_wf)
+    p_n_pos = int((p_excess > 0).sum())
+    p_mean = float(p_excess.mean()) if p_n else 0.0
+    p_std = float(p_excess.std(ddof=1)) if p_n > 1 else 0.0
+    p_best = float(p_excess.max()) if p_n else 0.0
+    p_worst = float(p_excess.min()) if p_n else 0.0
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric(
+            "Yearly windows beating S&P 500",
+            f"{p_n_pos} of {p_n}",
+            help=(
+                "Number of 1-year validation windows where the strategy's "
+                "annual return exceeded the S&P 500's."
+            ),
+        )
+    with c2:
+        st.metric(
+            "Average yearly outperformance",
+            _format_pp(p_mean),
+            help=(
+                "Mean across all yearly windows of (strategy CAGR − S&P "
+                "500 CAGR) for that window."
+            ),
+        )
+    with c3:
+        st.metric(
+            "Year-to-year variability",
+            _format_pp(p_std).lstrip('+'),
+            help=(
+                "Standard deviation of yearly outperformance — higher "
+                "values mean wider swings between good and bad windows."
+            ),
+        )
+    st.caption(
+        f"Best year: **{_format_pp(p_best)} outperformance**.  "
+        f"Worst year: **{_format_pp(p_worst)} outperformance**."
+    )
+
+    # === Per-model summary panel (existing — keep, expand label) ===
+    st.markdown("### Per-window summary")
     cols = st.columns(len(models))
     for col, model in zip(cols, models):
         m = (wf[wf["model"] == model]
@@ -4457,24 +5260,30 @@ def tab_contract_walk_forward(study_name: str) -> None:
         with col:
             st.markdown(f"**{model}**")
             st.metric("Windows positive", f"{n_positive} of {n_total}")
-            st.metric("Median excess CAGR",
+            st.metric("Median yearly outperformance",
                       f"{median_excess * 100:+.1f}pp")
             st.metric("Best window",
                       f"W{best_w}  ({best_val * 100:+.1f}pp)")
             st.metric("Worst window",
                       f"W{worst_w}  ({worst_val * 100:+.1f}pp)")
-            st.metric("Std dev (excess CAGR)",
+            st.metric("Year-to-year variability (std)",
                       f"{std_excess * 100:.1f}pp")
             st.metric("Strong outperformance (≥ +5pp)",
                       f"{n_strong} of {n_total}")
 
     st.caption(
         "Windows are numbered W1–W6 in chronological order of validation "
-        "start. \"Strong outperformance\" counts windows where the model "
-        "beat SPY by ≥ 5pp CAGR in that window."
+        "start. **Strong outperformance** counts windows where the strategy "
+        "beat the S&P 500 by 5 percentage points or more in annual return."
     )
 
     # === Bar chart with regime annotations ===
+    st.markdown("### Per-window outperformance chart")
+    st.caption(
+        "Each bar is one validation window. Above the zero line = strategy "
+        "beat the market that year; below = underperformed. The grey "
+        "text below each year is the dominant market regime for context."
+    )
     fig = go.Figure()
     for model in models:
         m = (wf[wf["model"] == model]
@@ -4519,65 +5328,119 @@ def tab_contract_walk_forward(study_name: str) -> None:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # === Synthetic compounded growth curve ===
-    st.markdown("### Synthetic compounded growth across windows")
-    st.caption(
-        "What $1 would grow to if each window's annualized CAGR held for "
-        "one year, compounded across the six non-overlapping 1-year "
-        "validation windows. **Different from the Overview NAV chart**, "
-        "which shows the actual deployed portfolio NAV under locked Phase 3 "
-        "hyperparameters over test + OOS; this view assumes per-window "
-        "retrains and treats each window's CAGR as that year's realized "
-        "growth. Useful for visualizing the cumulative effect of the "
-        "per-window excess CAGRs in the bar chart above."
-    )
+    # === Synthetic compounded growth (expander) ===
+    with st.expander(
+        "Synthetic compounded growth across yearly windows (technical)",
+        expanded=False,
+    ):
+        st.caption(
+            "What $1 would grow to if each window's annual return held for "
+            "one year, compounded across the six non-overlapping 1-year "
+            "validation windows. **Different from the Overview NAV chart**, "
+            "which shows the actual deployed portfolio NAV; this view "
+            "assumes per-window retrains and treats each window's annual "
+            "return as that year's realized growth. Useful for visualizing "
+            "the cumulative effect of the per-window outperformance shown "
+            "in the bar chart above."
+        )
 
-    line_fig = go.Figure()
-
-    # SPY is identical across model rows for the same window — take it
-    # from either subset.
-    spy_subset = (wf[wf["model"] == models[0]]
-                  .sort_values("val_start").reset_index(drop=True))
-    spy_growth = (1 + spy_subset["spy_cagr"]).cumprod()
-    x_period_labels = [
-        f"After W{i+1} ({str(v)[:7]})"
-        for i, v in enumerate(spy_subset["val_end"])
-    ]
-    x_with_start = ["Start"] + x_period_labels
-    line_fig.add_trace(go.Scatter(
-        x=x_with_start,
-        y=[1.0] + list(spy_growth),
-        mode="lines+markers",
-        name="SPY",
-        line=dict(width=1.6, dash="dash", color="#888888"),
-        marker=dict(size=7),
-    ))
-    for model in models:
-        m = (wf[wf["model"] == model]
-             .sort_values("val_start").reset_index(drop=True))
-        growth = (1 + m["cagr"]).cumprod()
+        line_fig = go.Figure()
+        # SPY is identical across model rows for the same window — take it
+        # from either subset.
+        spy_subset = (wf[wf["model"] == models[0]]
+                      .sort_values("val_start").reset_index(drop=True))
+        spy_growth = (1 + spy_subset["spy_cagr"]).cumprod()
+        x_period_labels = [
+            f"After W{i+1} ({str(v)[:7]})"
+            for i, v in enumerate(spy_subset["val_end"])
+        ]
+        x_with_start = ["Start"] + x_period_labels
         line_fig.add_trace(go.Scatter(
             x=x_with_start,
-            y=[1.0] + list(growth),
+            y=[1.0] + list(spy_growth),
             mode="lines+markers",
-            name=model,
-            line=dict(width=2.5),
-            marker=dict(size=8),
+            name="S&P 500",
+            line=dict(width=1.6, dash="dash", color="#888888"),
+            marker=dict(size=7),
         ))
-    line_fig.update_layout(
-        title="Synthetic compounded growth — $1 invested across "
-              "walk-forward windows",
-        xaxis_title="Window endpoint",
-        yaxis_title="Cumulative NAV multiplier",
-        height=420,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                    xanchor="right", x=1),
-    )
-    st.plotly_chart(line_fig, use_container_width=True)
+        for model in models:
+            m = (wf[wf["model"] == model]
+                 .sort_values("val_start").reset_index(drop=True))
+            growth = (1 + m["cagr"]).cumprod()
+            line_fig.add_trace(go.Scatter(
+                x=x_with_start,
+                y=[1.0] + list(growth),
+                mode="lines+markers",
+                name=model,
+                line=dict(width=2.5),
+                marker=dict(size=8),
+            ))
+        line_fig.update_layout(
+            title="Synthetic compounded growth — $1 invested across windows",
+            xaxis_title="Window endpoint",
+            yaxis_title="Cumulative growth multiplier",
+            height=420,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                        xanchor="right", x=1),
+        )
+        st.plotly_chart(line_fig, use_container_width=True)
 
-    # === Full window-level data table ===
-    st.markdown("### Full window-level data")
-    st.dataframe(wf, use_container_width=True, hide_index=True)
+    # === Full window-level data (expander) ===
+    with st.expander(
+        f"Full window-level data table (all {len(wf)} rows, technical)",
+        expanded=False,
+    ):
+        display = wf.copy()
+        rename_map = {
+            "window_start": "Train start", "window_end": "Train end",
+            "val_start": "Val start", "val_end": "Val end",
+            "model": "Model",
+            "mean_ic": "Mean rank correlation",
+            "std_ic": "Rank correlation std",
+            "positive_rate": "Pos. correlation rate",
+            "n_dates_scored": "N rebalance dates",
+            "n_days": "Trading days in window",
+            "total_return": "Total return",
+            "cagr": "Annual return (CAGR)",
+            "sharpe": "Sharpe",
+            "max_drawdown": "Worst drawdown",
+            "spy_total_return": "S&P 500 total return",
+            "spy_cagr": "S&P 500 annual return",
+            "excess_cagr_vs_spy": "Outperformance vs S&P 500",
+        }
+        display = display.rename(columns={k: v for k, v in rename_map.items()
+                                           if k in display.columns})
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+    # === Key takeaways ===
+    bullets: list[str] = []
+    if p_n:
+        bullets.append(
+            f"Strategy beat the S&P 500 in **{p_n_pos} of {p_n}** yearly "
+            "windows."
+        )
+        if p_std > abs(p_mean) * 1.5:
+            bullets.append(
+                f"Year-to-year results are **highly variable** "
+                f"(std dev {_format_pp(p_std)} vs mean "
+                f"{_format_pp(p_mean)}) — strategy worked well some years "
+                "and poorly others. Don't read the mean as a reliable "
+                "forward expectation."
+            )
+        else:
+            bullets.append(
+                f"Year-to-year variability "
+                f"({_format_pp(p_std).lstrip('+')}) is in line with the "
+                f"mean outperformance ({_format_pp(p_mean)}) — results "
+                "are reasonably consistent across windows."
+            )
+        bullets.append(
+            f"Range across windows: best year {_format_pp(p_best)}, worst "
+            f"year {_format_pp(p_worst)}. If those extremes have specific "
+            "market regimes (e.g., COVID, AI rally, 2022 bear), the "
+            "regime labels under each bar above identify them."
+        )
+    _key_takeaways(bullets)
 
 
 def _render_param_sensitivity(
@@ -4683,18 +5546,38 @@ def _render_param_sensitivity(
 
 
 def tab_contract_tuning(study_name: str) -> None:
-    """Tuning tab: narrative + histogram + convergence curve + sensitivity
-    + collapsed trial log + feature importance."""
+    """Tuning tab — how the model's settings were chosen.
+
+    Plain-language treatment: narrative summary up top; histogram /
+    convergence curve / parameter sensitivity tucked into descriptive
+    expanders since they're more useful for ML practitioners than for
+    finance-fluent partners. Feature importance is kept visible because
+    'which inputs the model weighted most' is concretely interpretable
+    by the audience.
+    """
+    _tab_header(
+        "How the model's settings were chosen. The model has several "
+        "configurable parameters (depth, learning rate, regularization, "
+        "etc.); we used an automated configuration search to find the "
+        "best combination. This tab summarizes that search, then shows "
+        "which input data points the resulting model relied on most."
+    )
+
     tl = load_contract_parquet(study_name, "trial_log.parquet")
-    if tl.empty:
-        st.info("No trial_log.parquet found — this study did not perform tuning.")
-        # Still try to render feature importance below (separate artifact).
-    else:
-        meta = load_contract_meta(study_name)
-        st.caption(
-            f"CV objective: "
-            f"`{meta.get('objective', {}).get('training_cv', '?')}`."
+    has_trial_log = not tl.empty
+    if not has_trial_log:
+        st.info(
+            "This study did not perform a configuration search. The "
+            "feature importance section below (if present) still shows "
+            "which input data the model weighted most."
         )
+
+    bullets: list[str] = []
+    winning_score: float | None = None
+
+    if has_trial_log:
+        meta = load_contract_meta(study_name)
+        objective = meta.get('objective', {}).get('training_cv', '?')
 
         models = sorted(tl["tuning_study"].dropna().unique())
         if not models:
@@ -4723,146 +5606,194 @@ def tab_contract_tuning(study_name: str) -> None:
                     "trial_number",
                 )
 
-                # === Section A — narrative summary ===
+                # === Plain-English narrative (kept primary) ===
                 pct = m_summary.get("pct_trials_to_plateau", 0) or 0
                 win_z = m_summary.get("winner_zscore")
+                winning_score = float(m_summary["winning_score"])
                 z_phrase = (
-                    f" Winner sits **{win_z:+.2f}σ** vs the trial-score mean."
+                    f" The winner scored {win_z:+.2f} standard deviations "
+                    "above the trial-score mean."
                     if win_z is not None else ""
                 )
                 st.info(
-                    f"The optimizer tested **{m_summary['total_trials']}** "
-                    f"configurations for **{model}**. The winner was "
-                    f"**Trial #{m_summary['winning_trial']}** with score "
-                    f"**{m_summary['winning_score']:.4f}**. 95% of the "
-                    f"winning score was reached after about **{pct:.0%}** "
-                    f"of the trials — the curve plateaus early, then "
-                    f"refinement happens at the margin. Optuna is "
-                    f"**search, not proof**: a different random seed or "
-                    f"longer search might find a better config or might "
+                    f"The configuration search tested "
+                    f"**{m_summary['total_trials']}** parameter combinations "
+                    f"for **{model}** using an automated tool called Optuna. "
+                    f"The winning combination was **Trial #"
+                    f"{m_summary['winning_trial']}** with a score of "
+                    f"**{winning_score:.4f}**. The search reached 95% of "
+                    f"that winning score after about **{pct:.0%}** of the "
+                    f"trials — meaning the search converged early and the "
+                    f"later trials were refinements. Configuration search "
+                    f"is **search, not proof**: a different random seed or "
+                    f"a longer search might find a better config or might "
                     f"find that this peak doesn't generalize to other "
-                    f"validation windows." + z_phrase
+                    f"time windows." + z_phrase
+                )
+                st.caption(
+                    f"The search optimized for an objective called "
+                    f"`{objective}` — see the methodology memo linked "
+                    "from the Overview tab's Strategy configuration "
+                    "expander for what that means."
                 )
 
-                # === Section B — score distribution histogram ===
-                complete_scores = tl.loc[
-                    (tl["tuning_study"] == model)
-                    & (tl["state"] == "COMPLETE"),
-                    "value",
-                ].dropna()
-                mean_s = float(m_summary["mean_score"])
-                std_s = float(m_summary["std_score"])
-                win_score = float(m_summary["winning_score"])
-
-                hist = go.Figure()
-                hist.add_trace(go.Histogram(
-                    x=complete_scores, nbinsx=min(40, max(10, len(complete_scores) // 5)),
-                    marker=dict(color="#475569",
-                                line=dict(color="#1f2937", width=0.5)),
-                    name="Trials", showlegend=False,
-                ))
-                if std_s > 0:
-                    hist.add_vrect(
-                        x0=mean_s - 2 * std_s, x1=mean_s + 2 * std_s,
-                        fillcolor="#94a3b8", opacity=0.10, line_width=0,
-                        layer="below", annotation_text="±2σ",
-                        annotation_position="top left",
-                        annotation=dict(font=dict(size=10, color="#475569")),
+                # === Score distribution histogram (expander) ===
+                with st.expander(
+                    "Score distribution across all trials (technical)",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Histogram of trial scores across the search. The "
+                        "shaded bands mark 1 and 2 standard deviations from "
+                        "the mean. The red vertical line marks the winning "
+                        "trial. Useful for seeing whether the winner was a "
+                        "clear outlier or close to the rest of the pack."
                     )
-                    hist.add_vrect(
-                        x0=mean_s - std_s, x1=mean_s + std_s,
-                        fillcolor="#94a3b8", opacity=0.18, line_width=0,
-                        layer="below", annotation_text="±1σ",
-                        annotation_position="top left",
-                        annotation=dict(font=dict(size=10, color="#475569")),
-                    )
-                    hist.add_vline(x=mean_s, line_dash="dot",
-                                   line_color="#475569", line_width=1)
-                z_label = (
-                    f" ({win_z:+.2f}σ above mean)"
-                    if win_z is not None else ""
-                )
-                hist.add_vline(
-                    x=win_score, line_color="#dc2626", line_width=2.5,
-                    annotation_text=(
-                        f"Winner: Trial #{m_summary['winning_trial']} "
-                        f"(score {win_score:.4f}){z_label}"
-                    ),
-                    annotation_position="top right",
-                    annotation=dict(font=dict(size=11, color="#dc2626")),
-                )
-                hist.update_layout(
-                    title=(
-                        f"Trial score distribution — "
-                        f"{m_summary['total_trials']:,} configurations"
-                    ),
-                    xaxis_title="Trial score (CV objective value)",
-                    yaxis_title="Number of trials",
-                    height=380, margin=dict(l=10, r=10, t=50, b=10),
-                    bargap=0.05,
-                )
-                st.plotly_chart(hist, use_container_width=True)
+                    complete_scores = tl.loc[
+                        (tl["tuning_study"] == model)
+                        & (tl["state"] == "COMPLETE"),
+                        "value",
+                    ].dropna()
+                    mean_s = float(m_summary["mean_score"])
+                    std_s = float(m_summary["std_score"])
+                    win_score = float(m_summary["winning_score"])
 
-                # === Section C — running-best convergence curve ===
-                conv_fig = go.Figure()
-                conv_fig.add_trace(go.Scatter(
-                    x=m_conv["trial_number"], y=m_conv["score"],
-                    mode="markers", name="Trial score",
-                    marker=dict(size=5, color="#94a3b8", opacity=0.55),
-                ))
-                conv_fig.add_trace(go.Scatter(
-                    x=m_conv["trial_number"],
-                    y=m_conv["running_best_score"],
-                    mode="lines", name="Running best",
-                    line=dict(color="#2563eb", width=2.5),
-                ))
-                plateau_trial = m_summary.get("trials_to_95pct_winning")
-                if plateau_trial is not None:
-                    conv_fig.add_vline(
-                        x=int(plateau_trial),
-                        line=dict(color="#16a34a", dash="dash", width=1.5),
+                    hist = go.Figure()
+                    hist.add_trace(go.Histogram(
+                        x=complete_scores,
+                        nbinsx=min(40, max(10, len(complete_scores) // 5)),
+                        marker=dict(color="#475569",
+                                    line=dict(color="#1f2937", width=0.5)),
+                        name="Trials", showlegend=False,
+                    ))
+                    if std_s > 0:
+                        hist.add_vrect(
+                            x0=mean_s - 2 * std_s, x1=mean_s + 2 * std_s,
+                            fillcolor="#94a3b8", opacity=0.10, line_width=0,
+                            layer="below", annotation_text="±2σ",
+                            annotation_position="top left",
+                            annotation=dict(font=dict(size=10, color="#475569")),
+                        )
+                        hist.add_vrect(
+                            x0=mean_s - std_s, x1=mean_s + std_s,
+                            fillcolor="#94a3b8", opacity=0.18, line_width=0,
+                            layer="below", annotation_text="±1σ",
+                            annotation_position="top left",
+                            annotation=dict(font=dict(size=10, color="#475569")),
+                        )
+                        hist.add_vline(x=mean_s, line_dash="dot",
+                                       line_color="#475569", line_width=1)
+                    z_label = (
+                        f" ({win_z:+.2f}σ above mean)"
+                        if win_z is not None else ""
+                    )
+                    hist.add_vline(
+                        x=win_score, line_color="#dc2626", line_width=2.5,
                         annotation_text=(
-                            f"95% plateau (trial #{int(plateau_trial)}, "
-                            f"~{pct:.0%} of trials)"
+                            f"Winner: Trial #{m_summary['winning_trial']} "
+                            f"(score {win_score:.4f}){z_label}"
                         ),
-                        annotation_position="bottom right",
-                        annotation=dict(font=dict(size=10, color="#16a34a")),
+                        annotation_position="top right",
+                        annotation=dict(font=dict(size=11, color="#dc2626")),
                     )
-                conv_fig.add_hline(
-                    y=win_score,
-                    line=dict(color="#dc2626", dash="dot", width=1),
-                    annotation_text=f"Winner: {win_score:.4f}",
-                    annotation_position="top left",
-                    annotation=dict(font=dict(size=10, color="#dc2626")),
-                )
-                conv_fig.update_layout(
-                    title="Running-best convergence",
-                    xaxis_title="Trial number (0-indexed)",
-                    yaxis_title="Score",
-                    height=400, margin=dict(l=10, r=10, t=50, b=10),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                                xanchor="right", x=1),
-                )
-                st.plotly_chart(conv_fig, use_container_width=True)
+                    hist.update_layout(
+                        title=(
+                            f"Trial score distribution — "
+                            f"{m_summary['total_trials']:,} configurations"
+                        ),
+                        xaxis_title="Trial score",
+                        yaxis_title="Number of trials",
+                        height=380, margin=dict(l=10, r=10, t=50, b=10),
+                        bargap=0.05,
+                    )
+                    st.plotly_chart(hist, use_container_width=True)
+
+                # === Running-best convergence curve (expander) ===
+                with st.expander(
+                    "Search convergence curve (technical)",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Each dot is one trial; the blue line is the "
+                        "running best score across the search. The green "
+                        "dashed line marks where the search reached 95% "
+                        "of the winning score — convergence after this "
+                        "point is refinement at the margin."
+                    )
+                    conv_fig = go.Figure()
+                    conv_fig.add_trace(go.Scatter(
+                        x=m_conv["trial_number"], y=m_conv["score"],
+                        mode="markers", name="Trial score",
+                        marker=dict(size=5, color="#94a3b8", opacity=0.55),
+                    ))
+                    conv_fig.add_trace(go.Scatter(
+                        x=m_conv["trial_number"],
+                        y=m_conv["running_best_score"],
+                        mode="lines", name="Running best",
+                        line=dict(color="#2563eb", width=2.5),
+                    ))
+                    plateau_trial = m_summary.get("trials_to_95pct_winning")
+                    if plateau_trial is not None:
+                        conv_fig.add_vline(
+                            x=int(plateau_trial),
+                            line=dict(color="#16a34a", dash="dash", width=1.5),
+                            annotation_text=(
+                                f"95% plateau (trial #{int(plateau_trial)}, "
+                                f"~{pct:.0%} of trials)"
+                            ),
+                            annotation_position="bottom right",
+                            annotation=dict(font=dict(size=10, color="#16a34a")),
+                        )
+                    conv_fig.add_hline(
+                        y=win_score,
+                        line=dict(color="#dc2626", dash="dot", width=1),
+                        annotation_text=f"Winner: {win_score:.4f}",
+                        annotation_position="top left",
+                        annotation=dict(font=dict(size=10, color="#dc2626")),
+                    )
+                    conv_fig.update_layout(
+                        title="Running-best convergence",
+                        xaxis_title="Trial number (0-indexed)",
+                        yaxis_title="Score",
+                        height=400, margin=dict(l=10, r=10, t=50, b=10),
+                        legend=dict(orientation="h", yanchor="bottom",
+                                    y=1.02, xanchor="right", x=1),
+                    )
+                    st.plotly_chart(conv_fig, use_container_width=True)
             else:
                 st.caption(
                     "Pre-computed convergence data not found "
                     "(`tuning_convergence.parquet` / `tuning_summary.json`). "
                     "Run `scripts/maintenance/backfill_tuning_convergence.py "
-                    f"--study {study_name}` to enrich, or this study "
-                    "will get the narrative + histogram + convergence-curve "
-                    "sections once its Phase 3 produces them natively."
+                    f"--study {study_name}` to enrich."
                 )
 
-            # === Section D — per-parameter sensitivity ===
-            st.markdown("### Parameter sensitivity")
-            _render_param_sensitivity(tl, model)
+            # === Per-parameter sensitivity (expander) ===
+            with st.expander(
+                "Per-parameter sensitivity (technical, for ML practitioners)",
+                expanded=False,
+            ):
+                st.caption(
+                    "Each panel plots one of the model's tunable parameters "
+                    "against the resulting trial score. The blue line is a "
+                    "binned average; the red diamond marks the winning "
+                    "configuration's value. Strong gradient = the parameter "
+                    "matters a lot; flat scatter = the parameter is mostly "
+                    "noise in this search."
+                )
+                _render_param_sensitivity(tl, model)
 
-            # === Section E — trial log (collapsed, secondary position) ===
+            # === Trial log (expander) ===
             model_tl = tl[tl["tuning_study"] == model]
             with st.expander(
-                f"Trial log ({len(model_tl)} trials)", expanded=False,
+                f"Full trial log (all {len(model_tl)} trials, technical)",
+                expanded=False,
             ):
+                st.caption(
+                    "Each row is one trial in the configuration search. "
+                    "Columns starting with `param_` are the parameter values "
+                    "the trial tested; `value` is the resulting score."
+                )
                 st.dataframe(
                     model_tl.head(50),
                     use_container_width=True,
@@ -4874,18 +5805,40 @@ def tab_contract_tuning(study_name: str) -> None:
                         "Re-export the parquet for the full table."
                     )
 
-    # === Feature importance (unchanged — separate analytical view) ===
+            # Build a bullet for the takeaways section based on tuning data
+            if has_precomputed:
+                bullets.append(
+                    f"Configuration search tested "
+                    f"**{m_summary['total_trials']:,}** parameter "
+                    f"combinations for {model}; the winner (Trial #"
+                    f"{m_summary['winning_trial']}) is what's used "
+                    "throughout the rest of this dashboard."
+                )
+                if pct < 0.5:
+                    bullets.append(
+                        f"Search converged early — 95% of the winning "
+                        f"score was reached after only **{pct:.0%}** of "
+                        "the trials. The later trials are refinements at "
+                        "the margin."
+                    )
+
+    # === Feature importance (kept visible — concretely interpretable) ===
     fi = load_contract_parquet(study_name, "feature_importance.parquet")
     if not fi.empty:
-        st.markdown("### Feature importance")
-        method = load_contract_meta(study_name).get(
-            "feature_importance_method", "?",
+        st.markdown("### Which inputs the model weighted most")
+        meta_local = load_contract_meta(study_name)
+        method = meta_local.get("feature_importance_method", "?")
+        st.caption(
+            f"The model uses {len(fi['feature'].unique())} input data "
+            "points (called 'features') per stock per month. This chart "
+            "shows the top 20 by importance — features at the top "
+            "influenced the model's stock scores the most. Method: "
+            f"`{method}` (SHAP if applicable, otherwise gain-based)."
         )
-        st.caption(f"Method: `{method}`")
-        models = sorted(fi["model"].unique())
+        fi_models = sorted(fi["model"].unique())
         fi_model = st.selectbox(
-            "Model", models,
-            index=_default_model_index(study_name, models),
+            "Model", fi_models,
+            index=_default_model_index(study_name, fi_models),
             key="contract_tune_fi_model",
         )
         sub = fi[fi["model"] == fi_model].nlargest(20, "importance").copy()
@@ -4894,12 +5847,26 @@ def tab_contract_tuning(study_name: str) -> None:
             orientation="h",
         ))
         fig.update_layout(
-            title=f"{fi_model} — top 20 features by importance",
-            xaxis_title="Importance",
+            title=f"{fi_model} — top 20 inputs by importance",
+            xaxis_title="Importance score",
             height=540,
             yaxis=dict(autorange="reversed"),
         )
         st.plotly_chart(fig, use_container_width=True)
+
+        # Build a feature-importance takeaway bullet
+        top_features = sub["feature"].head(5).tolist()
+        if top_features:
+            bullets.append(
+                f"The {fi_model} model's top 5 inputs by importance: "
+                f"**{', '.join(top_features)}**. If macro-level features "
+                "(VIX, NFCI, SAHM, etc.) dominate the list, the model is "
+                "responding more to market-timing signals than to "
+                "stock-specific signals — see the v1 CV-objectives memo "
+                "for what that pattern implies."
+            )
+
+    _key_takeaways(bullets)
 
 
 def tab_contract_variant_comparison(study_name: str) -> None:
@@ -4910,6 +5877,15 @@ def tab_contract_variant_comparison(study_name: str) -> None:
     docs/studies/larger_universe_v2/results.md). Per-criterion detail is
     available in a collapsible expander below the prominent sections.
     """
+    _tab_header(
+        "When a study tests multiple strategy variants side-by-side "
+        "against the same success criteria, this tab summarizes the "
+        "comparison. Below: the verdict (did any variant pass all "
+        "seven criteria?), whether the strategy's edge concentrates on "
+        "the same stocks across variants, and the per-criterion detail "
+        "for partners who want it."
+    )
+
     comparison_path = CONTRACT_V1_DIR / study_name / "comparison" / "comparison_results.parquet"
     if not comparison_path.exists():
         st.warning(
@@ -4923,20 +5899,25 @@ def tab_contract_variant_comparison(study_name: str) -> None:
     comparison = pd.read_parquet(comparison_path)
     n_variants = len(comparison)
 
-    # === Top: verdict callout ===
+    # === Top: verdict callout (plain-language polish) ===
     promote_count = int((comparison["verdict"] == "PROMOTE").sum())
     methodology_count = int((comparison["verdict"] == "METHODOLOGY FINDING").sum())
     not_promoted_count = int((comparison["verdict"] == "NOT PROMOTED").sum())
 
     if promote_count > 0:
         st.success(
-            f"**{promote_count} of {n_variants} variants promoted.** See per-variant detail below."
+            f"**{promote_count} of {n_variants} variants passed all seven "
+            "success criteria and qualified for promotion.** See the per-"
+            "variant table below for which one."
         )
     else:
         st.error(
-            f"**No variant promoted; {methodology_count} of {n_variants} are "
-            f"methodology findings** ({not_promoted_count} did not pass any "
-            f"criterion). Per-variant `n_pass` summary below."
+            f"**No variant passed all seven success criteria.** "
+            f"{methodology_count} of {n_variants} variants passed at least "
+            "one criterion (and are documented as methodology findings); "
+            f"{not_promoted_count} passed none. The substantive finding "
+            "from this comparison is below — see the writeup linked at the "
+            "bottom for the full analysis."
         )
 
     # Per-variant n_pass summary table — sorted by n_pass descending
@@ -5027,22 +6008,22 @@ def tab_contract_variant_comparison(study_name: str) -> None:
             marker_color="#1d4ed8",
         ))
         hist_fig.update_layout(
-            title="Top-20 alpha contributors — appearance distribution",
+            title="Top-20 alpha contributors — how many variants picked the same name",
             xaxis=dict(
-                title="Appears in N variants' top-20",
+                title="Stock appears in this many variants' top-20",
                 tickmode="linear", tick0=1, dtick=1,
             ),
-            yaxis=dict(title="Count of unique tickers"),
+            yaxis=dict(title="Count of unique stocks"),
             height=360,
             margin=dict(l=10, r=10, t=50, b=10),
         )
         st.plotly_chart(hist_fig, use_container_width=True)
 
-        # --- Caption stating the substantive finding ---
-        mean_corr = overlap_summary.get("cross_variant_spearman_mean")
+        # --- Caption stating the substantive finding in plain language ---
+        mean_corr_local = overlap_summary.get("cross_variant_spearman_mean")
         n_in_all = keyed.get(n_variants, 0)
         n_union = overlap_summary.get("union_top_tickers_count", 0)
-        mean_corr_str = f"{mean_corr:.3f}" if mean_corr is not None else "?"
+        mean_corr_local_str = f"{mean_corr_local:.2f}" if mean_corr_local is not None else "?"
         # Identify the outlier variant (lowest mean correlation with others)
         off_diag_by_a = (
             corr_long[corr_long["variant_a"] != corr_long["variant_b"]]
@@ -5054,14 +6035,22 @@ def tab_contract_variant_comparison(study_name: str) -> None:
             outlier_variant = off_diag_by_a.index[0]
             outlier_corr = float(off_diag_by_a.iloc[0])
             outlier_str = (
-                f" {outlier_variant} is the most divergent variant "
-                f"with ~{outlier_corr:.2f} mean correlation to others."
+                f" The most divergent variant is **{outlier_variant}** "
+                f"with ~{outlier_corr:.2f} similarity to the others "
+                "(still high, just less so)."
             )
-        st.caption(
-            f"**The {mean_corr_str} mean cross-variant correlation and "
-            f"{n_in_all} of {n_union} shared top contributors indicate that "
-            f"concentration is model-determined — different construction "
-            f"logics select largely the same names.**{outlier_str}"
+        st.markdown(
+            f"**What this means:** the {mean_corr_local_str} similarity in "
+            f"alpha-contributor rankings across variants tells us the "
+            f"strategy's edge comes from **largely the same set of "
+            f"stocks regardless of which construction approach is "
+            f"used**. {n_in_all} stocks appear in every variant's "
+            f"top-20 contributors (out of {n_union} unique stocks "
+            "across all variants' top-20s). This means concentration "
+            "risk is a property of the underlying model's stock-picking, "
+            "not of any specific construction approach — changing how "
+            "the strategy weights stocks doesn't change which stocks "
+            f"drive the alpha.{outlier_str}"
         )
 
     # === Per-criterion comparison (collapsible) ===
@@ -5094,12 +6083,14 @@ def tab_contract_variant_comparison(study_name: str) -> None:
             comparison[existing], use_container_width=True, hide_index=True,
         )
 
-    # === Walk-forward consistency stats per variant ===
-    st.markdown("### Walk-forward consistency stats per variant")
+    # === Per-variant yearly consistency ===
+    st.markdown("### Per-variant yearly consistency")
     st.caption(
-        "Per-window excess CAGR vs SPY across the 6 walk-forward retrains "
-        "(3y-train / 1y-validation). Mean, std, positive count from each "
-        "variant's `walk_forward.parquet`."
+        "How each variant performed across the six 1-year validation "
+        "windows tested. 'Mean outperformance' is the average annual "
+        "edge over the S&P 500 across the six years; 'Std' is the year-"
+        "to-year variability; 'Pos. years' is how many of the six "
+        "years the variant beat the market."
     )
     wf_cols = [
         "variant",
@@ -5115,12 +6106,12 @@ def tab_contract_variant_comparison(study_name: str) -> None:
         wf_df = comparison[wf_present].copy()
         wf_df = wf_df.rename(columns={
             "variant": "Variant",
-            "mean_excess_cagr_walkforward": "Mean excess",
-            "std_excess_cagr_walkforward": "Std excess",
-            "median_excess_cagr_walkforward": "Median excess",
-            "min_excess_cagr_walkforward": "Min excess",
-            "max_excess_cagr_walkforward": "Max excess",
-            "n_windows_positive": "Pos. windows",
+            "mean_excess_cagr_walkforward": "Mean outperformance",
+            "std_excess_cagr_walkforward": "Year-to-year variability (std)",
+            "median_excess_cagr_walkforward": "Median outperformance",
+            "min_excess_cagr_walkforward": "Worst year",
+            "max_excess_cagr_walkforward": "Best year",
+            "n_windows_positive": "Pos. years (of 6)",
         })
         st.dataframe(wf_df, use_container_width=True, hide_index=True)
 
@@ -5128,13 +6119,59 @@ def tab_contract_variant_comparison(study_name: str) -> None:
     if promote_count == 0:
         st.info(
             "**v2's findings indicate the binding constraint for top-N "
-            "equity strategies on this universe is signal extraction "
-            "(Mechanism A), not portfolio construction (Mechanism B). "
-            "See the v2 writeup at `docs/studies/larger_universe_v2/"
-            "results.md` for full analysis, including the IC scope audit, "
-            "decile structure under standard definitions, and per-variant "
-            "supporting detail.**"
+            "equity strategies on this universe is better stock-ranking, "
+            "not the portfolio construction approaches v2 tested. See "
+            "`docs/studies/larger_universe_v2/results.md` for the full "
+            "analysis.**"
         )
+
+    # === Key takeaways ===
+    bullets: list[str] = []
+    if promote_count == 0:
+        bullets.append(
+            f"**No variant promoted.** {methodology_count} of {n_variants} "
+            "are methodology findings (passed some criteria but not all); "
+            f"{not_promoted_count} passed no criteria."
+        )
+    else:
+        bullets.append(
+            f"**{promote_count} of {n_variants} variants promoted** — "
+            "passed all seven success criteria."
+        )
+    mean_corr_local_local = locals().get("mean_corr_local")
+    if mean_corr_local_local is not None:
+        if mean_corr_local_local > 0.85:
+            bullets.append(
+                f"Variants pick **largely the same top stocks** "
+                f"(~{mean_corr_local:.0%} similarity in alpha-contributor "
+                "rankings). The strategy's edge concentrates on the same "
+                "names regardless of construction approach — concentration "
+                "is a model/signal property, not fixable by varying how "
+                "stocks are weighted."
+            )
+        elif mean_corr_local > 0.5:
+            bullets.append(
+                f"Variants show moderate overlap (~{mean_corr_local:.0%}) in "
+                "which stocks drive their alpha. Different constructions "
+                "shift the contributor list somewhat but most names are "
+                "shared."
+            )
+        else:
+            bullets.append(
+                f"Variants pick **substantially different stocks** "
+                f"(~{mean_corr_local:.0%} similarity in contributors). "
+                "Construction approach meaningfully changes which names "
+                "drive the alpha."
+            )
+    # Best n_pass variant
+    if not comparison.empty and "n_pass" in comparison.columns:
+        best_row = comparison.sort_values("n_pass", ascending=False).iloc[0]
+        if int(best_row["n_pass"]) >= 4:
+            bullets.append(
+                f"Closest variant to promotion: **{best_row['variant']}** "
+                f"with {int(best_row['n_pass'])} of 7 criteria passed."
+            )
+    _key_takeaways(bullets)
 
 
 def main_contract() -> None:
