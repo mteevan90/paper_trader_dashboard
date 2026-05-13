@@ -1,0 +1,103 @@
+{
+  "schema_version": "v1",
+  "study_name": "larger_universe_v2",
+  "variant_name": "baseline",
+  "display_name": "Larger Universe v2 \u2014 baseline",
+  "description": "v2 portfolio-construction variant. Same v1 XGBoost model, features, universe, and dates; varies portfolio construction logic only. See docs/studies/larger_universe_v2/spec.md.",
+  "created_at": "2026-05-13T15:47:41.141166+00:00",
+  "spec_doc": "docs/studies/larger_universe_v2/spec.md",
+  "family": "ml_cross_sectional",
+  "control_role": "control",
+  "models": [
+    {
+      "name": "xgboost",
+      "role": "primary",
+      "params_path": "../../../larger_universe_v1/xgboost_best_params.json"
+    }
+  ],
+  "universe": {
+    "snapshot": "larger_universe_v1_20260511",
+    "size_total": 2122,
+    "size_priced": 1963
+  },
+  "windows": {
+    "train_start": "2017-05-12",
+    "train_end": "2023-05-11",
+    "test_start": "2023-05-12",
+    "test_end": "2025-12-31",
+    "oos_start": "2026-01-01",
+    "oos_end": "2026-05-11"
+  },
+  "rebalance": {
+    "cadence": "monthly",
+    "day": "last_trading_day_of_month",
+    "execution": "close_to_close_next_trading_day",
+    "threshold_pp": null
+  },
+  "label": {
+    "horizon_trading_days": 21,
+    "definition": "close[t+21] / close[t] - 1"
+  },
+  "portfolio_construction": {
+    "variant": "baseline",
+    "params": {
+      "method": "rank_top_n",
+      "n": 30,
+      "individual_cap": 0.075,
+      "sector_cap": 0.3
+    }
+  },
+  "fee_model": {
+    "transaction_cost_pct": 0.0005,
+    "applies": "per_trade_leg"
+  },
+  "objective": {
+    "training_cv": "mean_cross_sectional_spearman_ic",
+    "headline": "excess_cagr_vs_spy"
+  },
+  "promoted": false,
+  "phases": {
+    "phase_3_complete": "(reused from v1)",
+    "phase_4_complete": "2026-05-13T15:47:41.141185+00:00",
+    "phase_5_complete": null
+  },
+  "summary_metrics": {
+    "test": {
+      "xgboost": {
+        "n_days": 650,
+        "total_return": 0.7832693715883139,
+        "cagr": 0.2513963365441678,
+        "spy_cagr": 0.21621051744993025,
+        "excess_cagr": 0.03518581909423757,
+        "max_drawdown": -0.33493393635161584,
+        "spy_max_drawdown": -0.18998906889856892,
+        "sharpe_informational": 0.9015025025947672
+      }
+    },
+    "oos": {
+      "xgboost": {
+        "n_days": 89,
+        "total_return": 0.16109344870866615,
+        "cagr": 0.5264017455232879,
+        "spy_cagr": 0.25058395909742726,
+        "excess_cagr": 0.27581778642586063,
+        "max_drawdown": -0.1222966099445929,
+        "spy_max_drawdown": -0.09133129160735587,
+        "sharpe_informational": 1.8440975466246485
+      }
+    }
+  },
+  "notes": [],
+  "artifact_metadata": {
+    "ic_decomposition.parquet": {
+      "scope": "full_cross_section",
+      "scope_description": "Prices loaded for the full eligible universe (~1,963 tickers) at computation time. Standard cross-sectional interpretation.",
+      "audit_reference": null
+    },
+    "decile_returns.parquet": {
+      "scope": "full_cross_section",
+      "scope_description": "Prices loaded for the full eligible universe (~1,963 tickers) at computation time. Standard cross-sectional interpretation.",
+      "audit_reference": null
+    }
+  }
+}

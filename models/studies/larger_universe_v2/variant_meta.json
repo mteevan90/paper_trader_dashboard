@@ -1,0 +1,67 @@
+{
+  "schema_version": "v1",
+  "study_name": "larger_universe_v2",
+  "display_name": "Larger Universe v2",
+  "spec_doc": "docs/studies/larger_universe_v2/spec.md",
+  "variants": [
+    {
+      "name": "baseline",
+      "subdir": "baseline",
+      "role": "control",
+      "has_phase4_artifacts": true
+    },
+    {
+      "name": "b1_vol_target",
+      "subdir": "b1_vol_target",
+      "role": "treatment",
+      "has_phase4_artifacts": true
+    },
+    {
+      "name": "b2_conviction_weighted",
+      "subdir": "b2_conviction_weighted",
+      "role": "treatment",
+      "has_phase4_artifacts": true
+    },
+    {
+      "name": "b3_dynamic_topn",
+      "subdir": "b3_dynamic_topn",
+      "role": "treatment",
+      "has_phase4_artifacts": true
+    },
+    {
+      "name": "b4_concentration_penalties",
+      "subdir": "b4_concentration_penalties",
+      "role": "treatment",
+      "has_phase4_artifacts": true
+    },
+    {
+      "name": "b5_defensive_sleeves",
+      "subdir": "b5_defensive_sleeves",
+      "role": "treatment",
+      "has_phase4_artifacts": true
+    },
+    {
+      "name": "b6_smaller_caps",
+      "subdir": "b6_smaller_caps",
+      "role": "treatment",
+      "has_phase4_artifacts": true
+    }
+  ],
+  "optional_artifacts": [
+    {
+      "name": "comparison_results",
+      "path": "comparison/comparison_results.parquet",
+      "produced_at": "2026-05-13T17:02:23.571732+00:00",
+      "covers_variants": [
+        "baseline",
+        "b1_vol_target",
+        "b2_conviction_weighted",
+        "b3_dynamic_topn",
+        "b4_concentration_penalties",
+        "b5_defensive_sleeves",
+        "b6_smaller_caps"
+      ]
+    }
+  ],
+  "last_updated": "2026-05-13T17:02:23.571740+00:00"
+}

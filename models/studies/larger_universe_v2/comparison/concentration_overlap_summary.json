@@ -1,0 +1,16 @@
+{
+  "top_k": 20,
+  "union_top_tickers_count": 28,
+  "n_total_contributing_tickers": 435,
+  "appearance_count_distribution": {
+    "1": 6,
+    "2": 2,
+    "3": 0,
+    "4": 1,
+    "5": 2,
+    "6": 3,
+    "7": 14
+  },
+  "cross_variant_spearman_mean": 0.9435203250553738,
+  "cross_variant_spearman_median": 0.9686911152395303
+}

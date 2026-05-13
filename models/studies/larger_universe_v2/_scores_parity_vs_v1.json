@@ -1,0 +1,10 @@
+{
+  "n_pairs_compared": 59232,
+  "n_v1_only": 0,
+  "n_v2_only": 0,
+  "max_abs_diff": 0.0,
+  "mean_abs_diff": 0.0,
+  "n_within_1e6": 59232,
+  "fraction_within_1e6": 1.0,
+  "passed": true
+}

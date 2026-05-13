@@ -1,0 +1,22 @@
+{
+  "xgboost": {
+    "rebalance_dates": 37,
+    "unique_tickers_held": 340,
+    "avg_positions_per_rebalance": 30.0,
+    "max_single_ticker_weight": 0.07500001043081284,
+    "max_sector_weight_across_dates": 0.3000000361353159,
+    "median_sector_weight_max_per_date": 0.19108853861689568,
+    "top_10_repeat_holdings": {
+      "SEDG": 20,
+      "CLSK": 19,
+      "BHF": 18,
+      "SPWR": 14,
+      "ARWR": 14,
+      "VIR": 13,
+      "MXL": 13,
+      "TDG": 13,
+      "PRA": 13,
+      "SEZL": 12
+    }
+  }
+}
