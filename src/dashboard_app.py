@@ -4178,14 +4178,66 @@ def tab_contract_alpha(study_name: str) -> None:
     st.dataframe(sub, use_container_width=True, hide_index=True)
 
 
+def _render_scope_callout(scope_info: dict, default_caption: str) -> None:
+    """Render scope context for a scope-sensitive artifact.
+
+    Uses `artifact_metadata.<file>` per `dashboard_contract_v1.md`. If
+    scope info is missing or unrecognized, falls back to the
+    default_caption.
+    """
+    if not scope_info:
+        st.caption(default_caption)
+        return
+    scope = scope_info.get("scope")
+    description = scope_info.get("scope_description") or ""
+    audit_ref = scope_info.get("audit_reference")
+    if scope == "held_subset":
+        # Corrective callout — values are not the standard interpretation
+        msg = (
+            f"**Scope: held-subset.** {description}"
+        )
+        if audit_ref:
+            msg += f" Audit: `{audit_ref}`."
+        st.warning(msg)
+    elif scope == "full_cross_section":
+        # Informational — standard interpretation
+        msg = f"**Scope: full cross-section.** {description}"
+        if audit_ref:
+            msg += f" See `{audit_ref}`."
+        st.info(msg)
+    else:
+        # "other" or unknown scope value
+        msg = (
+            f"**Scope: {scope}.** {description}"
+        )
+        if audit_ref:
+            msg += f" See `{audit_ref}`."
+        st.caption(msg)
+
+
 def tab_contract_diagnostics(study_name: str) -> None:
-    # v1 price-universe scope correction banner (per docs/studies/
-    # larger_universe_v1/ic_scope_audit.md). v1's ic_decomposition.parquet
-    # and decile_returns.parquet were computed with prices restricted to
-    # held tickers (~450) rather than the full eligible universe (~1,963).
-    # Removed when the artifact_metadata contract addition lands and
-    # supplies scope info per-artifact.
-    if study_name == "larger_universe_v1":
+    # Read scope information for scope-sensitive artifacts per the
+    # artifact_metadata schema in dashboard_contract_v1.md. When scope is
+    # present per-artifact, the dashboard surfaces it inline above each
+    # artifact's rendering and SKIPS the legacy fallback banner. When
+    # absent, falls back to a legacy-v1 study-name-specific banner so
+    # partners still see correction context until v1's meta.json is
+    # annotated (see docs/studies/larger_universe_v1/ic_scope_audit.md).
+    try:
+        meta = load_contract_meta(study_name)
+    except Exception:
+        meta = {}
+    artifact_metadata = meta.get("artifact_metadata") or {}
+    ic_scope_info = artifact_metadata.get("ic_decomposition.parquet")
+    dr_scope_info = artifact_metadata.get("decile_returns.parquet")
+
+    # Legacy fallback banner — only when artifact_metadata doesn't cover
+    # the scope-sensitive artifacts AND the study is the known legacy
+    # v1 case. Replaced by the per-artifact callouts when annotations land.
+    if (
+        (ic_scope_info is None or dr_scope_info is None)
+        and study_name == "larger_universe_v1"
+    ):
         st.warning(
             "**Note on scope** — The IC decomposition and decile returns "
             "tables below were computed on a held-subset price universe "
@@ -4205,18 +4257,29 @@ def tab_contract_diagnostics(study_name: str) -> None:
     st.markdown("### IC decomposition")
     ic = load_contract_parquet(study_name, "ic_decomposition.parquet")
     if not ic.empty:
-        st.caption(
-            "Full-cross-section IC is the standard Spearman IC across all "
-            "scored tickers per date, averaged. Top-quintile IC restricts "
-            "to the top 20% of scores per date. For top-N portfolio "
-            "strategies the top-quintile IC is the more deployment-aligned "
-            "signal — see `docs/architecture/ml_study_cv_objectives_v1.md`."
+        _render_scope_callout(
+            ic_scope_info,
+            default_caption=(
+                "Full-cross-section IC is the standard Spearman IC across all "
+                "scored tickers per date, averaged. Top-quintile IC restricts "
+                "to the top 20% of scores per date. For top-N portfolio "
+                "strategies the top-quintile IC is the more deployment-aligned "
+                "signal — see `docs/architecture/ml_study_cv_objectives_v1.md`."
+            ),
         )
         st.dataframe(ic, use_container_width=True, hide_index=True)
 
     st.markdown("### Decile returns")
     dr = load_contract_parquet(study_name, "decile_returns.parquet")
     if not dr.empty:
+        _render_scope_callout(
+            dr_scope_info,
+            default_caption=(
+                "Per-decile mean forward 21d return with std error bars. "
+                "Score-by-decile bucketing on the full eligible universe; "
+                "forward returns from snapshot prices."
+            ),
+        )
         fig = go.Figure()
         for model in sorted(dr["model"].unique()):
             m = dr[dr["model"] == model].sort_values("decile")

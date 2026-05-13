@@ -278,3 +278,70 @@ Per Mike's framing for Gate 3 (b):
 Awaiting Mike's review of the Gate 3 (b) report at `docs/studies/larger_universe_v2/gate3_phase4_report.md`. Don't auto-proceed to Gate 4 (Phase 5 analytics) without explicit approval.
 
 If approved, Gate 4 would produce per-variant Phase 5 artifacts (decile_returns, per_ticker_attribution, ic_decomposition, rolling_win_rate detail, concentration_summary) needed for the eventual Variant Comparison tab in the dashboard. The headline finding (no PROMOTE) doesn't change at Gate 4 — analytics elaborate on the findings rather than reopen verdict.
+
+## 2026-05-13 — Gate 4 (IC scope audit + corrections; writeup pending)
+
+**Phase:** Phase 5 analytics + cross-variant comparison framework
+**Branch:** `feat/larger-universe-v2`
+**Status:** Gate 4 analytics ran; an IC reproducibility discrepancy was caught, audited, and corrected at the documentation + dashboard layer. The v2 writeup is deferred pending the recommendation re-justification workstream that the audit surfaced.
+
+### What happened
+
+`phase5_analytics_v2.py` was written and ran in ~8 seconds across all 7 variants, producing decile_returns, per_ticker_attribution, ic_decomposition, rolling_win_rate, concentration_summary per variant, plus a cross-variant concentration_overlap artifact answering the C5 question (model-determined vs construction-specific concentration).
+
+When the headline draft was surfaced for review, Mike caught an inconsistency: v1's pinned XGBoost top-quintile IC was +0.048 (cited prominently in `docs/architecture/ml_study_cv_objectives_v1.md` and `docs/studies/larger_universe_v1/results.md`); v2 Gate 4's same-formula computation on bit-identical scores produced −0.0041. Sign reversal.
+
+Investigation: the IC formulas are mathematically identical between v1 (`scripts/research/phase5_analytics.py:167-229`) and v2 (`phase5_analytics_v2.py:174-227`). The difference is a price-universe scope choice. v1's `load_inputs` loads prices only for tickers in `holdings["ticker"].unique()` (~450 across XGB+ENet); v2 loads the full eligible universe (~1,963 tickers). At v1's scope the top-quintile IC is +0.0481; at full-universe scope it is −0.0041. Both numbers are correct under their respective definitions, but they measure different things, and v1's published documentation read as if it had computed the standard full-cross-section IC.
+
+### Findings
+
+Two of v1's 16 contract_v1 artifacts are scope-affected:
+- `ic_decomposition.parquet` (top-quintile IC sign-reverses at standard scope)
+- `decile_returns.parquet` (decile-1 stats pathological at v1's scope: +35.7% / std 202%; realistic at full scope: +5.8% / std 25%)
+
+All other v1 artifacts confirmed scope-independent. Walk-forward IC (via `labels.merge(scores)` not prices) is full-cross-section by construction; v2-baseline reproduces v1's walk-forward IC bit-for-bit. Per-ticker attribution iterates over `holdings.iterrows()` and is bit-identical at any scope.
+
+The audit also surfaced a methodological tension in `ml_study_cv_objectives_v1.md`: the memo's recommendation operationalizes full-cross-section top-quintile IC as a CV objective (at training time, in-fold, no "held" subset exists), but its empirical evidence (+0.048) is held-subset top-quintile IC. The recommendation's logical structure may still hold; the empirical chain in the memo does not.
+
+### Commits landed in Gate 4 (so far)
+
+- `0d5a537` — `gate3(v2): bootstrap training-period warmup state for B1 and B3` (pre-Gate-4; caught when Gate 3 (b) B1-B6 first ran)
+- `d502629` — `v1 audit: price-universe scope finding + factual corrections`
+  - `scripts/research/audit_v1_ic_scope.py` — reproducer for the audit numbers
+  - `scripts/research/phase5_analytics_v2.py` — the v2 analytics runner that surfaced the discrepancy
+  - `docs/studies/larger_universe_v1/ic_scope_audit.md` — full audit report
+  - `docs/studies/larger_universe_v1/dashboard_rendering_check.md` — finds two displays in `tab_contract_diagnostics` that surface v1's scope-affected artifacts with labels implying full-cross-section scope
+  - Correction section appended to `docs/architecture/ml_study_cv_objectives_v1.md` (preserves original prose)
+  - Correction footnotes appended to `docs/studies/larger_universe_v1/results.md` L13 and L170 (preserves original prose)
+- `45338e9` — `dashboard(option 2): scope-correction banner on v1 diagnostics tab`
+  - Inline `st.warning` banner on `tab_contract_diagnostics` keyed to `study_name == "larger_universe_v1"`. Immediate partner-facing correction context.
+- `(this commit)` — `dashboard(option 1): artifact_metadata contract addition + scope-aware rendering`
+  - Schema addition in `docs/architecture/dashboard_contract_v1.md`: new optional top-level `artifact_metadata` field on meta.json. Per-artifact dict with `scope` (controlled vocabulary: `held_subset`, `full_cross_section`, `other`), `scope_description`, `audit_reference`. Documented as additive (no schema_version bump).
+  - `scripts/research/annotate_meta_artifact_scope.py` — one-shot patch script. Annotates v1's meta.json (`held_subset` + audit_reference) and all 7 v2 variant meta.json files (`full_cross_section`). Idempotent. Ran cleanly: 8 files patched.
+  - `scripts/research/phase5_analytics_v2.py` updated to write `artifact_metadata` for `ic_decomposition.parquet` and `decile_returns.parquet` in each variant's meta.json automatically going forward.
+  - `src/dashboard_app.py` — new `_render_scope_callout` helper; `tab_contract_diagnostics` now reads `artifact_metadata` and surfaces scope inline: `st.warning` for `held_subset`, `st.info` for `full_cross_section`, default caption for absent. Legacy v1 fallback banner from Option 2 kicks in only when `artifact_metadata` is missing AND study is `larger_universe_v1` — once the annotation script ran, the per-artifact callouts replace the banner.
+  - `docs/architecture/dashboard_operations_v1.md` updated to note `artifact_metadata` as an additive-change example.
+
+Smoke-tested with mocked Streamlit: 4 scope-rendering paths verified (legacy v1 fallback banner; v1 annotated `held_subset` per-artifact callouts; v2 annotated `full_cross_section`; unknown study with no metadata). Dashboard boots cleanly under both Option 2 and Option 1 changes.
+
+### What is explicitly NOT in this Gate 4 work
+
+- **v2 writeup is not drafted.** Mike's framing decision is deferred pending the recommendation re-justification workstream that the audit surfaced. The Gate 4 analytics produced supporting data; the writeup's headline depends on whether `ml_study_cv_objectives_v1.md`'s recommendation survives correction.
+- **No modifications to v1's pinned parquet artifacts.** `ic_decomposition.parquet` and `decile_returns.parquet` remain as the historical record of what v1 produced. The audit script reproduces corrected values on demand for any consumer that needs them.
+- **No revision of the CV objectives architectural memo's recommendation.** The correction section explicitly states the recommendation requires re-justification on its logical-structure merits; that's an open workstream, not closed by this Gate 4 work.
+- **No tracker update.** Standing rule for v2 work — tracker updates when v2 closes at Gate 5 merge.
+
+### Standing follow-up (Mike's framing note about correction-loop risk)
+
+The Gate 4 path so far has been correction-heavy: investigation → audit → corrections → dashboard updates. Each step was individually justified, but Mike flagged the failure mode of getting stuck in further correction loops. The Operating Principles rule out time-based reasoning, but they don't rule out re-evaluation of where the work should go next — and right now the next decisions are:
+
+1. Finish v2's Gate 4 + Gate 5 plan (writeup + dashboard implementation per spec). Close v2 honestly.
+2. Decide whether v2's findings warrant a different v3 direction than originally scoped (Mechanism A signal extraction is now more clearly the binding constraint).
+3. Don't drift into more correction work without a specific consumer-of-corrections demanding it.
+
+When the writeup gate resumes, this framing note applies — finish v2 honestly with the findings we have, not by chasing further methodology corrections.
+
+### What's next (now pending Mike's approval)
+
+- Resume the v2 writeup work with the headline framing decision (Option A/B/C from the earlier framing discussion). The audit + memo correction + dashboard correction provide the context the writeup needs to characterize its findings honestly.
+- Or: pause v2 entirely until the CV-objectives memo's recommendation is re-justified, treating that as a prerequisite for v2's writeup. Mike's call.

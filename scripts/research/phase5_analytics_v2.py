@@ -512,6 +512,31 @@ def main() -> int:
             json.dumps(conc, indent=2, default=str), encoding="utf-8",
         )
 
+        # Annotate the variant's meta.json with artifact_metadata for the
+        # scope-sensitive artifacts we just wrote. Per the contract
+        # addition at dashboard_contract_v1.md "artifact_metadata".
+        # v2's phase5_analytics_v2.py loads prices for the full eligible
+        # universe (see _load_prices); decile_returns and ic_decomposition
+        # are accordingly computed at full_cross_section scope.
+        meta_path = out_dir / "meta.json"
+        if meta_path.exists():
+            meta_doc = json.loads(meta_path.read_text(encoding="utf-8"))
+            am = meta_doc.get("artifact_metadata") or {}
+            full_scope_desc = (
+                "Prices loaded for the full eligible universe (~1,963 tickers) "
+                "at computation time. Standard cross-sectional interpretation."
+            )
+            for art_name in ("ic_decomposition.parquet", "decile_returns.parquet"):
+                am[art_name] = {
+                    "scope": "full_cross_section",
+                    "scope_description": full_scope_desc,
+                    "audit_reference": None,
+                }
+            meta_doc["artifact_metadata"] = am
+            meta_path.write_text(
+                json.dumps(meta_doc, indent=2, default=str), encoding="utf-8",
+            )
+
         logger.info(
             "  [%s] %d ticker attribution rows, %d rolling windows, "
             "%d sector summaries in %.1fs",

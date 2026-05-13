@@ -141,5 +141,17 @@
       }
     }
   },
-  "notes": []
+  "notes": [],
+  "artifact_metadata": {
+    "ic_decomposition.parquet": {
+      "scope": "held_subset",
+      "scope_description": "Prices loaded for held tickers (~450 across XGBoost and ElasticNet holdings) rather than the full eligible universe (~1,963 tickers). Cross-sectional statistics computed at this scope are not the standard interpretation; see audit_reference.",
+      "audit_reference": "docs/studies/larger_universe_v1/ic_scope_audit.md"
+    },
+    "decile_returns.parquet": {
+      "scope": "held_subset",
+      "scope_description": "Prices loaded for held tickers (~450 across XGBoost and ElasticNet holdings) rather than the full eligible universe (~1,963 tickers). Cross-sectional statistics computed at this scope are not the standard interpretation; see audit_reference.",
+      "audit_reference": "docs/studies/larger_universe_v1/ic_scope_audit.md"
+    }
+  }
 }

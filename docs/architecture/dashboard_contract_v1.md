@@ -190,6 +190,61 @@ Every contract-conformant ML study must declare which CV objective it optimized 
 
 **schema_version:** the dashboard reads this and routes to the appropriate renderer; `"v1"` is the only allowed value at this contract version. Future breaking changes bump to `"v2"`.
 
+#### `artifact_metadata` (optional; added 2026-05-13 post-v2-IC-audit)
+
+Optional top-level field in meta.json that records computation-context information for scope-sensitive artifacts. Maps artifact filename to a metadata dict.
+
+```json
+{
+  ...
+  "artifact_metadata": {
+    "ic_decomposition.parquet": {
+      "scope": "full_cross_section",
+      "scope_description": "Prices loaded for the full eligible universe (~1963 tickers). Standard definition; same scope as labels.",
+      "audit_reference": null
+    },
+    "decile_returns.parquet": {
+      "scope": "full_cross_section",
+      "scope_description": "Same scope as ic_decomposition.parquet.",
+      "audit_reference": null
+    }
+  }
+}
+```
+
+**Per-artifact dict schema:**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `scope` | string | yes | Controlled vocabulary: see below |
+| `scope_description` | string | yes | One-sentence human-readable description of what the scope means for this artifact |
+| `audit_reference` | string \| null | no | Path to an audit / writeup document discussing the scope choice. `null` when not applicable |
+
+**`scope` controlled vocabulary:**
+
+| Value | Meaning |
+|---|---|
+| `full_cross_section` | Standard definition. Underlying computation uses the full eligible universe — all tickers in `scores.parquet` for which forward returns can be computed from snapshot prices. |
+| `held_subset` | Computation restricted to tickers held by the strategy (`holdings["ticker"].unique()`). Produces selection-bias-conditional results; not the standard cross-sectional interpretation. Legacy artifact pattern (see `docs/studies/larger_universe_v1/ic_scope_audit.md`). |
+| `other` | Study-specific scope. Requires a rationale in `audit_reference` or `meta.json.notes`. |
+
+**Currently scope-sensitive artifacts (audit-confirmed):**
+
+- `ic_decomposition.parquet`
+- `decile_returns.parquet`
+
+Other artifacts (`per_ticker_attribution.parquet`, `walk_forward.parquet`, etc.) have been audited and confirmed scope-independent at the computation level. New artifacts that compute cross-sectional statistics with a price-universe-dependent filter SHOULD declare scope in `artifact_metadata`.
+
+**Dashboard rendering:**
+
+When `artifact_metadata.<artifact_name>` is present, the dashboard surfaces the scope information in the caption above the artifact's rendering. When the field is missing, the dashboard renders the artifact with its default caption (and for legacy `larger_universe_v1`, falls back to a study-specific scope-warning banner per `ic_scope_audit.md` until v1's `meta.json` is annotated).
+
+**Backwards compatibility:**
+
+`artifact_metadata` is an additive optional field. Studies produced before 2026-05-13 will not have it; the dashboard treats its absence as "no scope information available" and uses the default caption (or the v1-specific fallback banner). No schema_version bump.
+
+Studies produced after 2026-05-13 that compute `ic_decomposition.parquet` or `decile_returns.parquet` SHOULD include scope info in `artifact_metadata`. Studies using `phase5_analytics_v2.py` (or a successor) populate this automatically.
+
 ### portfolio.parquet (required)
 
 Strategy NAV time series, **long format** on model — one row per (date, model). The wide-with-benchmark-columns variant was rejected in review; benchmarks live in their own file (below) so portfolio.parquet stays clean per-model and additional benchmarks don't require schema changes.

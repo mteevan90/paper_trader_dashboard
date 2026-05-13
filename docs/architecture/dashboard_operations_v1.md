@@ -221,6 +221,8 @@ The contract is versioned with `meta.json.schema_version`. Currently `"v1"`.
 
 Dashboards must treat missing optional fields/files as "feature not supported by this study" and render gracefully without them. Example: `objective.training_cv` was added to `meta.json` post-Phase-5; studies that pre-date it should still render. (None do in practice — Larger Universe v1's meta.json was retroactively updated when the field was added — but the dashboard's defensive coding handles the absence.)
 
+Another example: `artifact_metadata` was added to `meta.json` 2026-05-13 to record per-artifact scope context for scope-sensitive analytics (`ic_decomposition.parquet`, `decile_returns.parquet`). The dashboard treats its absence as "no scope info; use default caption" (with a legacy-v1-specific fallback banner for the known affected study). Studies running `phase5_analytics_v2.py` populate the field automatically; legacy studies get patched via `scripts/research/annotate_meta_artifact_scope.py`. See `docs/architecture/dashboard_contract_v1.md` → `artifact_metadata` for the schema.
+
 **Breaking change** — bumps to `"v2"`:
 - Removed columns
 - Renamed columns (rename = remove + add; this is a v2-level change for a published artifact)
