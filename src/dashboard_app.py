@@ -3807,20 +3807,70 @@ CONTRACT_V1_DIR = Path(MODELS_DIR) / "studies"
 
 
 def list_contract_v1_studies() -> list[str]:
-    """Return contract-v1 study names found under models/studies/."""
+    """Return contract-v1 study names found under models/studies/.
+
+    A study qualifies as contract-conformant when EITHER:
+      - `<study>/contract_v1/meta.json` exists (single-variant), OR
+      - `<study>/variant_meta.json` exists (multi-variant, per the
+        artifact_metadata + variant_meta.json schema in
+        `docs/architecture/dashboard_contract_v1.md`)
+    """
     if not CONTRACT_V1_DIR.exists():
         return []
     out = []
     for child in sorted(CONTRACT_V1_DIR.iterdir()):
         if not child.is_dir():
             continue
-        if (child / "contract_v1" / "meta.json").exists():
+        single_variant = (child / "contract_v1" / "meta.json").exists()
+        multi_variant = (child / "variant_meta.json").exists()
+        if single_variant or multi_variant:
             out.append(child.name)
     return out
 
 
+@st.cache_data(show_spinner=False)
+def load_variant_meta(study_name: str) -> dict | None:
+    """Return the study-level variant_meta.json for a multi-variant study,
+    or None for single-variant studies."""
+    p = CONTRACT_V1_DIR / study_name / "variant_meta.json"
+    if not p.exists():
+        return None
+    with open(p) as f:
+        return json.load(f)
+
+
+def list_contract_v1_variants(study_name: str) -> list[dict]:
+    """Return the variants[] list from variant_meta.json, or empty list for
+    single-variant studies. Each entry has at least {name, subdir, role}."""
+    vm = load_variant_meta(study_name)
+    if vm is None:
+        return []
+    return vm.get("variants", []) or []
+
+
+def _split_study_ref(study_ref: str) -> tuple[str, str | None]:
+    """Split a study reference into (study_name, variant_name).
+
+    Composite refs use the form "<study>/<variant>" for multi-variant
+    studies; bare strings refer to single-variant studies.
+    """
+    parts = study_ref.split("/")
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return study_ref, None
+
+
 def _contract_dir(study_name: str) -> Path:
-    return CONTRACT_V1_DIR / study_name / "contract_v1"
+    """Resolve a study reference to its contract_v1 directory.
+
+    Single-variant: `models/studies/<study>/contract_v1/`
+    Multi-variant (composite ref "<study>/<variant>"):
+      `models/studies/<study>/<variant>/contract_v1/`
+    """
+    study, variant = _split_study_ref(study_name)
+    if variant is not None:
+        return CONTRACT_V1_DIR / study / variant / "contract_v1"
+    return CONTRACT_V1_DIR / study / "contract_v1"
 
 
 @st.cache_data(show_spinner=False)
@@ -3904,19 +3954,68 @@ def load_contract_parquet(study_name: str, name: str) -> pd.DataFrame:
     return pd.read_parquet(p)
 
 
+def _study_format(s: str) -> str:
+    """Sidebar-display label for a study. Multi-variant studies get the
+    '🔀 + (N variants)' suffix per the Gate 1 sidebar disambiguation rule."""
+    variants = list_contract_v1_variants(s)
+    if variants:
+        # display_name comes from variant_meta.json for multi-variant studies
+        vm = load_variant_meta(s) or {}
+        display = vm.get("display_name", s)
+        return f"{display} 🔀 + ({len(variants)} variants)"
+    # Single-variant: read display from contract_v1/meta.json
+    try:
+        return load_contract_meta(s).get("display_name", s)
+    except Exception:
+        return s
+
+
 def sidebar_contract_picker() -> str | None:
-    """Render the contract-conformant study picker; returns study_name or None."""
+    """Render the contract-conformant study picker. Returns a study reference:
+    either a bare `study_name` (single-variant) or composite `study/variant`
+    (multi-variant). Variant defaults to role:'control' per Gate 1 spec.
+    """
     studies = list_contract_v1_studies()
     if not studies:
         st.sidebar.warning(
             "No contract-conformant studies found under "
-            "models/studies/<name>/contract_v1/."
+            "models/studies/<name>/contract_v1/ or `variant_meta.json`."
         )
         return None
-    return st.sidebar.selectbox(
+    study = st.sidebar.selectbox(
         "Study", studies, index=0, key="contract_study_selector",
-        format_func=lambda s: load_contract_meta(s).get("display_name", s),
+        format_func=_study_format,
     )
+
+    # Variant selector for multi-variant studies — placed right below the
+    # study selector. Applies globally to the 7 contract-conformant tabs.
+    variants = list_contract_v1_variants(study)
+    if not variants:
+        return study
+
+    variant_names = [v["name"] for v in variants]
+    # Default to role:"control"; fall back to first variant
+    default_idx = 0
+    for i, v in enumerate(variants):
+        if v.get("role") == "control":
+            default_idx = i
+            break
+
+    def _variant_label(name: str) -> str:
+        for v in variants:
+            if v["name"] == name:
+                role = v.get("role", "")
+                return f"{name} ({role})" if role else name
+        return name
+
+    selected_variant = st.sidebar.selectbox(
+        "Variant",
+        variant_names,
+        index=default_idx,
+        key=f"contract_variant_selector_{study}",
+        format_func=_variant_label,
+    )
+    return f"{study}/{selected_variant}"
 
 
 def tab_contract_overview(study_name: str) -> None:
@@ -4178,22 +4277,108 @@ def tab_contract_alpha(study_name: str) -> None:
     st.dataframe(sub, use_container_width=True, hide_index=True)
 
 
+def _render_scope_callout(scope_info: dict, default_caption: str) -> None:
+    """Render scope context for a scope-sensitive artifact.
+
+    Uses `artifact_metadata.<file>` per `dashboard_contract_v1.md`. If
+    scope info is missing or unrecognized, falls back to the
+    default_caption.
+    """
+    if not scope_info:
+        st.caption(default_caption)
+        return
+    scope = scope_info.get("scope")
+    description = scope_info.get("scope_description") or ""
+    audit_ref = scope_info.get("audit_reference")
+    if scope == "held_subset":
+        # Corrective callout — values are not the standard interpretation
+        msg = (
+            f"**Scope: held-subset.** {description}"
+        )
+        if audit_ref:
+            msg += f" Audit: `{audit_ref}`."
+        st.warning(msg)
+    elif scope == "full_cross_section":
+        # Informational — standard interpretation
+        msg = f"**Scope: full cross-section.** {description}"
+        if audit_ref:
+            msg += f" See `{audit_ref}`."
+        st.info(msg)
+    else:
+        # "other" or unknown scope value
+        msg = (
+            f"**Scope: {scope}.** {description}"
+        )
+        if audit_ref:
+            msg += f" See `{audit_ref}`."
+        st.caption(msg)
+
+
 def tab_contract_diagnostics(study_name: str) -> None:
+    # Read scope information for scope-sensitive artifacts per the
+    # artifact_metadata schema in dashboard_contract_v1.md. When scope is
+    # present per-artifact, the dashboard surfaces it inline above each
+    # artifact's rendering and SKIPS the legacy fallback banner. When
+    # absent, falls back to a legacy-v1 study-name-specific banner so
+    # partners still see correction context until v1's meta.json is
+    # annotated (see docs/studies/larger_universe_v1/ic_scope_audit.md).
+    try:
+        meta = load_contract_meta(study_name)
+    except Exception:
+        meta = {}
+    artifact_metadata = meta.get("artifact_metadata") or {}
+    ic_scope_info = artifact_metadata.get("ic_decomposition.parquet")
+    dr_scope_info = artifact_metadata.get("decile_returns.parquet")
+
+    # Legacy fallback banner — only when artifact_metadata doesn't cover
+    # the scope-sensitive artifacts AND the study is the known legacy
+    # v1 case. Replaced by the per-artifact callouts when annotations land.
+    if (
+        (ic_scope_info is None or dr_scope_info is None)
+        and study_name == "larger_universe_v1"
+    ):
+        st.warning(
+            "**Note on scope** — The IC decomposition and decile returns "
+            "tables below were computed on a held-subset price universe "
+            "(450 tickers across XGBoost and ElasticNet holdings) rather "
+            "than the full eligible cross-section (1,963 tickers). "
+            "Held-subset scope produces `top_quintile_ic_mean = +0.0481` "
+            "as displayed below; the standard full-cross-section "
+            "equivalent is **−0.0041**. Decile 1's `+35.7%` mean / "
+            "`±202%` std is driven by ~5 held tickers per rebalance in "
+            "the bottom decile (small-sample tail). Full-cross-section "
+            "Decile 1 mean is +5.8% (std 25%). "
+            "See `docs/studies/larger_universe_v1/ic_scope_audit.md` for "
+            "the audit. v2 and future studies compute these metrics at "
+            "full cross-section by default."
+        )
+
     st.markdown("### IC decomposition")
     ic = load_contract_parquet(study_name, "ic_decomposition.parquet")
     if not ic.empty:
-        st.caption(
-            "Full-cross-section IC is the standard Spearman IC across all "
-            "scored tickers per date, averaged. Top-quintile IC restricts "
-            "to the top 20% of scores per date. For top-N portfolio "
-            "strategies the top-quintile IC is the more deployment-aligned "
-            "signal — see `docs/architecture/ml_study_cv_objectives_v1.md`."
+        _render_scope_callout(
+            ic_scope_info,
+            default_caption=(
+                "Full-cross-section IC is the standard Spearman IC across all "
+                "scored tickers per date, averaged. Top-quintile IC restricts "
+                "to the top 20% of scores per date. For top-N portfolio "
+                "strategies the top-quintile IC is the more deployment-aligned "
+                "signal — see `docs/architecture/ml_study_cv_objectives_v1.md`."
+            ),
         )
         st.dataframe(ic, use_container_width=True, hide_index=True)
 
     st.markdown("### Decile returns")
     dr = load_contract_parquet(study_name, "decile_returns.parquet")
     if not dr.empty:
+        _render_scope_callout(
+            dr_scope_info,
+            default_caption=(
+                "Per-decile mean forward 21d return with std error bars. "
+                "Score-by-decile bucketing on the full eligible universe; "
+                "forward returns from snapshot prices."
+            ),
+        )
         fig = go.Figure()
         for model in sorted(dr["model"].unique()):
             m = dr[dr["model"] == model].sort_values("decile")
@@ -4717,11 +4902,246 @@ def tab_contract_tuning(study_name: str) -> None:
         st.plotly_chart(fig, use_container_width=True)
 
 
+def tab_contract_variant_comparison(study_name: str) -> None:
+    """Variant Comparison tab — 8th tab for multi-variant studies.
+
+    Renders the headline verdict + cross-variant concentration overlap as
+    the prominent finding (matching the writeup's hierarchy at
+    docs/studies/larger_universe_v2/results.md). Per-criterion detail is
+    available in a collapsible expander below the prominent sections.
+    """
+    comparison_path = CONTRACT_V1_DIR / study_name / "comparison" / "comparison_results.parquet"
+    if not comparison_path.exists():
+        st.warning(
+            "No `comparison/comparison_results.parquet` found for this "
+            "multi-variant study. The Variant Comparison tab requires "
+            "`scripts/research/build_comparison_results_v2.py --variants all` "
+            "(or equivalent) to have run."
+        )
+        return
+
+    comparison = pd.read_parquet(comparison_path)
+    n_variants = len(comparison)
+
+    # === Top: verdict callout ===
+    promote_count = int((comparison["verdict"] == "PROMOTE").sum())
+    methodology_count = int((comparison["verdict"] == "METHODOLOGY FINDING").sum())
+    not_promoted_count = int((comparison["verdict"] == "NOT PROMOTED").sum())
+
+    if promote_count > 0:
+        st.success(
+            f"**{promote_count} of {n_variants} variants promoted.** See per-variant detail below."
+        )
+    else:
+        st.error(
+            f"**No variant promoted; {methodology_count} of {n_variants} are "
+            f"methodology findings** ({not_promoted_count} did not pass any "
+            f"criterion). Per-variant `n_pass` summary below."
+        )
+
+    # Per-variant n_pass summary table — sorted by n_pass descending
+    summary = comparison[["variant", "n_pass", "verdict"]].copy()
+    summary = summary.sort_values("n_pass", ascending=False).reset_index(drop=True)
+    summary["n_pass_display"] = summary["n_pass"].astype(str) + "/7"
+    st.dataframe(
+        summary[["variant", "n_pass_display", "verdict"]].rename(
+            columns={"variant": "Variant", "n_pass_display": "Pass count",
+                     "verdict": "Verdict"},
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # === Below verdict: cross-variant concentration overlap ===
+    st.markdown("### Cross-variant concentration overlap")
+    overlap_path = CONTRACT_V1_DIR / study_name / "comparison" / "concentration_overlap.parquet"
+    corr_path = CONTRACT_V1_DIR / study_name / "comparison" / "concentration_corr_matrix.parquet"
+    overlap_summary_path = CONTRACT_V1_DIR / study_name / "comparison" / "concentration_overlap_summary.json"
+
+    if not (corr_path.exists() and overlap_summary_path.exists()):
+        st.caption(
+            "Concentration overlap artifacts not found "
+            "(`concentration_corr_matrix.parquet` + "
+            "`concentration_overlap_summary.json`). Run "
+            "`scripts/research/phase5_analytics_v2.py --variants all` to "
+            "produce them."
+        )
+    else:
+        # --- 7x7 annotated heatmap (Spearman correlation of pct_of_total_alpha) ---
+        corr_long = pd.read_parquet(corr_path)
+        # Pivot to wide for the heatmap
+        cm = corr_long.pivot(
+            index="variant_a", columns="variant_b", values="spearman_corr",
+        )
+        # Order variants consistently for readability
+        variant_order = sorted(cm.index)
+        cm = cm.loc[variant_order, variant_order]
+
+        # Color scale calibrated to the off-diagonal range (don't compress with 0-1 scale)
+        off_diag = corr_long[corr_long["variant_a"] != corr_long["variant_b"]]["spearman_corr"]
+        vmin = float(off_diag.min()) if not off_diag.empty else 0.8
+        vmax = 1.0
+        # Pad zmin slightly so the lowest values aren't at the edge of the scale
+        zmin = max(0.0, vmin - 0.01)
+
+        heatmap_fig = go.Figure(data=go.Heatmap(
+            z=cm.values,
+            x=list(cm.columns),
+            y=list(cm.index),
+            colorscale="Blues",
+            zmin=zmin,
+            zmax=vmax,
+            text=[[f"{v:.3f}" for v in row] for row in cm.values],
+            texttemplate="%{text}",
+            textfont=dict(size=11),
+            hovertemplate="<b>%{y}</b> vs <b>%{x}</b>: %{z:.4f}<extra></extra>",
+            colorbar=dict(title="Spearman corr"),
+        ))
+        heatmap_fig.update_layout(
+            title=(
+                "Cross-variant Spearman correlation on per-ticker "
+                "pct_of_total_alpha"
+            ),
+            height=440,
+            xaxis=dict(side="bottom"),
+            yaxis=dict(autorange="reversed"),
+        )
+        st.plotly_chart(heatmap_fig, use_container_width=True)
+
+        # --- Appearance histogram (in-N-variants distribution) ---
+        with open(overlap_summary_path) as f:
+            overlap_summary = json.load(f)
+        dist = overlap_summary.get("appearance_count_distribution", {}) or {}
+        # Keys may be string in JSON; coerce to int
+        try:
+            keyed = {int(k): int(v) for k, v in dist.items()}
+        except Exception:
+            keyed = {}
+        # Build a complete sequence 1..n_variants so empty bins render visibly
+        xs = list(range(1, n_variants + 1))
+        ys = [keyed.get(x, 0) for x in xs]
+        hist_fig = go.Figure(data=go.Bar(
+            x=xs, y=ys,
+            text=[str(y) for y in ys],
+            textposition="outside",
+            marker_color="#1d4ed8",
+        ))
+        hist_fig.update_layout(
+            title="Top-20 alpha contributors — appearance distribution",
+            xaxis=dict(
+                title="Appears in N variants' top-20",
+                tickmode="linear", tick0=1, dtick=1,
+            ),
+            yaxis=dict(title="Count of unique tickers"),
+            height=360,
+            margin=dict(l=10, r=10, t=50, b=10),
+        )
+        st.plotly_chart(hist_fig, use_container_width=True)
+
+        # --- Caption stating the substantive finding ---
+        mean_corr = overlap_summary.get("cross_variant_spearman_mean")
+        n_in_all = keyed.get(n_variants, 0)
+        n_union = overlap_summary.get("union_top_tickers_count", 0)
+        mean_corr_str = f"{mean_corr:.3f}" if mean_corr is not None else "?"
+        # Identify the outlier variant (lowest mean correlation with others)
+        off_diag_by_a = (
+            corr_long[corr_long["variant_a"] != corr_long["variant_b"]]
+            .groupby("variant_a")["spearman_corr"].mean()
+            .sort_values()
+        )
+        outlier_str = ""
+        if len(off_diag_by_a) >= 2:
+            outlier_variant = off_diag_by_a.index[0]
+            outlier_corr = float(off_diag_by_a.iloc[0])
+            outlier_str = (
+                f" {outlier_variant} is the most divergent variant "
+                f"with ~{outlier_corr:.2f} mean correlation to others."
+            )
+        st.caption(
+            f"**The {mean_corr_str} mean cross-variant correlation and "
+            f"{n_in_all} of {n_union} shared top contributors indicate that "
+            f"concentration is model-determined — different construction "
+            f"logics select largely the same names.**{outlier_str}"
+        )
+
+    # === Per-criterion comparison (collapsible) ===
+    with st.expander(
+        f"Full per-criterion comparison (all {n_variants} variants × 7 criteria)",
+        expanded=False,
+    ):
+        st.caption(
+            "Each criterion has a pre-committed threshold (see "
+            "`docs/studies/larger_universe_v2/spec.md`). A variant must "
+            "meet ALL seven to promote. Per-criterion value columns show "
+            "magnitude of pass/fail (e.g. 'passed by 22%' vs 'failed by 1%')."
+        )
+        # Show value + pass columns for each criterion
+        crit_cols = ["variant"]
+        for i in range(1, 8):
+            # Find the value column for this criterion (varies by criterion)
+            value_col = next(
+                (c for c in comparison.columns
+                 if c.startswith(f"criterion_{i}_") and not c.endswith("_pass")),
+                None,
+            )
+            pass_col = f"criterion_{i}_pass"
+            if value_col is not None:
+                crit_cols.append(value_col)
+            if pass_col in comparison.columns:
+                crit_cols.append(pass_col)
+        existing = [c for c in crit_cols if c in comparison.columns]
+        st.dataframe(
+            comparison[existing], use_container_width=True, hide_index=True,
+        )
+
+    # === Walk-forward consistency stats per variant ===
+    st.markdown("### Walk-forward consistency stats per variant")
+    st.caption(
+        "Per-window excess CAGR vs SPY across the 6 walk-forward retrains "
+        "(3y-train / 1y-validation). Mean, std, positive count from each "
+        "variant's `walk_forward.parquet`."
+    )
+    wf_cols = [
+        "variant",
+        "mean_excess_cagr_walkforward",
+        "std_excess_cagr_walkforward",
+        "median_excess_cagr_walkforward",
+        "min_excess_cagr_walkforward",
+        "max_excess_cagr_walkforward",
+        "n_windows_positive",
+    ]
+    wf_present = [c for c in wf_cols if c in comparison.columns]
+    if len(wf_present) > 1:
+        wf_df = comparison[wf_present].copy()
+        wf_df = wf_df.rename(columns={
+            "variant": "Variant",
+            "mean_excess_cagr_walkforward": "Mean excess",
+            "std_excess_cagr_walkforward": "Std excess",
+            "median_excess_cagr_walkforward": "Median excess",
+            "min_excess_cagr_walkforward": "Min excess",
+            "max_excess_cagr_walkforward": "Max excess",
+            "n_windows_positive": "Pos. windows",
+        })
+        st.dataframe(wf_df, use_container_width=True, hide_index=True)
+
+    # === Honest framing footer ===
+    if promote_count == 0:
+        st.info(
+            "**v2's findings indicate the binding constraint for top-N "
+            "equity strategies on this universe is signal extraction "
+            "(Mechanism A), not portfolio construction (Mechanism B). "
+            "See the v2 writeup at `docs/studies/larger_universe_v2/"
+            "results.md` for full analysis, including the IC scope audit, "
+            "decile structure under standard definitions, and per-variant "
+            "supporting detail.**"
+        )
+
+
 def main_contract() -> None:
     """Renders contract-conformant studies (dashboard_contract_v1)."""
     st.sidebar.title("📊 Contract-conformant study")
-    study_name = sidebar_contract_picker()
-    if study_name is None:
+    study_ref = sidebar_contract_picker()
+    if study_ref is None:
         st.info(
             "No contract-conformant studies are available yet. The first "
             "such study lands as part of feat/larger-universe-v1-study. "
@@ -4729,39 +5149,45 @@ def main_contract() -> None:
             "Optuna v1 studies."
         )
         return
-    meta = load_contract_meta(study_name)
+    meta = load_contract_meta(study_ref)
     st.caption(
         f"Spec: `{meta.get('spec_doc', '—')}` • "
         f"Schema: `{meta.get('schema_version', '—')}` • "
         f"Created: {meta.get('created_at', '?')[:10]}"
     )
 
-    # 7-tab structure (Performance was merged into Overview — the NAV chart
-    # lives directly under the date-range header, giving visual context for
-    # the headline metrics that follow).
-    tabs = st.tabs([
-        "Overview",
-        "Holdings",
-        "Trades",
-        "Alpha Attribution",
-        "Diagnostics",
-        "Walk-forward",
-        "Tuning",
-    ])
+    # 7 universal contract tabs + optional 8th Variant Comparison tab for
+    # multi-variant studies. The 7 universal tabs each render the
+    # selected-variant's contract_v1/ artifacts (variant routing via the
+    # composite study_ref "study/variant"; see _contract_dir).
+    study_root, _ = _split_study_ref(study_ref)
+    is_multi_variant = bool(list_contract_v1_variants(study_root))
+
+    tab_labels = [
+        "Overview", "Holdings", "Trades", "Alpha Attribution",
+        "Diagnostics", "Walk-forward", "Tuning",
+    ]
+    if is_multi_variant:
+        tab_labels.append("Variant Comparison")
+    tabs = st.tabs(tab_labels)
+
     with tabs[0]:
-        tab_contract_overview(study_name)
+        tab_contract_overview(study_ref)
     with tabs[1]:
-        tab_contract_holdings(study_name)
+        tab_contract_holdings(study_ref)
     with tabs[2]:
-        tab_contract_trades(study_name)
+        tab_contract_trades(study_ref)
     with tabs[3]:
-        tab_contract_alpha(study_name)
+        tab_contract_alpha(study_ref)
     with tabs[4]:
-        tab_contract_diagnostics(study_name)
+        tab_contract_diagnostics(study_ref)
     with tabs[5]:
-        tab_contract_walk_forward(study_name)
+        tab_contract_walk_forward(study_ref)
     with tabs[6]:
-        tab_contract_tuning(study_name)
+        tab_contract_tuning(study_ref)
+    if is_multi_variant:
+        with tabs[7]:
+            tab_contract_variant_comparison(study_root)
 
 
 # ---------------------------------------------------------------------------

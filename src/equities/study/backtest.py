@@ -1,19 +1,37 @@
-"""Monthly-rebalance backtest engine for the Larger Universe v1 study.
+"""Monthly-rebalance backtest engine for the Larger Universe studies.
 
 Separate from the legacy src/backtest.py engine (which is composite-weighted
 + regime-dependent ATR stops). This engine is purpose-built for the
 contract v1 architecture: monthly rebalance, score-weighted continuous
-sizing via rank_top_n, close-to-close attribution, forced-exit on
-delisting with cash drift until next rebalance.
+sizing, close-to-close attribution, forced-exit on delisting with cash
+drift until next rebalance.
+
+v2 extension (2026-05-12): supports pluggable `ConstructionVariant`
+instances from `src/equities/portfolio_construction/`. v1's call path
+(via `pc_params: PortfolioConstructionParams`) is preserved for backward
+compat — if both `construction_variant` and `pc_params` are provided,
+`construction_variant` wins. If neither is provided, the engine errors.
+
+State threaded into the variant via `ConstructionState` includes:
+  - portfolio_history (daily portfolio returns, for B1 vol-targeting)
+  - spy_history (SPY OHLCV up to and including current date, for B5
+    regime detection)
+  - top30_streak (per-ticker consecutive-rebalance count, for B4)
+  - prev_portfolio_sector_weights (last-rebalance sector totals, for B4)
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 
+from src.equities.portfolio_construction.base import (
+    ConstructionState,
+    ConstructionVariant,
+)
 from src.equities.study.portfolio import PortfolioConstructionParams, rank_top_n_weights
 
 
@@ -73,10 +91,13 @@ def run_backtest(
     delisting_dates: dict[str, pd.Timestamp],  # ticker -> last-tradable date (None if active)
     sectors: pd.Series,                # index=ticker; sector classification
     tiers: pd.Series,                  # index=ticker; SP500/SP400/SP600/removed
-    pc_params: PortfolioConstructionParams,
-    universe_records: list[dict],
+    pc_params: Optional[PortfolioConstructionParams] = None,
+    universe_records: Optional[list[dict]] = None,
     starting_capital: float = 1_000_000.0,
     fee_pct: float = TRANSACTION_COST_PCT,
+    construction_variant: Optional[ConstructionVariant] = None,
+    spy_history: Optional[pd.DataFrame] = None,
+    shy_prices: Optional[pd.Series] = None,
 ) -> BacktestResult:
     """Run the monthly-rebalance backtest for a single model.
 
@@ -85,20 +106,37 @@ def run_backtest(
       score_fn:   callable returning a Series of (ticker -> predicted score)
                   for the rebalance date passed in
       rebalance_dates: month-end trading dates within the backtest window
-      daily_returns: wide DataFrame of daily simple returns, indexed by date
+      daily_returns: wide DataFrame of daily simple returns, indexed by date.
+                     For v2-B5 (defensive sleeves), the caller adds SHY as
+                     a column so the engine drifts the SHY position naturally.
       delisting_dates: ticker -> last-tradable date (Wikipedia removed_at);
-                       None for active tickers
-      sectors / tiers: per-ticker metadata
-      pc_params: portfolio construction parameters (rank_top_n + caps)
-      universe_records: full universe.json for active-on-date filtering
+                       None for active tickers. SHY entry should be None.
+      sectors / tiers: per-ticker metadata. For v2-B5, the caller adds
+                       SHY → "treasury_etf" (or similar) to sectors and
+                       a tier label so the engine handles it cleanly.
+      pc_params: legacy v1 path; portfolio construction parameters. Used
+                 only when `construction_variant` is None.
+      universe_records: full universe.json for active-on-date filtering.
+                        Required.
       starting_capital: portfolio start value in USD
       fee_pct: per-trade-leg transaction cost
+      construction_variant: v2 path; a ConstructionVariant instance whose
+                            `construct(state)` produces the target weights
+                            at each rebalance. Takes precedence over
+                            `pc_params` when both are passed.
+      spy_history: SPY OHLCV up to the snapshot's last date. Only required
+                   for variants that read it (B5 defensive sleeves).
+      shy_prices: SHY close prices indexed by date. Only required for B5.
 
     Returns:
       BacktestResult with the four long-format DataFrames.
     """
     if not rebalance_dates:
         raise ValueError("rebalance_dates is empty")
+    if construction_variant is None and pc_params is None:
+        raise ValueError("must pass construction_variant or pc_params")
+    if universe_records is None:
+        raise ValueError("universe_records is required")
 
     first_rb = pd.Timestamp(rebalance_dates[0])
     last_date = pd.Timestamp(daily_returns.index[-1])
@@ -107,6 +145,11 @@ def run_backtest(
     nav = 1.0
     cash_frac = 0.0  # cash held as a fraction of portfolio (0 -> 1)
     weights = pd.Series(dtype=float)  # current target weights by ticker
+
+    # v2 state threaded into ConstructionVariant
+    portfolio_daily_returns: list[tuple[pd.Timestamp, float]] = []
+    top30_streak: dict[str, int] = {}
+    prev_portfolio_sector_weights: dict[str, float] = {}
 
     portfolio_rows = []
     holdings_rows = []
@@ -137,6 +180,9 @@ def run_backtest(
             new_invested = new_position_values.sum()
             day_return = pos_value_change  # cash earns 0
             nav = nav * (1 + day_return)
+            # Track running daily portfolio returns for variants that need
+            # them (e.g., B1 vol-targeting).
+            portfolio_daily_returns.append((d_ts, float(day_return)))
             # Update weights to drifted form (as fraction of new NAV)
             if new_invested > 0:
                 weights = new_position_values * (old_invested / new_invested)
@@ -188,8 +234,35 @@ def run_backtest(
                         "rank": int(rank_series[ticker]),
                     })
 
-            # Compute target weights via rank_top_n
-            new_weights = rank_top_n_weights(scores_today, sectors, pc_params)
+            # Compute target weights — variant path or legacy path
+            if construction_variant is not None:
+                # v2: build ConstructionState and call variant.construct()
+                # portfolio_history: a pd.Series of daily portfolio returns
+                ph = (pd.Series(dict(portfolio_daily_returns))
+                      if portfolio_daily_returns else None)
+                # spy_history: slice up to and including today
+                sh = (spy_history.loc[:d_ts] if spy_history is not None else None)
+                # shy_price on this date (for variants that ask for it
+                # explicitly; B5 uses spy_history for regime detection
+                # and routes SHY as a tradeable in daily_returns)
+                sp = (float(shy_prices.loc[d_ts])
+                      if shy_prices is not None and d_ts in shy_prices.index
+                      else None)
+                state = ConstructionState(
+                    date=d_ts,
+                    scores=scores_today,
+                    sectors=sectors,
+                    current_weights=weights,
+                    portfolio_history=ph,
+                    spy_history=sh,
+                    shy_price=sp,
+                    top30_streak=dict(top30_streak),
+                    prev_portfolio_sector_weights=dict(prev_portfolio_sector_weights),
+                )
+                new_weights = construction_variant.construct(state)
+            else:
+                # v1 legacy path
+                new_weights = rank_top_n_weights(scores_today, sectors, pc_params)
 
             # Compute trades from old -> new
             all_tickers = set(weights.index).union(new_weights.index)
@@ -217,6 +290,31 @@ def run_backtest(
             # Update state
             weights = new_weights
             cash_frac = max(0.0, 1.0 - weights.sum())
+
+            # v2 state updates for variants that need them
+            if construction_variant is not None:
+                # top30_streak: increment for tickers still in top-30,
+                # reset for tickers that exited. Use the top-30 of the
+                # new selection (independent of any cap-adjusted weights).
+                # Concretely we use weights' index, which equals the
+                # variant's selected names (cap enforcement may have
+                # changed weights but not the selected set).
+                new_held = set(weights.index)
+                # Drop SHY from streak tracking — it's a synthetic
+                # defensive-sleeve ticker, not a model-scored stock.
+                new_held.discard("SHY")
+                next_streak: dict[str, int] = {}
+                for t in new_held:
+                    next_streak[t] = top30_streak.get(t, 0) + 1
+                top30_streak = next_streak
+                # prev_portfolio_sector_weights: compute by-sector totals
+                # of the just-rebalanced portfolio (becomes "prev" at the
+                # next rebalance).
+                sector_totals: dict[str, float] = {}
+                for t, w_val in weights.items():
+                    sec = str(sectors.get(t, "sector_unknown"))
+                    sector_totals[sec] = sector_totals.get(sec, 0.0) + float(w_val)
+                prev_portfolio_sector_weights = sector_totals
 
             # Record holdings for this rebalance date
             for ticker, w in weights.items():

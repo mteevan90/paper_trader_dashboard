@@ -7,6 +7,15 @@ then enforce individual and sector caps iteratively.
 Per Mike's reasoning at the Phase 4 gate: at our IC magnitude (0.028),
 score-magnitude differences within the top decile carry more noise than
 signal. Rank-based top-N is more robust than softmax-weighted approaches.
+
+v2 NOTE (2026-05-12): the cap-enforcement primitives that lived here as
+`_enforce_individual_cap` and `_enforce_sector_cap` have been moved to
+`src/equities/portfolio_construction/caps.py` so v2's variants can share
+them. This module imports them back as private aliases for v1
+backward-compat; `rank_top_n_weights` is unchanged in behavior. The v2
+study's `BaselineVariant` produces bit-identical results via the same
+shared `caps` utility — Gate 3 validates with the <1% reproducibility
+tolerance.
 """
 from __future__ import annotations
 
@@ -14,6 +23,11 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+
+from src.equities.portfolio_construction.caps import (
+    enforce_individual_cap as _enforce_individual_cap,
+    enforce_sector_cap as _enforce_sector_cap,
+)
 
 
 @dataclass(frozen=True)
@@ -83,54 +97,3 @@ def rank_top_n_weights(scores: pd.Series,
     if weights.sum() > 0:
         weights = weights / weights.sum()
     return weights
-
-
-def _enforce_individual_cap(weights: pd.Series, cap: float) -> pd.Series:
-    """Iteratively cap weights at `cap`, redistributing excess to uncapped
-    positions proportionally to their current weight."""
-    w = weights.copy()
-    for _ in range(10):  # bounded iteration; should converge in 1-2 passes
-        over = w[w > cap]
-        if over.empty:
-            break
-        excess = (over - cap).sum()
-        w.loc[over.index] = cap
-        under = w[w < cap]
-        if under.empty or under.sum() == 0:
-            break
-        w.loc[under.index] += excess * (under / under.sum())
-    return w
-
-
-def _enforce_sector_cap(weights: pd.Series, sectors: pd.Series,
-                        sector_cap: float, individual_cap: float) -> pd.Series:
-    """Iteratively cap each sector's total weight at `sector_cap`,
-    redistributing excess to under-cap sectors proportionally.
-
-    Sector cap interaction with individual cap: when an over-sector is
-    scaled down, the freed weight goes to other sectors' existing
-    positions; if those tickers exceed the individual cap as a result,
-    the individual-cap pass below corrects them. Two-pass converges in
-    practice for any sane top-N + cap combination.
-    """
-    w = weights.copy()
-    for _ in range(10):
-        sec_totals = w.groupby(sectors).sum()
-        over_sectors = sec_totals[sec_totals > sector_cap]
-        if over_sectors.empty:
-            break
-        # For each over-sector: scale its tickers down so the sector total = cap
-        for sec_name, total in over_sectors.items():
-            sec_mask = (sectors == sec_name)
-            scale = sector_cap / total
-            w.loc[sec_mask] = w.loc[sec_mask] * scale
-        # Redistribute the freed weight to under-sectors' tickers
-        # (proportional to their current weight)
-        excess = (over_sectors - sector_cap).sum()
-        under_mask = ~sectors.isin(over_sectors.index)
-        under_weight_sum = w.loc[under_mask].sum()
-        if under_weight_sum > 0 and excess > 0:
-            w.loc[under_mask] += excess * (w.loc[under_mask] / under_weight_sum)
-        # Re-enforce individual cap after redistribution
-        w = _enforce_individual_cap(w, individual_cap)
-    return w

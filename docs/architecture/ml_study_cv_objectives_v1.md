@@ -224,3 +224,66 @@ These are research questions, not action items. A future study that wants to inv
 - `docs/diagnostics/larger_universe_v1_cv_design.md` — Phase 2 CV design + diagnostic
 - `models/studies/larger_universe_v1/contract_v1/ic_decomposition.parquet` — held-out full-IC vs top-quintile-IC, per model
 - `models/studies/larger_universe_v1/contract_v1/decile_returns.parquet` — per-decile forward returns
+
+---
+
+## Correction (2026-05-13) — price-universe scope of v1's IC and decile evidence
+
+**Status:** Correction. This section is appended to the memo on 2026-05-13. Original prose above is preserved as the historical record of the recommendation as written.
+
+**Trigger:** Larger Universe v2's Gate 4 analytics surfaced an inconsistency. v2 reported XGBoost test-window top-quintile IC of **−0.0041** on bit-identical scores to v1. The discrepancy was investigated and traced to v1's `phase5_analytics.load_inputs()` loading prices only for tickers in `holdings["ticker"].unique()` (~450 tickers across XGB + ENet), implicitly restricting v1's `ic_decomposition` and `decile_returns` analytics to that held-tickers-only cross-section. v2 loaded prices for the full eligible universe (~1,963 tickers).
+
+Full audit: [`docs/studies/larger_universe_v1/ic_scope_audit.md`](../studies/larger_universe_v1/ic_scope_audit.md).
+
+### What the +0.048 number actually measured
+
+- **Cross-section restricted to held tickers (450)** — the model's predictions correlated with forward returns within the names the models (XGBoost + ElasticNet combined) had actually selected for portfolios over the test window.
+- **Not** "the top quintile of all eligible tickers' scores correlated with their forward returns." That is the standard interpretation of top-quintile IC and is what the memo's recommendation operationalizes (see L93-94, L135-141).
+
+### Standard-definition values (full eligible universe, ~1,963 tickers)
+
+Recomputed via `scripts/research/audit_v1_ic_scope.py`:
+
+| Metric | v1 reported (held-subset, 450) | Standard (full universe, 1,963) |
+|---|---:|---:|
+| Full IC mean (XGBoost) | −0.008740 | −0.008855 |
+| **Top-quintile IC mean (XGBoost)** | **+0.048121** | **−0.004134** |
+| Top-quintile IC std (XGBoost) | 0.113320 | 0.078111 |
+
+The full IC barely changes (already negative under either scope). The top-quintile IC flips sign — under the standard definition it is essentially zero with slight anti-predictive lean.
+
+Decile analysis is affected by the same scope mechanism. v1's Decile 1 reported mean +0.357 (std 2.02) was the result of only ~5 held tickers landing in the bottom decile per rebalance — pathological small-sample tail dynamics. Under full-universe scope, Decile 1 mean is +0.058 (std 0.25): still the highest of ten deciles (decile inversion direction preserved) but at a realistic magnitude.
+
+### Scope-inconsistency between this memo's evidence and recommendation
+
+The memo's empirical evidence (L19, L22, L41) cites the +0.048 number measured at held-subset scope. The memo's recommended training objective (L93-94, code at L135-141) operates on the in-fold cross-section at training time — where there are no "held" tickers yet because the model has not selected anything. The recommended Optuna objective is therefore necessarily full-cross-section top-quintile IC.
+
+These two measurements differ. The recommendation's evidence was scope-inconsistent with what the recommendation actually computes.
+
+### Recommendation status
+
+**The original recommendation is not corrected by this section.** Whether top-quintile IC is the right CV objective for top-N portfolios is a logical-structure question (does isolating the operating region produce better hyperparameter selection?) separate from the empirical-evidence question (does the v1 model actually exhibit positive top-quintile skill?). Re-justifying the recommendation requires reasoning about CV objective design, not just relabeling the data.
+
+Specifically:
+
+- **The original argument structure** — "full-cross-section IC selects for skills the strategy doesn't deploy; top-quintile IC selects for skills the strategy does deploy" — does not directly depend on whether v1's XGBoost had positive top-quintile skill. The argument applies to *any* model class: a CV objective should reward the skill the deployment uses.
+- **The original empirical evidence** — v1 XGBoost top-quintile IC of +0.048 — was held-subset, not the standard top-quintile IC. Under standard definition, the actual model-skill number is −0.004, essentially zero. The "+0.048 supports the recommendation" empirical chain does not hold.
+- **What this means for future studies:** future contract-conformant studies should **NOT** default to top-quintile IC as the CV objective on the strength of this memo alone. The recommendation requires re-justification on its logical-structure merits, separate from v1's empirical evidence, before being treated as canonical methodology.
+
+The dashboard contract field `objective.training_cv` (defined in `docs/architecture/dashboard_contract_v1.md`) remains in place — every contract-conformant study must populate it. Studies may continue to use `"top_quintile_spearman_ic"` as a choice; they should not treat it as the "memo-endorsed default" until the recommendation's logical structure is re-justified.
+
+### What this correction does NOT change
+
+- **v1's pinned artifacts** (`ic_decomposition.parquet`, `decile_returns.parquet`) are preserved unchanged. They are the version-controlled historical record of what v1 produced under v1's implementation.
+- **The mechanism interpretation** in the original memo (Interpretation B: macro-feature dominance / time-series skill rather than cross-sectional skill) is independent of the scope finding. The SHAP feature importance evidence at L55-67 supports it directly and is not scope-dependent.
+- **The dual-reporting pattern** (compute and persist both full IC and top-quintile IC for every contract-conformant study, with the chosen training objective separately tracked) remains a useful discipline regardless of the scope finding. The pattern lets future studies validate or refute the recommendation empirically.
+
+### Open question this correction surfaces
+
+Whether the original recommendation's logical structure survives correction is a substantive workstream, not closed by this correction section. It requires:
+
+1. A re-derivation of why top-quintile IC should be a better CV objective than full IC for top-N portfolios, written independently of v1's specific numbers.
+2. Either an a-priori theoretical argument (probably available from factor-research practice — see references in L169) or an empirical comparison from a controlled experiment (fix everything except the CV objective, compare downstream Sharpe).
+3. A decision on whether to revise this memo substantively, retract it, or leave the recommendation status open until enough subsequent studies have produced dual-reporting evidence to settle the question.
+
+That workstream is deferred. This correction surfaces the question; it does not answer it.
