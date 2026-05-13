@@ -4179,6 +4179,29 @@ def tab_contract_alpha(study_name: str) -> None:
 
 
 def tab_contract_diagnostics(study_name: str) -> None:
+    # v1 price-universe scope correction banner (per docs/studies/
+    # larger_universe_v1/ic_scope_audit.md). v1's ic_decomposition.parquet
+    # and decile_returns.parquet were computed with prices restricted to
+    # held tickers (~450) rather than the full eligible universe (~1,963).
+    # Removed when the artifact_metadata contract addition lands and
+    # supplies scope info per-artifact.
+    if study_name == "larger_universe_v1":
+        st.warning(
+            "**Note on scope** — The IC decomposition and decile returns "
+            "tables below were computed on a held-subset price universe "
+            "(450 tickers across XGBoost and ElasticNet holdings) rather "
+            "than the full eligible cross-section (1,963 tickers). "
+            "Held-subset scope produces `top_quintile_ic_mean = +0.0481` "
+            "as displayed below; the standard full-cross-section "
+            "equivalent is **−0.0041**. Decile 1's `+35.7%` mean / "
+            "`±202%` std is driven by ~5 held tickers per rebalance in "
+            "the bottom decile (small-sample tail). Full-cross-section "
+            "Decile 1 mean is +5.8% (std 25%). "
+            "See `docs/studies/larger_universe_v1/ic_scope_audit.md` for "
+            "the audit. v2 and future studies compute these metrics at "
+            "full cross-section by default."
+        )
+
     st.markdown("### IC decomposition")
     ic = load_contract_parquet(study_name, "ic_decomposition.parquet")
     if not ic.empty:
