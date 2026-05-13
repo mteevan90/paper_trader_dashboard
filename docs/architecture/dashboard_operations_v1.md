@@ -353,6 +353,114 @@ Standing rule from the LU-v1 session: "tracker updates wait for genuinely study-
 4. **Cloud-mode deployment.** `src/data_source.py` handles cloud-vs-local data routing; `snapshot_for_cloud.py` syncs artifacts to R2. These are out of scope for tab-level work but become relevant when adding new artifacts that need to ship to the cloud build.
 5. **Streamlit / Plotly version drift.** This doc assumes Plotly 6.7 and pandas 3.0. The `use_container_width` deprecation warning currently emitted on every page load (see standing follow-up list) will eventually require a sweep. When that happens, the conventions in this doc carry forward but the specific API call pattern changes.
 
+## Dashboard content style guide
+
+The dashboard is the primary deliverable for partners (per the project's Operating Principles). The audience matters for how content is presented.
+
+### Audience characterization
+
+Finance-fluent partners who trade their own brokerage accounts. They understand:
+
+- Returns, P&L, drawdown, concentration, market vs strategy comparison
+- "Beat the index" framing
+- Sector exposure, position sizing, turnover
+- Sharpe ratio (with a one-line refresher), beta, alpha at the portfolio level
+- Risk-adjusted returns conceptually
+
+They do NOT have modeling/quant backgrounds. They do NOT speak:
+
+- Spearman correlation, Information Coefficient (IC), ranking accuracy in statistical terms
+- Hyperparameter tuning, CV objectives, walk-forward analysis terminology
+- Decile bucketing, quintile analysis, monotonicity, in-sample/out-of-sample as language (the concept is fine; the words aren't)
+- p-values, t-stats, model coefficients, feature importance methods
+- "Top quintile IC," "rank-correlation skill," "alpha attribution decomposition"
+
+The dashboard reads as an **explained findings document for finance-fluent non-quants**, not a data exploration tool for quants. Technical content stays available but isn't the primary surface.
+
+### Standard tab structure
+
+Every contract-conformant tab follows the same shape:
+
+1. **"What this tab shows" header (top, always visible).** 2-3 sentences in plain English explaining what the tab covers and what question(s) it answers. Renders as `st.info(...)` at the top of the tab function, before any data loads.
+
+2. **Single-number callout(s) (immediately below the header).** The 1-3 most important numbers from this tab's data, phrased as plain-English statements with units. Examples:
+   - `+3.5% per year better than the S&P 500 on the test period`
+   - `Top single-stock contribution: 33% of total alpha — exceeds the 25% guideline`
+   - `4 of 6 yearly windows positive, with average +16pp outperformance`
+
+   Use `st.metric()` for compact callouts, or `st.success` / `st.error` / `st.info` for callouts that need explanatory framing.
+
+3. **Headline visualization or table.** The single most important chart or table for the tab's question, with a plain-English caption above it explaining what it shows before showing it.
+
+4. **Supporting context (visible by default).** Additional data the audience needs to interpret the headline — but kept brief and explained.
+
+5. **Technical detail in expanders (collapsed by default).** Heatmaps, parameter sensitivity scatter plots, decile bar charts, walk-forward statistical tables, per-trial dataframes — anything that takes a quant background to read goes here. Expander label should describe what's inside, not say "Details" or "More":
+   - `Per-window walk-forward statistics (technical)`
+   - `Detailed cross-variant correlation matrix and ticker overlap`
+   - `Hyperparameter trial log and convergence details`
+
+   Don't use generic labels like `Details`, `Advanced`, `Click to expand`.
+
+6. **"Key takeaways" footer (bottom, always visible).** 3-5 bullet points of plain-English findings derived from the data on this tab. These are interpretive, not descriptive labels of what was rendered above. Example:
+   - Good: "The strategy beat the market in 4 of 6 years, but with high variability — best year was +59pp, worst was −3pp."
+   - Bad: "Walk-forward excess CAGR mean: +16.3%, std: 23.4%, positive rate: 0.67."
+
+### Single-number callout hierarchy
+
+When phrasing a callout:
+
+1. **Lead with the comparison or evaluation, not the raw metric.** "Beat the market by +3.5% per year" not "CAGR 25.1%, SPY CAGR 21.6%."
+2. **Include the constraint context if there is one.** "33% of total alpha — exceeds the 25% guideline" not just "33%".
+3. **Add dollar intuition for return metrics.** A side caption like "$10,000 at the start of the test window grew to $17,800 in this strategy vs $16,200 in SPY" makes the percentages concrete. The dashboard uses $10,000 as the reference amount (relatable for individual partners trading their own accounts).
+4. **Use signs and units.** "+3.5pp" not "0.035". "33%" not "0.33". "1 of 6 yearly windows lost to the market" not "win rate: 0.83".
+
+### Vocabulary translation list
+
+When the codebase or schema uses one term, the dashboard surfaces another:
+
+| Schema / codebase | Dashboard prose |
+|---|---|
+| Spearman correlation | ranking similarity / correlation in rankings |
+| Information Coefficient (IC) | skill score / ranking accuracy |
+| top-quintile IC | skill score within the model's top 20% of picks |
+| CAGR | annual return (CAGR) — abbreviate on second use, or just "annual return" |
+| excess CAGR vs SPY | annual outperformance vs the S&P 500 / annual edge over the market |
+| max drawdown | worst peak-to-trough decline / largest drawdown; "drawdown" alone is acceptable |
+| Sharpe ratio | first use: "Sharpe ratio of X — a measure of return per unit of volatility; values above 1 are considered good for an equity strategy"; subsequent: "Sharpe X" |
+| walk-forward | tested across rolling time windows / out-of-sample testing |
+| hyperparameter tuning | model configuration search / settings search |
+| Optuna | "an automated configuration search called Optuna" first use; "Optuna" subsequent |
+| feature importance | which input data points the model weighted most |
+| alpha attribution | which stocks drove the strategy's outperformance |
+| % of total alpha | share of the strategy's outperformance attributable to this stock |
+| `pct_of_total_alpha` (column name) | "% of strategy outperformance" (display label) |
+| decile | "ranked into 10 buckets" or "the top/bottom 10% of stocks by score" |
+| monotonic decile structure | "the model's higher-scored stocks did/didn't reliably outperform lower-scored ones" |
+| held-subset scope | "values measured only within stocks the strategy actually held" |
+| full-cross-section scope | "values measured across all stocks in the universe" — the standard interpretation |
+
+### When to use expanders vs primary display
+
+- **Primary display**: anything a finance-fluent partner reads to understand "did the strategy work and how concentrated is the bet."
+- **Expander (collapsed by default)**: anything that requires a quant background to interpret, OR is a complete data dump (full trial log, complete per-ticker tables, raw walk-forward dataframes), OR is a methodology check rather than a finding (correlation matrix, parameter sensitivity scatter).
+
+When in doubt: if the visualization wouldn't go in a board-room presentation explaining the strategy to a partner, it goes in an expander.
+
+### Prune over add
+
+If a visualization isn't earning its place after partner review — partners say "I don't know what to do with this" or skip it consistently — it's a candidate for removal in a follow-up commit. Don't accumulate kitchen-sink visualizations. Start lean; add only when a partner asks "I wish I could see X." The current 8-tab structure has historically grown by accretion; some sections may be due for pruning after partner feedback on this usability pass.
+
+### Reference example
+
+The **Variant Comparison tab** (`tab_contract_variant_comparison` in `src/dashboard_app.py`, landed in commit `104d164`) is the closest existing example of the patterns above:
+
+- Top: verdict callout in plain English ("No variant promoted; X of N are methodology findings") + per-variant pass-count table
+- Middle: headline finding (cross-variant correlation heatmap) with plain-English caption explaining what the 0.94 number means
+- Collapsible expander: "Full per-criterion comparison (all N variants × 7 criteria)" — descriptive label, not "Details"
+- Bottom: honest framing footer in plain English linking to the writeup
+
+Future tabs and future studies' dashboard content should match this hierarchy.
+
 ## Standing follow-ups
 
 Tracked here for visibility; not actioned in this doc.
