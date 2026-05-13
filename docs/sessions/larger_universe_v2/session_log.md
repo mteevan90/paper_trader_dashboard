@@ -207,3 +207,74 @@ The variant package + engine refactor preserves v1's pipeline behavior with floa
 ### Standing follow-ups (unchanged from Gate 1)
 
 1–5 as listed in the Gate 1 entry above.
+
+## 2026-05-13 — Gate 3 (b): B1–B6 variants + walk-forward + comparison
+
+**Phase:** Phase 4 — all 7 variants × test backtest + 6 walk-forward retrains + cross-variant comparison
+**Branch:** `feat/larger-universe-v2`
+**Status:** Phase 4 complete. No variant passes all seven criteria. All seven are `METHODOLOGY FINDING`. B4 leads with 4/7. Awaiting Mike's review before Gate 4.
+
+### Headline
+
+**No `PROMOTE` verdict.** Variants ranked by `n_pass`:
+
+1. `b4_concentration_penalties` — 4/7 (passes baseline + criterion 6 12-month rolling win rate)
+2. `baseline`, `b2_conviction_weighted`, `b5_defensive_sleeves`, `b6_smaller_caps` — 3/7
+3. `b1_vol_target` — 2/7
+4. `b3_dynamic_topn` — 1/7
+
+`b4_concentration_penalties` is the only variant that exceeds baseline's pass count.
+
+### Two issues caught + fixed during runs
+
+- **B3 RuntimeError** at first rebalance — B3 requires `training_dispersion_dist`. Caught when phase4_run_v2.py reached B3 after B1 and B2 completed cleanly. Fixed in commit `0d5a537` (`gate3(v2): bootstrap training-period warmup state for B1 and B3`) — added `_compute_warmup_state` to phase4_run_v2.py and a per-window equivalent to phase5_walk_forward_v2.py. Both compute training-period scores using the trained model, derive top-decile dispersion list (B3) and last-63-day baseline portfolio vol (B1). Per Gate 1 design ("B1 warmup uses frozen training-tail vol"); not peek-ahead.
+- **`numpy.bool_` JSON serialization** in scores parity check. Fixed in commit `9bde239` between Commit A and Commit B.
+
+### Commits landed in Gate 3 (b)
+
+- `0d5a537` — `gate3(v2): bootstrap training-period warmup state for B1 and B3`
+- `(this commit)` — `gate3(v2): B1–B6 variants + walk-forward + comparison results` (Gate 3 (b) report + session log entry)
+
+Plus the Gate 3 (a) commits that preceded:
+- `54c286e`, `ce8dfdd`, `9bde239`, `99ee865`
+
+### Phase 4 test-window headline metrics
+
+| Variant | CAGR | Excess vs SPY | MaxDD | Sharpe |
+|---|---:|---:|---:|---:|
+| baseline | +25.14% | +3.52pp | −33.5% | 0.9015 |
+| b1_vol_target | +15.16% | −6.46pp | −25.6% | 0.7817 |
+| b2_conviction_weighted | +26.36% | +4.74pp | −33.2% | 0.9106 |
+| b3_dynamic_topn | +21.60% | −0.02pp | −32.5% | 0.8251 |
+| b4_concentration_penalties | +26.48% | +4.85pp | −32.7% | 0.9370 |
+| b5_defensive_sleeves | +19.12% | −2.50pp | −22.0% | 0.9727 |
+| b6_smaller_caps | +25.14% | +3.52pp | −33.5% | 0.9015 |
+
+### Walk-forward verification
+
+v2-baseline walk-forward excess CAGR per window matches v1's pinned `walk_forward.parquet` for XGBoost to all reported precision: +0.0707, +0.1316, −0.0349, +0.2390, −0.0219, +0.5935. Cross-confirms reproducibility from Gate 3 (a) extends to the walk-forward pipeline.
+
+### Methodology findings (documented in the report)
+
+- **B6 is a no-op in the test window.** v1's top-30 equal-weight at 1/30 ≈ 3.33% per position is below B6's 4% cap. The cap never binds in the test window's date range. B6 *does* differ from baseline in walk-forward windows 1-3 where sector-cap redistribution pushes weights above 4%. The test-window verdict is identical to baseline by construction, not by coincidence. The hypothesis "smaller individual caps reduce concentration risk" is untestable at top-30 equal-weight in this universe; the test isn't a falsification, it's a non-event. Combinations with non-equal-weight variants are out of scope for v2.
+- **B1 is highly sensitive to warmup vol.** Training-tail vol = 31.62% annualized (last 63 training-period trading days). At a 15% target, B1 starts the test window at ≈47% gross exposure. The result is honest given the pre-committed spec; we don't retroactively change the warmup design. The finding documents vol-targeting's sensitivity to warmup design for future studies — v3 candidate, not v2 scope.
+- **Criterion 5 (single-ticker alpha concentration) fails for every variant.** Universe/model-level issue inherited from v1. Construction-logic variants reduce the share marginally (B2 28.1%, B4 28.9%, B5 29.2%) but not below the 25% threshold. Addressing this requires sector neutralization, universe filtering, or signal extraction — all out of v2 scope.
+- **Criterion 4 (drawdown ratio) is structurally bound to gross exposure.** Only B1 and B5 pass. All long-only top-30 equal-weight variants land at 1.71-1.76× SPY MaxDD regardless of selection logic. Future studies aiming to pass this likely need explicit risk-budgeting.
+- **B3's W6 outlier dominates its mean.** B3's W6 = +83.04% excess CAGR is more than 1.5× the next-best variant in that window. Removing W6 drops B3's walk-forward mean from +19.39% to ≈−6%. Mean is real but driven by one window's tail event; not steady performance. Flagged as caveat for any future writeup highlighting B3's regime consistency.
+- **B2's W6 = −33.78% excess CAGR.** Worst single-window result in the study. Conviction-weighting compounds losses when top-score names underperform — which happened in 2025-2026. B2's test-window result hides this; the walk-forward exposes it.
+
+### Reporting discipline applied
+
+Per Mike's framing for Gate 3 (b):
+- Every criterion's *value* per variant reported, not just pass/fail booleans
+- All seven variants reported regardless of pass count — no filtering to "winners"
+- Near-misses (B2 C6 at 58.79% vs 60% threshold, B5 C3 close to passing) reported as failing the criterion — no goalpost-moving language
+- Unexpected behavior (B3 RuntimeError, JSON serialization) flagged in the report's "Unexpected behavior" section as resolved during the run
+- B6 no-op and B1 warmup-sensitivity framed as methodology findings, not performance explanations
+- Negative result on PROMOTE stated explicitly as the headline rather than buried
+
+### What's next
+
+Awaiting Mike's review of the Gate 3 (b) report at `docs/studies/larger_universe_v2/gate3_phase4_report.md`. Don't auto-proceed to Gate 4 (Phase 5 analytics) without explicit approval.
+
+If approved, Gate 4 would produce per-variant Phase 5 artifacts (decile_returns, per_ticker_attribution, ic_decomposition, rolling_win_rate detail, concentration_summary) needed for the eventual Variant Comparison tab in the dashboard. The headline finding (no PROMOTE) doesn't change at Gate 4 — analytics elaborate on the findings rather than reopen verdict.
