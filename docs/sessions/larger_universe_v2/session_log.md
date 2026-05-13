@@ -345,3 +345,72 @@ When the writeup gate resumes, this framing note applies — finish v2 honestly 
 
 - Resume the v2 writeup work with the headline framing decision (Option A/B/C from the earlier framing discussion). The audit + memo correction + dashboard correction provide the context the writeup needs to characterize its findings honestly.
 - Or: pause v2 entirely until the CV-objectives memo's recommendation is re-justified, treating that as a prerequisite for v2's writeup. Mike's call.
+
+## 2026-05-13 — Gate 4 closure: results.md committed
+
+**Phase:** Phase 5 writeup
+**Branch:** `feat/larger-universe-v2`
+**Status:** `docs/studies/larger_universe_v2/results.md` drafted, TL;DR approved by Mike, full writeup committed. Gate 5 (dashboard implementation) is next.
+
+### Mike's reframing decision (Option d)
+
+The originally-planned Gate 4 writeup was to characterize v2 as "tested six construction changes, none promoted, here is the per-variant detail." Mike redirected: that framing is accurate but misses what v2 actually produced post-audit. The IC scope audit during Gate 4 made the signal-weakness finding the largest result. The writeup should center finding #3 (model has near-zero cross-sectional signal under standard definitions) as the headline; findings #1 and #2 (C5/C4 universal failures) follow as consequences of weak signal; per-variant detail is supporting evidence.
+
+This reframing was authorized as "Option d" in Mike's response — finish v2's Gate 4 + Gate 5 plan, but the writeup reflects what we actually found rather than what was originally scoped.
+
+### TL;DR drafting + revision
+
+Initial TL;DR draft surfaced for Mike's review per the standing gate pattern (paste TL;DR before committing the full writeup). Mike returned with two substantive revisions:
+
+1. **Soften the categorical "tail-driven" claim.** The data supports "consistent with tail-driven returns rather than durable cross-sectional ranking skill" but cannot cleanly distinguish "tail-driven across the board" from "real regime-dependent skill plus tail effects". Revised wording acknowledges both interpretations are logically possible and v2's data does not decompose them.
+2. **Split sentence 2 into two sentences** for digestibility (audit context + IC numbers in one; tail-driven softer claim + regime caveat in the next).
+
+Plus optional structural tightening: split sentence 3 into evidence-then-claim flow. Applied per Mike's "your judgment" note.
+
+Final TL;DR is 5 sentences:
+1. Verdict (no PROMOTE; all methodology findings)
+2. IC scope audit context + standard-definition numbers
+3. Tail-driven softer claim + regime variance caveat
+4. C5/C4 as consequences with inline evidence (0.94 Spearman, only-gross-exposure-reducers pass C4)
+5. Binding-constraint demonstration (Mechanism A signal extraction, not Mechanism B construction)
+
+Mike approved the revised TL;DR; full writeup drafted with this headline.
+
+### Writeup shape
+
+The full `results.md` mirrors v1's writeup shape adapted for v2's findings:
+- Header + TL;DR (the approved 5-sentence headline)
+- Executive summary (bulleted expansion of the TL;DR)
+- What v2 set out to test (Mechanism B scoping, the 7 variants, the 7 criteria)
+- Verdict table
+- Per-criterion values per variant (all seven criteria, all seven variants, no filtering to winners)
+- Walk-forward consistency stats per variant
+- **The signal-weakness finding (the headline section)** — IC scope audit detail, standard-definition values, decile structure, logical chain to "consistent with tail-driven", alternative interpretation acknowledged
+- The cross-variant concentration overlap finding — 0.94 Spearman, 14 of 28 top tickers shared across all 7 variants
+- Four methodology findings surfaced as candidate architectural memos (NOT drafted in this gate)
+- Honest framing — what v2 does NOT establish (skill in other windows; "all tail" vs "skill plus tail"; v3 success; memo recommendation survival; B4 in different test windows)
+- Methodology robustness — what v2 DID establish defensibly
+- Per-variant detail (supporting evidence for the headline)
+- Known follow-ups (NOT pursued in this gate) — CV memo re-justification + v3 scoping
+- Sourced from + architectural artifacts touched
+
+### Known follow-ups explicitly tracked + deferred
+
+Per Mike's correction-loop framing note: v2 closure is bounded. Two substantive workstreams are surfaced in the writeup as known follow-ups but are NOT pursued in this gate:
+
+1. **CV-objectives memo recommendation re-justification** — under the corrected scope understanding, the memo's empirical evidence (+0.048 top-quintile IC) is held-subset rather than full-cross-section. Whether the memo's logical argument survives correction is a substantive question that benefits from considered thinking rather than urgent resolution. Tracked; deferred to post-v2.
+2. **v3 scoping with Mechanism A direction** — v2's findings strongly suggest signal extraction is the binding constraint. Specific v3 design questions (which Mechanism A levers, hold-construction-fixed-or-co-vary, v3 success criteria) are unaddressed in v2 closure. Tracked; the next conversation after v2 lands on main.
+
+The writeup explicitly notes both as known follow-ups so the v2 record is honest about what remains open without committing to resolution in this gate.
+
+### Commits landed in Gate 4 closure
+
+- `(this commit)` — `gate4(v2): results.md writeup + Gate 4 closure session log`
+  - `docs/studies/larger_universe_v2/results.md` (new, full writeup)
+  - `docs/sessions/larger_universe_v2/session_log.md` (this entry)
+
+### What's next
+
+- **Gate 5 dashboard implementation.** Per Gate 1 spec: 7 universal tabs with variant selector + 8th Variant Comparison tab. Mike's Gate 4 refinement: the Variant Comparison tab interprets variant comparison as supporting the writeup's headline rather than as the main story. Verdict displayed clearly, cross-variant overlap finding surfaced prominently, per-criterion detail available but not the main visual.
+- Don't merge v2 to main until Mike approves the full bundle (results.md + dashboard implementation + this session log).
+- Don't auto-proceed to v3 scoping or to the CV-memo re-justification workstream after merge. Those are the next conversations.
