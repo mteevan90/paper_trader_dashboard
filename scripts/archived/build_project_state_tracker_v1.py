@@ -1,4 +1,27 @@
-"""build_project_state_tracker.py — generate docs/Project_State_Tracker.docx.
+"""ARCHIVED — DO NOT RUN.
+
+Retired 2026-05-27.
+
+Reason: the project shifted to direct python-docx editing of the tracker
+during active research. The regenerator script (last touched 2026-05-11)
+became one of two valid editing patterns; the direct-edit pattern won by
+usage. Six commits to docs/Project_State_Tracker.docx between 2026-05-11
+and 2026-05-13 (003b062, d690a5f, 4edcef5, ac01f36, ec6dfec, 4f66ba8)
+reflect this transition. By 2026-05-27 the script's content was missing
+the entire Operating Principles section, the Larger Universe v1 and v2
+study closes, the dashboard usability pass, the v2.1/v2.2/v3 sequencing,
+and the follow-ups status update — running it as-is would have deleted
+roughly 5,000 words of canonical tracker content.
+
+Going forward: edit docs/Project_State_Tracker.docx directly via
+python-docx. The docx is the canonical source; this script is preserved
+for historical reference only.
+
+Original docstring follows.
+
+---
+
+build_project_state_tracker.py — generate docs/Project_State_Tracker.docx.
 
 What it is: serializes the canonical project-state tracker content (audit +
 strategic context + cleanup summary) into a Word document for the repo. The
